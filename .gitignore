@@ -1,0 +1,57 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+build/
+.vite/
+
+# Environment files
+.env
+.env.*
+!.env.example
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# OS/editor
+.DS_Store
+Thumbs.db
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+.idea/
+
+# Capacitor / Android
+android/.gradle/
+android/app/build/
+android/build/
+android/local.properties
+android/captures/
+
+# Tauri / Rust
+src-tauri/target/
+src-tauri/.cargo/config.toml
+
+# Signing keys - never commit
+*.key
+*.pem
+*.p12
+*.pfx
+*.jks
+*.keystore
+.tauri/
+
+# Release artifacts
+release/
+artifacts/
+*.msi
+*.exe
+*.deb
+*.AppImage
+*.apk
+*.aab
