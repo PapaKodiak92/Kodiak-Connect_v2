@@ -13,7 +13,7 @@
     "cap:open:android": "cap open android",
     "tauri:dev": "tauri dev",
     "tauri:build": "tauri build",
-    "tauri:signer:generate": "tauri signer generate -- -w ~/.tauri/kodiak-connect-v2.key",
+    "tauri:signer:generate": "tauri signer generate -w ~/.tauri/kodiak-connect-v2.key",
     "check": "tsc -b"
   },
   "dependencies": {
