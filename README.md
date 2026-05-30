@@ -12,6 +12,22 @@ Kodiak Connect v2 is a clean rebuild of the secure Matrix chat client foundation
 - Do not mix UI fixes, native plugins, and Matrix logic in the same patch.
 - Build and test after every small change.
 
+## Hosting direction
+
+Kodiak Connect v2 is VPS/domain-first, not Vercel-first.
+
+Primary production routing plan:
+
+```text
+kodiak-connect.com          - Web app
+www.kodiak-connect.com      - Redirect to kodiak-connect.com
+updates.kodiak-connect.com  - Tauri updater manifests and installer files
+matrix.kodiak-connect.com   - Synapse homeserver later
+api.kodiak-connect.com      - Optional backend services later
+```
+
+Vercel may still be used later for temporary previews or backup web deploys, but the core production path is the VPS plus the Kodiak Connect domain.
+
 ## Current foundation
 
 - Vite + React + TypeScript web app scaffold
