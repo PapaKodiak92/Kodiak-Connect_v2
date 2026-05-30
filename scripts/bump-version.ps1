@@ -6,8 +6,9 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $RepoRoot = Resolve-Path (Join-Path $PSScriptRoot '..')
+$Utf8NoBom = [System.Text.UTF8Encoding]::new($false)
 
-function Replace-FirstMatch {
+function Replace-RequiredMatch {
   param(
     [Parameter(Mandatory = $true)][string]$Path,
     [Parameter(Mandatory = $true)][string]$Pattern,
@@ -17,35 +18,35 @@ function Replace-FirstMatch {
   $FullPath = Join-Path $RepoRoot $Path
   $Content = Get-Content -Path $FullPath -Raw
   $Regex = [regex]$Pattern
-  $Updated = $Regex.Replace($Content, $Replacement, 1)
 
-  if ($Updated -eq $Content) {
-    throw "No version match found in $Path"
+  if (-not $Regex.IsMatch($Content)) {
+    throw "No version pattern found in $Path"
   }
 
-  Set-Content -Path $FullPath -Value $Updated -NoNewline
+  $Updated = $Regex.Replace($Content, $Replacement, 1)
+  [System.IO.File]::WriteAllText($FullPath, $Updated, $Utf8NoBom)
 }
 
 Push-Location $RepoRoot
 try {
-  npm version $Version --no-git-tag-version
+  npm version $Version --no-git-tag-version --allow-same-version
 
-  Replace-FirstMatch `
+  Replace-RequiredMatch `
     -Path 'src-tauri/tauri.conf.json' `
     -Pattern '("version"\s*:\s*")\d+\.\d+\.\d+(")' `
     -Replacement "`${1}$Version`${2}"
 
-  Replace-FirstMatch `
+  Replace-RequiredMatch `
     -Path 'src/features/updater/updateManifest.ts' `
     -Pattern "(currentVersion:\s*')\d+\.\d+\.\d+(')" `
     -Replacement "`${1}$Version`${2}"
 
-  Replace-FirstMatch `
+  Replace-RequiredMatch `
     -Path 'src/features/updater/UpdaterPanel.tsx' `
     -Pattern 'Updater foundation v\d+\.\d+\.\d+' `
     -Replacement "Updater foundation v$Version"
 
-  Write-Host "Kodiak Connect version bumped to $Version" -ForegroundColor Green
+  Write-Host "Kodiak Connect version set to $Version" -ForegroundColor Green
   Write-Host 'Next: build, publish, commit, and tag this release.' -ForegroundColor Cyan
 }
 finally {
