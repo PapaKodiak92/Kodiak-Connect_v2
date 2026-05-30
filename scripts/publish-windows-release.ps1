@@ -51,12 +51,17 @@ $Manifest = [ordered]@{
 }
 
 $ManifestJson = $Manifest | ConvertTo-Json -Depth 10
-$TempManifest = New-TemporaryFile
-Set-Content -Path $TempManifest -Value $ManifestJson -Encoding UTF8
+$TempManifest = [System.IO.Path]::GetTempFileName()
+$Utf8NoBom = [System.Text.UTF8Encoding]::new($false)
+[System.IO.File]::WriteAllText($TempManifest, $ManifestJson, $Utf8NoBom)
 
-Write-Host "Uploading manifest.json..." -ForegroundColor Cyan
-& scp $TempManifest "${VpsHost}:$RemoteRoot/manifest.json"
-Remove-Item $TempManifest -Force
+try {
+  Write-Host "Uploading manifest.json..." -ForegroundColor Cyan
+  & scp $TempManifest "${VpsHost}:$RemoteRoot/manifest.json"
+}
+finally {
+  Remove-Item $TempManifest -Force -ErrorAction SilentlyContinue
+}
 
 Write-Host "Windows release $Version published." -ForegroundColor Green
 Write-Host "Manifest: $BaseUrl/manifest.json" -ForegroundColor Cyan
