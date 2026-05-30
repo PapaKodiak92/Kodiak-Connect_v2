@@ -12,7 +12,7 @@ export function UpdaterPanel() {
         <li>Version manifest: {updateManifest.currentVersion}</li>
         <li>Tauri desktop updater: pending signed release URL</li>
         <li>Android APK release path: pending generated native project</li>
-        <li>Web deploy path: Vercel-ready build output</li>
+        <li>Web deploy path: VPS-ready static build</li>
       </ul>
     </section>
   );
