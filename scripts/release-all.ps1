@@ -87,9 +87,41 @@ try {
   $RemoteLinuxDeb = "kodiak-connect_${Version}_amd64.deb"
   $RemoteAndroidApk = "kodiak-connect_${Version}_android-debug.apk"
 
-  Invoke-Step "Build Linux DEB on VPS" {
-    $RemoteCommand = "cd '$VpsRepoPath' && git fetch origin main && git reset --hard origin/main && npm ci && npm run build && TAURI_SIGNING_PRIVATE_KEY='/root/.tauri/kodiak-connect-v2-release.key' npx tauri build --bundles deb && mkdir -p '$RemoteLinuxDir' && cp 'src-tauri/target/release/bundle/deb/Kodiak Connect_${Version}_amd64.deb' '$RemoteLinuxDir/$RemoteLinuxDeb' && cp 'src-tauri/target/release/bundle/deb/Kodiak Connect_${Version}_amd64.deb.sig' '$RemoteLinuxDir/$RemoteLinuxDeb.sig'"
-    & ssh $VpsHost $RemoteCommand
+  Invoke-Step "Build and publish Linux DEB on VPS" {
+    $RemoteScript = @"
+set -e
+cd '$VpsRepoPath'
+git fetch origin main
+git reset --hard origin/main
+npm ci
+npm run build
+TAURI_SIGNING_PRIVATE_KEY='/root/.tauri/kodiak-connect-v2-release.key' npx tauri build --bundles deb
+DEB_FILE="`$(find src-tauri/target/release/bundle/deb -maxdepth 1 -type f -name 'Kodiak Connect_${Version}_amd64.deb' | head -n 1)"
+SIG_FILE="`$DEB_FILE.sig"
+if [ -z "`$DEB_FILE" ] || [ ! -f "`$DEB_FILE" ]; then
+  echo "Missing Linux DEB artifact for $Version" >&2
+  exit 1
+fi
+if [ ! -f "`$SIG_FILE" ]; then
+  echo "Missing Linux DEB signature for $Version" >&2
+  exit 1
+fi
+mkdir -p '$RemoteLinuxDir'
+cp "`$DEB_FILE" '$RemoteLinuxDir/$RemoteLinuxDeb'
+cp "`$SIG_FILE" '$RemoteLinuxDir/$RemoteLinuxDeb.sig'
+test -f '$RemoteLinuxDir/$RemoteLinuxDeb'
+test -f '$RemoteLinuxDir/$RemoteLinuxDeb.sig'
+"@
+
+    $TempScript = [System.IO.Path]::GetTempFileName()
+    try {
+      [System.IO.File]::WriteAllText($TempScript, $RemoteScript, $Utf8NoBom)
+      & scp $TempScript "${VpsHost}:/tmp/kodiak-release-linux-$Version.sh"
+      & ssh $VpsHost "bash /tmp/kodiak-release-linux-$Version.sh && rm -f /tmp/kodiak-release-linux-$Version.sh"
+    }
+    finally {
+      Remove-Item $TempScript -Force -ErrorAction SilentlyContinue
+    }
   }
 
   Invoke-Step "Upload Windows and Android artifacts to VPS" {
@@ -97,6 +129,10 @@ try {
     & scp $WindowsMsi "${VpsHost}:$RemoteWindowsDir/$RemoteWindowsMsi"
     & scp $WindowsSig "${VpsHost}:$RemoteWindowsDir/$RemoteWindowsMsi.sig"
     & scp $AndroidApk "${VpsHost}:$RemoteAndroidDir/$RemoteAndroidApk"
+  }
+
+  Invoke-Step "Verify all remote artifacts before manifest" {
+    & ssh $VpsHost "test -f '$RemoteWindowsDir/$RemoteWindowsMsi' && test -f '$RemoteWindowsDir/$RemoteWindowsMsi.sig' && test -f '$RemoteLinuxDir/$RemoteLinuxDeb' && test -f '$RemoteLinuxDir/$RemoteLinuxDeb.sig' && test -f '$RemoteAndroidDir/$RemoteAndroidApk'"
   }
 
   Invoke-Step "Generate and upload release manifest" {
