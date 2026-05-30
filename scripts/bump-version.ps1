@@ -30,19 +30,19 @@ Push-Location $RepoRoot
 try {
   npm version $Version --no-git-tag-version
 
-  Replace-FirstMatch \
-    -Path 'src-tauri/tauri.conf.json' \
-    -Pattern '("version"\s*:\s*")\d+\.\d+\.\d+(")' \
+  Replace-FirstMatch `
+    -Path 'src-tauri/tauri.conf.json' `
+    -Pattern '("version"\s*:\s*")\d+\.\d+\.\d+(")' `
     -Replacement "`${1}$Version`${2}"
 
-  Replace-FirstMatch \
-    -Path 'src/features/updater/updateManifest.ts' \
-    -Pattern "(currentVersion:\s*')\d+\.\d+\.\d+(')" \
+  Replace-FirstMatch `
+    -Path 'src/features/updater/updateManifest.ts' `
+    -Pattern "(currentVersion:\s*')\d+\.\d+\.\d+(')" `
     -Replacement "`${1}$Version`${2}"
 
-  Replace-FirstMatch \
-    -Path 'src/features/updater/UpdaterPanel.tsx' \
-    -Pattern 'Updater foundation v\d+\.\d+\.\d+' \
+  Replace-FirstMatch `
+    -Path 'src/features/updater/UpdaterPanel.tsx' `
+    -Pattern 'Updater foundation v\d+\.\d+\.\d+' `
     -Replacement "Updater foundation v$Version"
 
   Write-Host "Kodiak Connect version bumped to $Version" -ForegroundColor Green
