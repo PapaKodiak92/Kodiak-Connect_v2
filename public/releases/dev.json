@@ -1,0 +1,15 @@
+{
+  "version": "0.1.0",
+  "notes": "Kodiak Connect v2 foundation release manifest placeholder.",
+  "pub_date": "2026-05-30T00:00:00.000Z",
+  "platforms": {
+    "windows-x86_64": {
+      "signature": "REPLACE_WITH_SIGNED_MSI_SIG",
+      "url": "https://kodiak-connect.com/downloads/kodiak-connect_0.1.0_x64_en-US.msi"
+    },
+    "linux-x86_64": {
+      "signature": "REPLACE_WITH_SIGNED_DEB_SIG",
+      "url": "https://kodiak-connect.com/downloads/kodiak-connect_0.1.0_amd64.deb"
+    }
+  }
+}
