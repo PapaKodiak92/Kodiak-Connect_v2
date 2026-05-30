@@ -1,0 +1,19 @@
+* text=auto eol=lf
+
+*.bat text eol=crlf
+*.cmd text eol=crlf
+*.ps1 text eol=crlf
+
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.icns binary
+*.webp binary
+*.apk binary
+*.aab binary
+*.exe binary
+*.msi binary
+*.deb binary
+*.AppImage binary
