@@ -2,7 +2,7 @@
 name = "kodiak-connect"
 version = "0.1.0"
 description = "Kodiak Connect desktop shell"
-authors = ["Kodiak Holdings LLC"]
+authors = ["Kodiak Holdings"]
 edition = "2021"
 
 [lib]

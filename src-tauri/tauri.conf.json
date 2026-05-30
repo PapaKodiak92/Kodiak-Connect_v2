@@ -26,9 +26,10 @@
   "bundle": {
     "active": true,
     "targets": ["msi", "deb"],
-    "publisher": "Kodiak Holdings LLC",
-    "shortDescription": "Secure Matrix chat client",
-    "longDescription": "Kodiak Connect is a secure Discord-like Matrix chat client for web, Android, Windows, and Linux.",
+    "publisher": "Kodiak Holdings",
+    "icon": ["icons/icon.ico"],
+    "shortDescription": "Private communication client",
+    "longDescription": "Kodiak Connect is a secure communication client for private groups across web, desktop, and Android.",
     "createUpdaterArtifacts": true
   },
   "plugins": {
