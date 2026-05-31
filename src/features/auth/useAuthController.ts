@@ -7,14 +7,14 @@ const previewUser: LocalPreviewUser = {
 };
 
 export function useAuthController(): AuthControllerState {
-  const [mode, setMode] = useState<AuthMode>('signed-out');
+  const [mode, setMode] = useState<AuthMode>('local-preview');
 
   return useMemo(
     () => ({
       mode,
       user: mode === 'local-preview' ? previewUser : null,
       enterLocalPreview: () => setMode('local-preview'),
-      signOut: () => setMode('signed-out'),
+      signOut: () => setMode('local-preview'),
     }),
     [mode],
   );
