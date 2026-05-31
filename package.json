@@ -20,6 +20,7 @@
     "@capacitor/android": "latest",
     "@capacitor/core": "latest",
     "@tauri-apps/api": "latest",
+    "@tauri-apps/plugin-opener": "^2.5.4",
     "@tauri-apps/plugin-updater": "latest",
     "react": "latest",
     "react-dom": "latest"
