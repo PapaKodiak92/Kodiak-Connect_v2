@@ -1,4 +1,5 @@
-import { closeWindow, minimizeWindow, toggleMaximizeWindow } from '../../platform/desktop/windowControls';
+import type { MouseEvent } from 'react';
+import { beginWindowMove, closeWindow, minimizeWindow, toggleMaximizeWindow } from '../../platform/desktop/windowControls';
 import type { KodiakPlatformKind } from '../../platform/usePlatformInfo';
 
 interface WindowTitleBarProps {
@@ -10,14 +11,22 @@ export function WindowTitleBar({ platformKind }: WindowTitleBarProps) {
     return null;
   }
 
+  function handleTitleBarMouseDown(event: MouseEvent<HTMLElement>) {
+    if (event.button !== 0) {
+      return;
+    }
+
+    void beginWindowMove();
+  }
+
   return (
-    <header className="window-titlebar" data-tauri-drag-region>
-      <div className="window-titlebar__brand" data-tauri-drag-region>
-        <img src="/kodiak-connect-icon.png" alt="" data-tauri-drag-region />
-        <span data-tauri-drag-region>Kodiak Connect</span>
+    <header className="window-titlebar" onMouseDown={handleTitleBarMouseDown}>
+      <div className="window-titlebar__brand">
+        <img src="/kodiak-connect-icon.png" alt="" />
+        <span>Kodiak Connect</span>
       </div>
 
-      <div className="window-titlebar__controls">
+      <div className="window-titlebar__controls" onMouseDown={(event) => event.stopPropagation()}>
         <button type="button" aria-label="Minimize window" onClick={() => void minimizeWindow()}>
           _
         </button>
