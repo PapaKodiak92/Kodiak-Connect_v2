@@ -96,7 +96,7 @@ export function UpdaterPanel() {
     <section className="panel" aria-labelledby="updater-title">
       <div>
         <p className="eyebrow">Installers first</p>
-        <h2 id="updater-title">Updater foundation v0.1.7</h2>
+        <h2 id="updater-title">Updater foundation v0.1.8</h2>
       </div>
 
       <ul className="checklist">
