@@ -238,3 +238,38 @@
     justify-content: flex-start !important;
   }
 }
+
+/* Mobile: show support/social links in the top launcher card */
+.launcher-mobile-social-dock {
+  display: none;
+}
+
+@media (max-width: 850px) {
+  .launcher-mobile-social-dock {
+    display: flex !important;
+    flex-direction: row;
+    flex-wrap: nowrap;
+    align-items: center;
+    justify-content: flex-start;
+    gap: 0.45rem;
+    margin-top: 0.95rem;
+    margin-bottom: 0.95rem;
+    white-space: nowrap;
+  }
+
+  .launcher-mobile-social-dock .launcher-social-link {
+    width: 2.15rem !important;
+    height: 2.15rem !important;
+    flex: 0 0 2.15rem !important;
+    font-size: 0.82rem !important;
+  }
+
+  /* Hide Android updater-bottom social dock so it does not get clipped by phone nav */
+  .updater-social-dock {
+    display: none !important;
+  }
+
+  .launcher-shell .kodiak-status-card {
+    padding-bottom: 1rem !important;
+  }
+}
