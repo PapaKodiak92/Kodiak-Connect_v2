@@ -1,5 +1,6 @@
 import { AuthLanding } from '../features/auth/AuthLanding';
 import { useAuthController } from '../features/auth/useAuthController';
+import { AndroidUpdatePanel } from '../features/updater/AndroidUpdatePanel';
 import { UpdaterPanel } from '../features/updater/UpdaterPanel';
 import { AppFrame } from '../components/layout/AppFrame';
 import { usePlatformInfo } from '../platform/usePlatformInfo';
@@ -7,6 +8,7 @@ import { usePlatformInfo } from '../platform/usePlatformInfo';
 export function AppShell() {
   const platform = usePlatformInfo();
   const auth = useAuthController();
+  const updaterPanel = platform.kind === 'android' ? <AndroidUpdatePanel /> : <UpdaterPanel />;
 
   if (auth.mode === 'signed-out') {
     return (
@@ -20,7 +22,7 @@ export function AppShell() {
         </section>
 
         <AuthLanding onEnterPreview={auth.enterLocalPreview} />
-        <UpdaterPanel />
+        {updaterPanel}
       </main>
     );
   }
@@ -55,7 +57,7 @@ export function AppShell() {
           </dl>
         </section>
 
-        <UpdaterPanel />
+        {updaterPanel}
       </AppFrame>
     </main>
   );
