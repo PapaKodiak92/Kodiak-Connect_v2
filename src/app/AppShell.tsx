@@ -1,20 +1,32 @@
+import { useEffect, useState } from 'react';
 import { AuthLanding } from '../features/auth/AuthLanding';
 import { useAuthController } from '../features/auth/useAuthController';
 import { AndroidUpdatePanel } from '../features/updater/AndroidUpdatePanel';
 import { UpdaterPanel } from '../features/updater/UpdaterPanel';
 import { AppFrame } from '../components/layout/AppFrame';
+import { KodiakSplashScreen } from '../components/layout/KodiakSplashScreen';
 import { usePlatformInfo } from '../platform/usePlatformInfo';
 
 export function AppShell() {
   const platform = usePlatformInfo();
   const auth = useAuthController();
+  const [isBooting, setIsBooting] = useState(true);
   const updaterPanel = platform.kind === 'android' ? <AndroidUpdatePanel /> : <UpdaterPanel />;
+
+  useEffect(() => {
+    const timeout = window.setTimeout(() => setIsBooting(false), 720);
+    return () => window.clearTimeout(timeout);
+  }, []);
+
+  if (isBooting) {
+    return <KodiakSplashScreen />;
+  }
 
   if (auth.mode === 'signed-out') {
     return (
       <main className="app-shell">
-        <section className="hero-card">
-          <p className="eyebrow">Kodiak Connect v2</p>
+        <section className="hero-card hero-card--brand">
+          <p className="eyebrow eyebrow--ember">Kodiak Connect v2</p>
           <h1>Secure chat foundation</h1>
           <p className="lede">
             Web, Android, Windows, and Linux are first-class targets before Matrix chat features are added.
@@ -34,8 +46,8 @@ export function AppShell() {
   return (
     <main className="app-shell app-shell--wide">
       <AppFrame user={auth.user} onExit={auth.signOut}>
-        <section className="hero-card">
-          <p className="eyebrow">Local preview</p>
+        <section className="hero-card hero-card--brand">
+          <p className="eyebrow eyebrow--ember">Local preview</p>
           <h1>App shell online</h1>
           <p className="lede">
             This state proves the app can switch between auth and workspace views without Matrix logic entering App.tsx.
