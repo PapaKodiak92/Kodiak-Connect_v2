@@ -9,6 +9,8 @@ param(
   [string]$RemoteRoot = '/var/www/kodiak-connect-updates',
   [string]$BaseUrl = 'https://updates.kodiak-connect.com',
   [string]$SigningKeyPath = "$env:USERPROFILE\.tauri\kodiak-connect-v2-release.key",
+  [string]$SigningKeyPassword = $env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD,
+  [int]$KeepLocalBundleVersions = 3,
   [switch]$SkipGitPush
 )
 
@@ -47,6 +49,47 @@ function Assert-File {
   }
 }
 
+function Remove-OldLocalBundleVersions {
+  param(
+    [Parameter(Mandatory = $true)][string]$BundleDir,
+    [Parameter(Mandatory = $true)][int]$KeepVersions
+  )
+
+  if ($KeepVersions -lt 1 -or -not (Test-Path $BundleDir)) {
+    return
+  }
+
+  $bundleFiles = Get-ChildItem -Path $BundleDir -File -ErrorAction SilentlyContinue | Where-Object {
+    $_.Name -match '^Kodiak Connect_(\d+\.\d+\.\d+)_.+'
+  }
+
+  $versions = $bundleFiles |
+    ForEach-Object {
+      [pscustomobject]@{
+        Version = [regex]::Match($_.Name, '^Kodiak Connect_(\d+\.\d+\.\d+)_.+').Groups[1].Value
+        LastWriteTime = $_.LastWriteTimeUtc
+      }
+    } |
+    Group-Object Version |
+    ForEach-Object {
+      [pscustomobject]@{
+        Version = $_.Name
+        LastWriteTime = ($_.Group | Sort-Object LastWriteTime -Descending | Select-Object -First 1).LastWriteTime
+      }
+    } |
+    Sort-Object LastWriteTime -Descending
+
+  $versionsToKeep = @($versions | Select-Object -First $KeepVersions | ForEach-Object { $_.Version })
+
+  $bundleFiles | ForEach-Object {
+    $fileVersion = [regex]::Match($_.Name, '^Kodiak Connect_(\d+\.\d+\.\d+)_.+').Groups[1].Value
+    if ($versionsToKeep -notcontains $fileVersion) {
+      Remove-Item -Path $_.FullName -Force
+      Write-Host "Removed old local artifact: $($_.Name)" -ForegroundColor DarkGray
+    }
+  }
+}
+
 Push-Location $RepoRoot
 try {
   $InitialStatus = & git status --porcelain
@@ -66,6 +109,9 @@ try {
 
   Invoke-Step "Build Windows MSI and updater signature" {
     $env:TAURI_SIGNING_PRIVATE_KEY = $SigningKeyPath
+    if ($SigningKeyPassword) {
+      $env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD = $SigningKeyPassword
+    }
     Invoke-NativeChecked -ErrorMessage 'Windows Tauri build failed' -Command { npm run tauri:build }
   }
 
@@ -245,6 +291,11 @@ test -f '$RemoteLinuxDir/$RemoteLinuxDeb.sig'
       Remove-Item $TempManifest -Force -ErrorAction SilentlyContinue
       Remove-Item $TempAndroidManifest -Force -ErrorAction SilentlyContinue
     }
+  }
+
+  Invoke-Step "Clean old local bundle artifacts" {
+    Remove-OldLocalBundleVersions -BundleDir (Join-Path $RepoRoot 'src-tauri\target\release\bundle\msi') -KeepVersions $KeepLocalBundleVersions
+    Remove-OldLocalBundleVersions -BundleDir (Join-Path $RepoRoot 'src-tauri\target\release\bundle\deb') -KeepVersions $KeepLocalBundleVersions
   }
 
   Write-Host ""
