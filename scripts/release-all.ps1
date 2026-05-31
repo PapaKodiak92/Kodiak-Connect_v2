@@ -120,6 +120,13 @@ try {
     $RemoteScript = @"
 set -e
 export PATH="`$HOME/.cargo/bin:`$PATH"
+if [ -f '/root/.tauri/kodiak-connect-v2.env' ]; then
+  . '/root/.tauri/kodiak-connect-v2.env'
+fi
+if [ -z "`$TAURI_SIGNING_PRIVATE_KEY_PASSWORD" ]; then
+  echo 'Missing TAURI_SIGNING_PRIVATE_KEY_PASSWORD on VPS. Create /root/.tauri/kodiak-connect-v2.env.' >&2
+  exit 1
+fi
 cd '$VpsRepoPath'
 git fetch origin main
 git reset --hard origin/main
