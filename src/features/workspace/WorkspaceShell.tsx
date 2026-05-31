@@ -1,69 +1,63 @@
+import { useMemo, useState } from 'react';
 import type { MatrixLoginIdentity } from '../auth/matrixLoginService';
+import { ChannelSidebar } from './ChannelSidebar';
+import { ChatPlaceholder } from './ChatPlaceholder';
+import { ServerRail } from './ServerRail';
+import { officialSpace } from './workspaceData';
+import type { WorkspaceChannel, WorkspaceSpace } from './workspaceTypes';
 
 interface WorkspaceShellProps {
   identity: MatrixLoginIdentity;
   onLogout: () => void;
 }
 
-function getDisplayName(userId: string) {
-  const withoutPrefix = userId.startsWith('@') ? userId.slice(1) : userId;
-  return withoutPrefix.split(':')[0] || userId;
+const spaces: WorkspaceSpace[] = [officialSpace];
+
+function findInitialChannel(space: WorkspaceSpace) {
+  return space.sections.flatMap((section) => section.channels).find((channel) => !channel.disabled) ?? space.sections[0]?.channels[0];
 }
 
 export function WorkspaceShell({ identity, onLogout }: WorkspaceShellProps) {
-  const displayName = getDisplayName(identity.userId);
+  const [activeSpaceId, setActiveSpaceId] = useState(officialSpace.id);
+  const [activeChannelId, setActiveChannelId] = useState('general');
+
+  const activeSpace = useMemo(() => spaces.find((space) => space.id === activeSpaceId) ?? officialSpace, [activeSpaceId]);
+  const activeChannel = useMemo(() => {
+    return activeSpace.sections.flatMap((section) => section.channels).find((channel) => channel.id === activeChannelId) ?? findInitialChannel(activeSpace);
+  }, [activeChannelId, activeSpace]);
+
+  function handleSelectSpace(spaceId: string) {
+    const nextSpace = spaces.find((space) => space.id === spaceId);
+
+    if (!nextSpace) {
+      return;
+    }
+
+    setActiveSpaceId(spaceId);
+
+    const firstChannel = findInitialChannel(nextSpace);
+    if (firstChannel) {
+      setActiveChannelId(firstChannel.id);
+    }
+  }
+
+  function handleSelectChannel(channel: WorkspaceChannel) {
+    if (channel.disabled) {
+      return;
+    }
+
+    setActiveChannelId(channel.id);
+  }
+
+  if (!activeChannel) {
+    return null;
+  }
 
   return (
-    <main className="workspace-shell">
-      <section className="workspace-card" aria-label="Kodiak Connect workspace">
-        <div className="workspace-card__header">
-          <div className="brand-orb">
-            <img src="/kodiak-connect-icon.png" alt="" />
-          </div>
-
-          <div>
-            <p className="eyebrow eyebrow--ember">Kodiak Connect</p>
-            <h1>Workspace ready.</h1>
-            <p className="lede">Signed in as {displayName}. Chat, rooms, and direct messages come next.</p>
-          </div>
-        </div>
-
-        <div className="workspace-card__grid">
-          <div className="workspace-status-panel">
-            <span className="status-light status-light--online" aria-hidden="true" />
-            <div>
-              <strong>Matrix staging online</strong>
-              <p>{identity.serverName}</p>
-            </div>
-          </div>
-
-          <div className="workspace-status-panel">
-            <span className="status-light status-light--online" aria-hidden="true" />
-            <div>
-              <strong>Signed in</strong>
-              <p>{identity.userId}</p>
-            </div>
-          </div>
-
-          <div className="workspace-status-panel workspace-status-panel--muted">
-            <span className="status-light status-light--offline" aria-hidden="true" />
-            <div>
-              <strong>Chat shell pending</strong>
-              <p>Next milestone: session handling, logout cleanup, then room sync.</p>
-            </div>
-          </div>
-        </div>
-
-        <div className="workspace-card__actions">
-          <button type="button" className="button-primary" disabled>
-            Open Chat Soon
-          </button>
-
-          <button type="button" onClick={onLogout}>
-            Log Out
-          </button>
-        </div>
-      </section>
+    <main className="workspace-app-shell">
+      <ServerRail spaces={spaces} activeSpaceId={activeSpace.id} onSelectSpace={handleSelectSpace} />
+      <ChannelSidebar activeSpace={activeSpace} activeChannelId={activeChannel.id} onSelectChannel={handleSelectChannel} onLogout={onLogout} />
+      <ChatPlaceholder activeSpace={activeSpace} activeChannel={activeChannel} identity={identity} />
     </main>
   );
 }
