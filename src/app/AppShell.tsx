@@ -1,4 +1,4 @@
-﻿import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { LoginScreen } from '../features/auth/LoginScreen';
 import { AndroidUpdatePanel } from '../features/updater/AndroidUpdatePanel';
 import { UpdaterPanel } from '../features/updater/UpdaterPanel';
@@ -75,6 +75,7 @@ export function AppShell() {
   const updaterOnline = true;
   const serverOnline = false;
   const isMobile = platform.kind === 'android';
+  const isWebDev = import.meta.env.DEV && platform.kind === 'web';
   const platformLabel = isMobile ? 'Mobile' : platform.kind === 'desktop' ? 'Desktop' : 'Web';
 
   useEffect(() => {
@@ -90,10 +91,24 @@ export function AppShell() {
     setAppState('update-required');
   }, []);
 
+  const handleUpdateCheckFailed = useCallback(() => {
+    if (isWebDev) {
+      setAppState('login');
+      return;
+    }
+
+    setAppState('update-required');
+  }, [isWebDev]);
+
   const updaterPanel = isMobile ? (
-    <AndroidUpdatePanel onUpToDate={handleUpToDate} onUpdateRequired={handleUpdateRequired} onUpdateCheckFailed={handleUpdateRequired} />
+    <AndroidUpdatePanel onUpToDate={handleUpToDate} onUpdateRequired={handleUpdateRequired} onUpdateCheckFailed={handleUpdateCheckFailed} />
   ) : (
-    <UpdaterPanel onUpToDate={handleUpToDate} onUpdateRequired={handleUpdateRequired} onUpdateCheckFailed={handleUpdateRequired} />
+    <UpdaterPanel
+      onUpToDate={handleUpToDate}
+      onUpdateRequired={handleUpdateRequired}
+      onUpdateCheckFailed={handleUpdateCheckFailed}
+      allowContinueOnFailure={isWebDev}
+    />
   );
 
   if (appState === 'booting') {
