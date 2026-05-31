@@ -217,9 +217,9 @@ export function LoginScreen() {
     setMessage(null);
 
     try {
-      const identity = await verifyMatrixLogin(loginId, loginPassword);
+      await verifyMatrixLogin(loginId, loginPassword);
       setFailedAttempts(0);
-      setSuccess(`Signed in as ${identity.userId}. Chat shell wiring is next.`);
+      setSuccess('Signed in successfully. Preparing your workspace.');
     } catch (error) {
       const nextAttempts = failedAttempts + 1;
       setFailedAttempts(nextAttempts);
@@ -314,7 +314,7 @@ export function LoginScreen() {
                 type="text"
                 name="username"
                 autoComplete="username"
-                placeholder="papakodiak"
+                placeholder="Username or email"
                 value={loginId}
                 onChange={(event) => setLoginId(event.target.value)}
                 disabled={isSigningIn}
@@ -326,7 +326,7 @@ export function LoginScreen() {
               <PasswordInput
                 name="password"
                 autoComplete="current-password"
-                placeholder="Your Matrix password"
+                placeholder="Password"
                 value={loginPassword}
                 onChange={(event) => setLoginPassword(event.target.value)}
                 disabled={isSigningIn}
@@ -350,8 +350,6 @@ export function LoginScreen() {
               </button>
             </div>
 
-            <p className="muted-text">Server: {kodiakEnv.matrixServerName}</p>
-
             {showForgotPassword ? (
               <button type="button" className="login-link-button" onClick={() => switchMode('reset-password')} disabled={isSigningIn}>
                 Forgot password?
@@ -368,7 +366,7 @@ export function LoginScreen() {
                 type="text"
                 name="new-username"
                 autoComplete="username"
-                placeholder="Example: PapaKodiak"
+                placeholder="Choose a username"
                 value={username}
                 onChange={(event) => setUsername(event.target.value)}
               />
@@ -407,7 +405,7 @@ export function LoginScreen() {
                 <PasswordInput
                   name="new-password"
                   autoComplete="new-password"
-                  placeholder="Example: KodiakDen92"
+                  placeholder="Create a password"
                   value={password}
                   onChange={(event) => setPassword(event.target.value)}
                 />
