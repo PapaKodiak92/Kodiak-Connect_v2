@@ -6,6 +6,7 @@ export interface WorkspaceChannel {
   kind: ChannelKind;
   description: string;
   disabled?: boolean;
+  matrixAlias?: string;
 }
 
 export interface WorkspaceChannelSection {
