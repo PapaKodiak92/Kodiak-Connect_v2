@@ -20,7 +20,10 @@ export const officialSpace: WorkspaceSpace = {
           id: 'dev-updates',
           name: 'dev-updates',
           kind: 'announcement',
-          description: 'Development progress, release notes, and roadmap updates.',
+          description: 'Official Kodiak Connect development updates and curated release notes.',
+          matrixAlias: '#dev-updates:v2.kodiak-connect.com',
+          readOnly: true,
+          allowedPosterIds: ['@papakodiak:v2.kodiak-connect.com'],
         },
         {
           id: 'general',
