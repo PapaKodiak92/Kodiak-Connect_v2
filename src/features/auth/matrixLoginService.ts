@@ -1,6 +1,7 @@
 import { kodiakEnv } from '../../config/env';
 
 interface MatrixLoginResponse {
+  access_token?: string;
   device_id?: string;
   user_id?: string;
 }
@@ -22,6 +23,7 @@ type MatrixLoginIdentifier =
     };
 
 export interface MatrixLoginIdentity {
+  accessToken: string;
   baseUrl: string;
   deviceId: string;
   serverName: string;
@@ -101,11 +103,12 @@ export async function verifyMatrixLogin(loginId: string, password: string): Prom
 
   const data = (await response.json()) as MatrixLoginResponse;
 
-  if (!data.device_id || !data.user_id) {
+  if (!data.access_token || !data.device_id || !data.user_id) {
     throw new MatrixLoginError('Matrix sign-in returned an incomplete response.');
   }
 
   return {
+    accessToken: data.access_token,
     baseUrl: kodiakEnv.matrixBaseUrl,
     deviceId: data.device_id,
     serverName: kodiakEnv.matrixServerName,
