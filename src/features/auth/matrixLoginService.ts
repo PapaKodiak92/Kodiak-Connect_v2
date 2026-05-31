@@ -9,6 +9,7 @@ interface MatrixLoginResponse {
 interface MatrixErrorResponse {
   errcode?: string;
   error?: string;
+  retry_after_ms?: number;
 }
 
 type MatrixLoginIdentifier =
@@ -35,6 +36,7 @@ export class MatrixLoginError extends Error {
     message: string,
     public readonly status?: number,
     public readonly errcode?: string,
+    public readonly retryAfterMs?: number,
   ) {
     super(message);
     this.name = 'MatrixLoginError';
@@ -98,6 +100,7 @@ export async function verifyMatrixLogin(loginId: string, password: string): Prom
       matrixError.error || 'Unable to sign in. Check your username, email, and password.',
       response.status,
       matrixError.errcode,
+      matrixError.retry_after_ms,
     );
   }
 
