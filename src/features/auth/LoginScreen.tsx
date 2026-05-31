@@ -1,4 +1,5 @@
 ﻿import { useMemo, useState, type ChangeEventHandler, type FormEvent } from 'react';
+import { openUrl } from '@tauri-apps/plugin-opener';
 import { TurnstileWidget } from '../../components/security/TurnstileWidget';
 
 type LoginMode = 'sign-in' | 'create-account' | 'reset-password';
@@ -74,6 +75,68 @@ function PasswordInput({ name, autoComplete, placeholder, value, onChange }: Pas
         <EyeIcon isVisible={isVisible} />
       </button>
     </div>
+  );
+}
+
+
+const footerLinks = [
+  {
+    href: 'mailto:support@kodiak-connect.com?subject=Kodiak%20Connect%20Support',
+    label: 'support@kodiak-connect.com',
+  },
+  {
+    href: 'https://www.facebook.com/PapaKodiak/',
+    label: 'Facebook',
+  },
+  {
+    href: 'https://x.com/PapaKodiak92',
+    label: 'X',
+  },
+  {
+    href: 'https://www.instagram.com/papakodiak92/',
+    label: 'Instagram',
+  },
+  {
+    href: 'https://buymeacoffee.com/papakodiak',
+    label: 'Buy Me a Coffee',
+  },
+];
+
+async function openExternalLink(url: string) {
+  try {
+    await openUrl(url);
+  } catch (error) {
+    console.error('[Kodiak Connect] Failed to open footer link', error);
+
+    if (url.startsWith('mailto:')) {
+      window.location.href = url;
+      return;
+    }
+
+    window.open(url, '_blank', 'noopener,noreferrer');
+  }
+}
+
+function LoginFooter() {
+  return (
+    <footer className="login-footer" aria-label="Kodiak Connect legal and support links">
+      <div className="login-footer__copyright">&copy; 2026 Kodiak Holdings</div>
+
+      <nav className="login-footer__links" aria-label="Kodiak Connect links">
+        {footerLinks.map((link) => (
+          <a
+            key={link.href}
+            href={link.href}
+            onClick={(event) => {
+              event.preventDefault();
+              void openExternalLink(link.href);
+            }}
+          >
+            {link.label}
+          </a>
+        ))}
+      </nav>
+    </footer>
   );
 }
 
@@ -390,6 +453,10 @@ export function LoginScreen() {
           </form>
         ) : null}
       </section>
+
+      <LoginFooter />
     </main>
   );
 }
+
+
