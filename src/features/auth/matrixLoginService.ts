@@ -10,6 +10,17 @@ interface MatrixErrorResponse {
   error?: string;
 }
 
+type MatrixLoginIdentifier =
+  | {
+      type: 'm.id.user';
+      user: string;
+    }
+  | {
+      type: 'm.id.thirdparty';
+      medium: 'email';
+      address: string;
+    };
+
 export interface MatrixLoginIdentity {
   baseUrl: string;
   deviceId: string;
@@ -28,14 +39,32 @@ export class MatrixLoginError extends Error {
   }
 }
 
-function normalizeLoginId(value: string) {
+function isEmailLoginId(value: string) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim());
+}
+
+function getMatrixLoginIdentifier(value: string): MatrixLoginIdentifier {
   const trimmed = value.trim();
 
-  if (trimmed.startsWith('@')) {
-    return trimmed;
+  if (isEmailLoginId(trimmed)) {
+    return {
+      type: 'm.id.thirdparty',
+      medium: 'email',
+      address: trimmed.toLowerCase(),
+    };
   }
 
-  return trimmed.toLowerCase();
+  if (trimmed.startsWith('@')) {
+    return {
+      type: 'm.id.user',
+      user: trimmed,
+    };
+  }
+
+  return {
+    type: 'm.id.user',
+    user: trimmed.toLowerCase(),
+  };
 }
 
 async function readMatrixError(response: Response) {
@@ -54,10 +83,7 @@ export async function verifyMatrixLogin(loginId: string, password: string): Prom
     },
     body: JSON.stringify({
       type: 'm.login.password',
-      identifier: {
-        type: 'm.id.user',
-        user: normalizeLoginId(loginId),
-      },
+      identifier: getMatrixLoginIdentifier(loginId),
       password,
       initial_device_display_name: 'Kodiak Connect v2 login check',
     }),
@@ -67,7 +93,7 @@ export async function verifyMatrixLogin(loginId: string, password: string): Prom
     const matrixError = await readMatrixError(response);
 
     throw new MatrixLoginError(
-      matrixError.error || 'Unable to sign in. Check your username and password.',
+      matrixError.error || 'Unable to sign in. Check your username, email, and password.',
       response.status,
       matrixError.errcode,
     );
