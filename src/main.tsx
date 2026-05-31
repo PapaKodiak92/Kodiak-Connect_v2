@@ -5,6 +5,7 @@ import './styles/global.css';
 import './styles/brand.css';
 import './styles/launcher.css';
 import './styles/acknowledgement.css';
+import './styles/matrix-chat.css';
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
