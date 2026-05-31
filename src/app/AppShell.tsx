@@ -1,10 +1,10 @@
 import { useEffect, useState } from 'react';
-import { AuthLanding } from '../features/auth/AuthLanding';
-import { useAuthController } from '../features/auth/useAuthController';
 import { AndroidUpdatePanel } from '../features/updater/AndroidUpdatePanel';
 import { UpdaterPanel } from '../features/updater/UpdaterPanel';
 import { AppFrame } from '../components/layout/AppFrame';
 import { KodiakSplashScreen } from '../components/layout/KodiakSplashScreen';
+import { WindowTitleBar } from '../components/layout/WindowTitleBar';
+import { useAuthController } from '../features/auth/useAuthController';
 import { usePlatformInfo } from '../platform/usePlatformInfo';
 
 export function AppShell() {
@@ -22,55 +22,41 @@ export function AppShell() {
     return <KodiakSplashScreen />;
   }
 
-  if (auth.mode === 'signed-out') {
-    return (
-      <main className="app-shell">
-        <section className="hero-card hero-card--brand">
-          <p className="eyebrow eyebrow--ember">Kodiak Connect v2</p>
-          <h1>Secure chat foundation</h1>
-          <p className="lede">
-            Web, Android, Windows, and Linux are first-class targets before Matrix chat features are added.
-          </p>
-        </section>
-
-        <AuthLanding onEnterPreview={auth.enterLocalPreview} />
-        {updaterPanel}
-      </main>
-    );
-  }
-
   if (!auth.user) {
     return null;
   }
 
   return (
-    <main className="app-shell app-shell--wide">
-      <AppFrame user={auth.user} onExit={auth.signOut}>
-        <section className="hero-card hero-card--brand">
-          <p className="eyebrow eyebrow--ember">Local preview</p>
-          <h1>App shell online</h1>
-          <p className="lede">
-            This state proves the app can switch between auth and workspace views without Matrix logic entering App.tsx.
-          </p>
+    <>
+      <WindowTitleBar platformKind={platform.kind} />
+      <main className="app-shell app-shell--wide app-shell--framed">
+        <AppFrame user={auth.user}>
+          <section className="hero-card hero-card--brand">
+            <p className="eyebrow eyebrow--ember">Official space</p>
+            <h1>Kodiak Connect</h1>
+            <p className="lede">
+              Announcements, updater status, and active channels will live here as the Matrix layer comes online.
+            </p>
 
-          <dl className="status-grid" aria-label="Foundation status">
-            <div>
-              <dt>Platform</dt>
-              <dd>{platform.kind}</dd>
-            </div>
-            <div>
-              <dt>Auth</dt>
-              <dd>{auth.mode}</dd>
-            </div>
-            <div>
-              <dt>Matrix</dt>
-              <dd>Not wired yet</dd>
-            </div>
-          </dl>
-        </section>
+            <dl className="status-grid" aria-label="Foundation status">
+              <div>
+                <dt>Platform</dt>
+                <dd>{platform.kind}</dd>
+              </div>
+              <div>
+                <dt>Updater</dt>
+                <dd>Validated</dd>
+              </div>
+              <div>
+                <dt>Matrix</dt>
+                <dd>Coming Next</dd>
+              </div>
+            </dl>
+          </section>
 
-        {updaterPanel}
-      </AppFrame>
-    </main>
+          {updaterPanel}
+        </AppFrame>
+      </main>
+    </>
   );
 }
