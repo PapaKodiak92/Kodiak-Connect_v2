@@ -35,7 +35,11 @@ services:
       timeout: 10s
       retries: 10
 
+  # Host nginx owns ports 80/443 on the VPS staging server.
+  # Keep this Docker nginx service disabled unless a future deployment explicitly enables it.
   nginx:
+    profiles:
+      - docker-nginx
     image: nginx:stable-alpine
     restart: unless-stopped
     depends_on:
