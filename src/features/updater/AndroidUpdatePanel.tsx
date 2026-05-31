@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { KodiakStatusCard } from '../../components/ui/KodiakStatusCard';
 import { updateManifest } from './updateManifest';
 import {
   getAndroidUpdateManifest,
@@ -28,12 +29,16 @@ function isNewerVersion(remoteVersion: string, currentVersion: string) {
 }
 
 export function AndroidUpdatePanel() {
-  const [status, setStatus] = useState('Checking Android updates...');
+  const [status, setStatus] = useState('Checking Android release channel...');
   const [remoteUpdate, setRemoteUpdate] = useState<AndroidUpdateManifest | null>(null);
   const [hasUpdate, setHasUpdate] = useState(false);
+  const [isChecking, setIsChecking] = useState(true);
+  const [hasError, setHasError] = useState(false);
 
   const checkAndroidUpdate = useCallback(async () => {
-    setStatus('Checking Android updates...');
+    setIsChecking(true);
+    setHasError(false);
+    setStatus('Checking Android release channel...');
 
     try {
       const manifest = await getAndroidUpdateManifest();
@@ -41,12 +46,15 @@ export function AndroidUpdatePanel() {
 
       setRemoteUpdate(manifest);
       setHasUpdate(updateAvailable);
-      setStatus(updateAvailable ? `Android update available: ${manifest.version}` : 'Android APK is current.');
+      setStatus(updateAvailable ? `Android APK ready: ${updateManifest.currentVersion} → ${manifest.version}` : 'Kodiak Connect is up to date on Android.');
     } catch (error) {
       console.error('[Kodiak Connect] Android update check failed', error);
-      setStatus('Android update check failed. Try again later.');
+      setStatus('Android update check failed. Try again when you have a stable connection.');
       setRemoteUpdate(null);
       setHasUpdate(false);
+      setHasError(true);
+    } finally {
+      setIsChecking(false);
     }
   }, []);
 
@@ -54,33 +62,41 @@ export function AndroidUpdatePanel() {
     void checkAndroidUpdate();
   }, [checkAndroidUpdate]);
 
+  const tone = useMemo(() => {
+    if (hasError) {
+      return 'error';
+    }
+
+    if (isChecking) {
+      return 'working';
+    }
+
+    return hasUpdate ? 'available' : 'ready';
+  }, [hasError, hasUpdate, isChecking]);
+
   return (
-    <section className="panel" aria-labelledby="android-updater-title">
-      <div>
-        <p className="eyebrow">Android updates</p>
-        <h2 id="android-updater-title">APK update helper</h2>
+    <KodiakStatusCard
+      eyebrow="Android release channel"
+      title="APK update helper"
+      description="Download Android builds directly on this device. Android will ask you to approve installation before replacing the app."
+      statusText={status}
+      detailText={remoteUpdate ? `Latest hosted APK: ${remoteUpdate.version}` : 'Hosted APK manifest is checked securely from updates.kodiak-connect.com.'}
+      badgeText={`v${updateManifest.currentVersion}`}
+      tone={tone}
+    >
+      <div className="button-row">
+        <button type="button" onClick={() => void checkAndroidUpdate()} disabled={isChecking}>
+          Check again
+        </button>
+        <button
+          type="button"
+          className="button-primary"
+          disabled={!hasUpdate || !remoteUpdate}
+          onClick={() => remoteUpdate && openAndroidApkDownload(remoteUpdate.url)}
+        >
+          Download latest APK
+        </button>
       </div>
-
-      <p className="lede">
-        Android updates are downloaded on-device. Your phone will ask for approval before installing the APK.
-      </p>
-
-      <div className="updater-actions">
-        <p>{status}</p>
-        {remoteUpdate ? <p className="muted-text">Latest hosted APK: {remoteUpdate.version}</p> : null}
-        <div className="button-row">
-          <button type="button" onClick={() => void checkAndroidUpdate()}>
-            Check again
-          </button>
-          <button
-            type="button"
-            disabled={!hasUpdate || !remoteUpdate}
-            onClick={() => remoteUpdate && openAndroidApkDownload(remoteUpdate.url)}
-          >
-            Download APK
-          </button>
-        </div>
-      </div>
-    </section>
+    </KodiakStatusCard>
   );
 }
