@@ -31,10 +31,10 @@ function formatMessageTime(timestamp: number) {
   }).format(new Date(timestamp));
 }
 
-function getMatrixErrorMessage(error: unknown) {
+function getMatrixErrorMessage(error: unknown, activeChannel: WorkspaceChannel) {
   if (error instanceof MatrixRestError) {
     if (error.errcode === 'M_NOT_FOUND' || error.status === 404) {
-      return 'This Matrix room does not exist yet. Run the staging setup script for #general.';
+      return `This Matrix room does not exist yet. Create #${activeChannel.name} on staging.`;
     }
 
     if (error.errcode === 'M_FORBIDDEN' || error.status === 403) {
@@ -47,6 +47,40 @@ function getMatrixErrorMessage(error: unknown) {
   return 'Kodiak Connect could not reach the Matrix room.';
 }
 
+function canPostInChannel(channel: WorkspaceChannel, userId: string) {
+  if (!channel.readOnly) {
+    return true;
+  }
+
+  return channel.allowedPosterIds?.includes(userId) ?? false;
+}
+
+function getComposerPlaceholder(channel: WorkspaceChannel, canPost: boolean, roomId: string | null) {
+  if (!roomId) {
+    return 'Room unavailable';
+  }
+
+  if (!canPost) {
+    return 'Read-only official channel';
+  }
+
+  if (channel.readOnly) {
+    return `Post official update in #${channel.name}`;
+  }
+
+  return `Message #${channel.name}`;
+}
+
+function getEmptyState(channel: WorkspaceChannel, canPost: boolean) {
+  if (channel.id === 'dev-updates') {
+    return canPost
+      ? 'No development updates yet. Post the first curated changelog when ready.'
+      : 'No development updates yet. Official Kodiak updates will appear here.';
+  }
+
+  return 'No messages yet. Send the first message in Official Space.';
+}
+
 export function MatrixChannelPanel({ activeChannel, activeSpace, identity }: MatrixChannelPanelProps) {
   const [roomId, setRoomId] = useState<string | null>(null);
   const [messages, setMessages] = useState<MatrixTextMessage[]>([]);
@@ -57,6 +91,7 @@ export function MatrixChannelPanel({ activeChannel, activeSpace, identity }: Mat
   const pollingTimer = useRef<number | null>(null);
 
   const displayName = getDisplayName(identity.userId);
+  const canPost = canPostInChannel(activeChannel, identity.userId);
 
   const refreshMessages = useCallback(
     async (targetRoomId: string) => {
@@ -97,7 +132,7 @@ export function MatrixChannelPanel({ activeChannel, activeSpace, identity }: Mat
         console.error('[Kodiak Connect] Failed to connect Matrix room', error);
         setRoomId(null);
         setMessages([]);
-        setErrorText(getMatrixErrorMessage(error));
+        setErrorText(getMatrixErrorMessage(error, activeChannel));
       } finally {
         if (isActive) {
           setIsLoading(false);
@@ -110,7 +145,7 @@ export function MatrixChannelPanel({ activeChannel, activeSpace, identity }: Mat
     return () => {
       isActive = false;
     };
-  }, [activeChannel.matrixAlias, identity, refreshMessages]);
+  }, [activeChannel, activeChannel.matrixAlias, identity, refreshMessages]);
 
   useEffect(() => {
     if (!roomId) {
@@ -135,7 +170,7 @@ export function MatrixChannelPanel({ activeChannel, activeSpace, identity }: Mat
 
     const trimmedMessage = draftMessage.trim();
 
-    if (!roomId || !trimmedMessage) {
+    if (!roomId || !trimmedMessage || !canPost) {
       return;
     }
 
@@ -148,7 +183,7 @@ export function MatrixChannelPanel({ activeChannel, activeSpace, identity }: Mat
       await refreshMessages(roomId);
     } catch (error) {
       console.error('[Kodiak Connect] Failed to send Matrix message', error);
-      setErrorText(getMatrixErrorMessage(error));
+      setErrorText(getMatrixErrorMessage(error, activeChannel));
     } finally {
       setIsSending(false);
     }
@@ -177,8 +212,15 @@ export function MatrixChannelPanel({ activeChannel, activeSpace, identity }: Mat
           </div>
         ) : null}
 
+        {activeChannel.readOnly ? (
+          <div className="matrix-channel-note">
+            <strong>Official read-only channel</strong>
+            <span>{canPost ? 'You can publish curated Kodiak updates here.' : 'Only approved Kodiak staff can post here.'}</span>
+          </div>
+        ) : null}
+
         {isLoading ? (
-          <div className="matrix-empty-state">Loading #general...</div>
+          <div className="matrix-empty-state">Loading #{activeChannel.name}...</div>
         ) : messages.length ? (
           <div className="matrix-message-list" aria-label="Message history">
             {messages.map((message) => (
@@ -192,20 +234,20 @@ export function MatrixChannelPanel({ activeChannel, activeSpace, identity }: Mat
             ))}
           </div>
         ) : (
-          <div className="matrix-empty-state">No messages yet. Send the first message in Official Space.</div>
+          <div className="matrix-empty-state">{getEmptyState(activeChannel, canPost)}</div>
         )}
       </div>
 
       <form className="message-composer-placeholder" onSubmit={handleSendMessage}>
         <input
           type="text"
-          placeholder={roomId ? `Message #${activeChannel.name}` : 'Room unavailable'}
+          placeholder={getComposerPlaceholder(activeChannel, canPost, roomId)}
           value={draftMessage}
           onChange={(event) => setDraftMessage(event.target.value)}
-          disabled={!roomId || isSending}
+          disabled={!roomId || isSending || !canPost}
         />
-        <button type="submit" disabled={!roomId || isSending || !draftMessage.trim()}>
-          {isSending ? 'Sending...' : 'Send'}
+        <button type="submit" disabled={!roomId || isSending || !canPost || !draftMessage.trim()}>
+          {isSending ? 'Sending...' : activeChannel.readOnly ? 'Publish' : 'Send'}
         </button>
       </form>
     </section>
