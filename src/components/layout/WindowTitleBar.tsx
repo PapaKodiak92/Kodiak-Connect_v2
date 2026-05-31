@@ -1,8 +1,8 @@
 import { closeWindow, minimizeWindow, toggleMaximizeWindow } from '../../platform/desktop/windowControls';
-import type { PlatformKind } from '../../platform/usePlatformInfo';
+import type { KodiakPlatformKind } from '../../platform/usePlatformInfo';
 
 interface WindowTitleBarProps {
-  platformKind: PlatformKind;
+  platformKind: KodiakPlatformKind;
 }
 
 export function WindowTitleBar({ platformKind }: WindowTitleBarProps) {
@@ -19,13 +19,13 @@ export function WindowTitleBar({ platformKind }: WindowTitleBarProps) {
 
       <div className="window-titlebar__controls">
         <button type="button" aria-label="Minimize window" onClick={() => void minimizeWindow()}>
-          −
+          _
         </button>
         <button type="button" aria-label="Maximize window" onClick={() => void toggleMaximizeWindow()}>
-          □
+          []
         </button>
         <button type="button" className="window-titlebar__close" aria-label="Close window" onClick={() => void closeWindow()}>
-          ×
+          X
         </button>
       </div>
     </header>
