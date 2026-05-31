@@ -206,3 +206,35 @@
     justify-content: flex-start;
   }
 }
+
+/* Mobile updater action spacing */
+@media (max-width: 850px) {
+  .launcher-shell .kodiak-status-card {
+    padding-bottom: 7rem !important;
+  }
+
+  .updater-footer-row {
+    grid-template-columns: 1fr !important;
+    gap: 0.75rem !important;
+  }
+
+  .updater-social-dock {
+    justify-content: flex-start !important;
+  }
+}
+
+/* Mobile updater action spacing */
+@media (max-width: 850px) {
+  .launcher-shell .kodiak-status-card {
+    padding-bottom: 7rem !important;
+  }
+
+  .updater-footer-row {
+    grid-template-columns: 1fr !important;
+    gap: 0.75rem !important;
+  }
+
+  .updater-social-dock {
+    justify-content: flex-start !important;
+  }
+}
