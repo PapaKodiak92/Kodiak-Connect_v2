@@ -7,6 +7,7 @@ import {
 } from '../policy/policyAcknowledgementStorage';
 import { ChannelSidebar } from './ChannelSidebar';
 import { ChatPlaceholder } from './ChatPlaceholder';
+import { MatrixChannelPanel } from './MatrixChannelPanel';
 import { ServerRail } from './ServerRail';
 import { officialSpace } from './workspaceData';
 import type { WorkspaceChannel, WorkspaceSpace } from './workspaceTypes';
@@ -70,7 +71,11 @@ export function WorkspaceShell({ identity, onLogout }: WorkspaceShellProps) {
     <main className="workspace-app-shell">
       <ServerRail spaces={spaces} activeSpaceId={activeSpace.id} onSelectSpace={handleSelectSpace} />
       <ChannelSidebar activeSpace={activeSpace} activeChannelId={activeChannel.id} onSelectChannel={handleSelectChannel} onLogout={onLogout} />
-      <ChatPlaceholder activeSpace={activeSpace} activeChannel={activeChannel} identity={identity} />
+      {activeChannel.matrixAlias ? (
+        <MatrixChannelPanel activeSpace={activeSpace} activeChannel={activeChannel} identity={identity} />
+      ) : (
+        <ChatPlaceholder activeSpace={activeSpace} activeChannel={activeChannel} identity={identity} />
+      )}
 
       {!hasAcknowledgedOfficialSpace ? <OfficialSpaceAcknowledgementModal onAcknowledge={handleAcknowledgeOfficialSpace} /> : null}
     </main>
