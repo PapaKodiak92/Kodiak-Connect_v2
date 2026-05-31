@@ -8,6 +8,7 @@ interface KodiakStatusCardProps {
   detailText?: string | null;
   badgeText?: string;
   tone?: 'ready' | 'available' | 'working' | 'error';
+  showIcon?: boolean;
   children?: ReactNode;
 }
 
@@ -19,6 +20,7 @@ export function KodiakStatusCard({
   detailText,
   badgeText,
   tone = 'ready',
+  showIcon = true,
   children,
 }: KodiakStatusCardProps) {
   const titleId = `${title.replace(/\s+/g, '-').toLowerCase()}-title`;
@@ -26,9 +28,11 @@ export function KodiakStatusCard({
   return (
     <section className={`kodiak-status-card kodiak-status-card--${tone}`} aria-labelledby={titleId}>
       <div className="kodiak-status-card__header">
-        <div className="brand-orb" aria-hidden="true">
-          <img src="/kodiak-connect-icon.png" alt="" />
-        </div>
+        {showIcon ? (
+          <div className="brand-orb" aria-hidden="true">
+            <img src="/kodiak-connect-icon.png" alt="" />
+          </div>
+        ) : null}
         <div>
           <p className="eyebrow eyebrow--ember">{eyebrow}</p>
           <h2 id={titleId}>{title}</h2>
