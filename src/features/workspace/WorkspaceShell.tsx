@@ -1,5 +1,10 @@
 import { useMemo, useState } from 'react';
 import type { MatrixLoginIdentity } from '../auth/matrixLoginService';
+import { OfficialSpaceAcknowledgementModal } from '../policy/OfficialSpaceAcknowledgementModal';
+import {
+  hasCurrentOfficialSpaceAcknowledgement,
+  saveOfficialSpaceAcknowledgement,
+} from '../policy/policyAcknowledgementStorage';
 import { ChannelSidebar } from './ChannelSidebar';
 import { ChatPlaceholder } from './ChatPlaceholder';
 import { ServerRail } from './ServerRail';
@@ -20,6 +25,9 @@ function findInitialChannel(space: WorkspaceSpace) {
 export function WorkspaceShell({ identity, onLogout }: WorkspaceShellProps) {
   const [activeSpaceId, setActiveSpaceId] = useState(officialSpace.id);
   const [activeChannelId, setActiveChannelId] = useState('general');
+  const [hasAcknowledgedOfficialSpace, setHasAcknowledgedOfficialSpace] = useState(() =>
+    hasCurrentOfficialSpaceAcknowledgement(identity.userId),
+  );
 
   const activeSpace = useMemo(() => spaces.find((space) => space.id === activeSpaceId) ?? officialSpace, [activeSpaceId]);
   const activeChannel = useMemo(() => {
@@ -49,6 +57,11 @@ export function WorkspaceShell({ identity, onLogout }: WorkspaceShellProps) {
     setActiveChannelId(channel.id);
   }
 
+  function handleAcknowledgeOfficialSpace() {
+    saveOfficialSpaceAcknowledgement(identity.userId);
+    setHasAcknowledgedOfficialSpace(true);
+  }
+
   if (!activeChannel) {
     return null;
   }
@@ -58,6 +71,8 @@ export function WorkspaceShell({ identity, onLogout }: WorkspaceShellProps) {
       <ServerRail spaces={spaces} activeSpaceId={activeSpace.id} onSelectSpace={handleSelectSpace} />
       <ChannelSidebar activeSpace={activeSpace} activeChannelId={activeChannel.id} onSelectChannel={handleSelectChannel} onLogout={onLogout} />
       <ChatPlaceholder activeSpace={activeSpace} activeChannel={activeChannel} identity={identity} />
+
+      {!hasAcknowledgedOfficialSpace ? <OfficialSpaceAcknowledgementModal onAcknowledge={handleAcknowledgeOfficialSpace} /> : null}
     </main>
   );
 }
