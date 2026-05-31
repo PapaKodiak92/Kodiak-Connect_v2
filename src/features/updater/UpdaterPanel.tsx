@@ -10,30 +10,30 @@ import {
 
 function formatUpdaterStatus(status: DesktopUpdaterStatus, updateInfo: DesktopUpdateInfo | null) {
   if (status === 'checking') {
-    return 'Checking secure release channel...';
+    return 'Checking for updates...';
   }
 
   if (status === 'available' && updateInfo) {
-    return `Update ready: ${updateInfo.currentVersion} → ${updateInfo.version}`;
+    return `Update available: ${updateInfo.currentVersion} -> ${updateInfo.version}`;
   }
 
   if (status === 'not-available') {
-    return 'Kodiak Connect is up to date.';
+    return 'You are up to date.';
   }
 
   if (status === 'installing') {
-    return 'Preparing trusted update...';
+    return 'Installing update...';
   }
 
   if (status === 'installed') {
-    return 'Update installed. Restart to enter the newest build.';
+    return 'Update installed. Restart when prompted.';
   }
 
   if (status === 'error') {
-    return 'Update check failed.';
+    return 'Updater is offline.';
   }
 
-  return 'Ready to check for secure desktop updates.';
+  return 'Updater ready.';
 }
 
 function getStatusTone(status: DesktopUpdaterStatus) {
@@ -55,22 +55,22 @@ function getStatusTone(status: DesktopUpdaterStatus) {
 export function UpdaterPanel() {
   const [status, setStatus] = useState<DesktopUpdaterStatus>('checking');
   const [updateInfo, setUpdateInfo] = useState<DesktopUpdateInfo | null>(null);
-  const [progressText, setProgressText] = useState('Auto-checking on startup...');
+  const [progressText, setProgressText] = useState('Checking current version...');
   const hasAutoChecked = useRef(false);
 
   const checkForUpdate = useCallback(async (source: 'auto' | 'manual') => {
     setStatus('checking');
-    setProgressText(source === 'auto' ? 'Auto-checking on startup...' : 'Contacting update server...');
+    setProgressText(source === 'auto' ? 'Checking current version...' : 'Checking again...');
 
     try {
       const update = await checkForDesktopUpdate();
       setUpdateInfo(update);
       setStatus(update ? 'available' : 'not-available');
-      setProgressText(update ? 'A signed desktop update is ready to install.' : 'Latest desktop release is already installed.');
+      setProgressText(update ? 'A new version is ready.' : 'Latest desktop version installed.');
     } catch (error) {
       console.error('[Kodiak Connect] Updater check failed', error);
       setStatus('error');
-      setProgressText('Could not reach or verify the update channel. Manual retry is available.');
+      setProgressText('Could not reach the update server.');
     }
   }, []);
 
@@ -85,30 +85,30 @@ export function UpdaterPanel() {
 
   async function handleInstallUpdate() {
     setStatus('installing');
-    setProgressText('Starting secure download...');
+    setProgressText('Downloading update...');
 
     try {
       await installDesktopUpdate((progress) => {
         if (progress.event === 'Started') {
-          setProgressText('Download started. Keep Kodiak Connect open.');
+          setProgressText('Download started.');
         }
 
         if (progress.event === 'Progress' && progress.totalBytes) {
           const percent = Math.round((progress.downloadedBytes / progress.totalBytes) * 100);
-          setProgressText(`Downloading signed update... ${percent}%`);
+          setProgressText(`Downloading... ${percent}%`);
         }
 
         if (progress.event === 'Finished') {
-          setProgressText('Download verified. Handing off to the system installer...');
+          setProgressText('Download complete.');
         }
       });
 
       setStatus('installed');
-      setProgressText('Restart Kodiak Connect after the installer completes.');
+      setProgressText('Restart after install completes.');
     } catch (error) {
       console.error('[Kodiak Connect] Update install failed', error);
       setStatus('error');
-      setProgressText('The update could not be installed. Try again or download the installer manually.');
+      setProgressText('Install failed. Try again.');
     }
   }
 
@@ -116,13 +116,14 @@ export function UpdaterPanel() {
 
   return (
     <KodiakStatusCard
-      eyebrow="Official release channel"
-      title="Kodiak updater"
-      description="Signed desktop releases for Windows and Linux. Built to keep the app current before chat features ship."
+      eyebrow="Updater status"
+      title="Updater"
+      description="Keep Kodiak Connect current."
       statusText={formatUpdaterStatus(status, updateInfo)}
       detailText={progressText}
       badgeText={`v${updateManifest.currentVersion}`}
       tone={tone}
+      showIcon={false}
     >
       <div className="button-row">
         <button type="button" onClick={() => void checkForUpdate('manual')} disabled={status === 'checking' || status === 'installing'}>
