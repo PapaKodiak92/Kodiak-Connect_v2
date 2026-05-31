@@ -1,6 +1,8 @@
-﻿import { useMemo, useState, type ChangeEventHandler, type FormEvent } from 'react';
+import { useMemo, useState, type ChangeEventHandler, type FormEvent } from 'react';
 import { openUrl } from '@tauri-apps/plugin-opener';
 import { TurnstileWidget } from '../../components/security/TurnstileWidget';
+import { kodiakEnv } from '../../config/env';
+import { MatrixLoginError, verifyMatrixLogin } from './matrixLoginService';
 
 type LoginMode = 'sign-in' | 'create-account' | 'reset-password';
 type MessageTone = 'error' | 'success';
@@ -16,6 +18,7 @@ interface PasswordInputProps {
   placeholder: string;
   value: string;
   onChange: ChangeEventHandler<HTMLInputElement>;
+  disabled?: boolean;
 }
 
 function isValidEmail(value: string) {
@@ -39,19 +42,13 @@ function EyeIcon({ isVisible }: { isVisible: boolean }) {
       />
       <circle cx="12" cy="12" r="2.8" fill="none" stroke="currentColor" strokeWidth="1.8" />
       {!isVisible ? (
-        <path
-          d="M4 20 20 4"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2.1"
-          strokeLinecap="round"
-        />
+        <path d="M4 20 20 4" fill="none" stroke="currentColor" strokeWidth="2.1" strokeLinecap="round" />
       ) : null}
     </svg>
   );
 }
 
-function PasswordInput({ name, autoComplete, placeholder, value, onChange }: PasswordInputProps) {
+function PasswordInput({ name, autoComplete, placeholder, value, onChange, disabled }: PasswordInputProps) {
   const [isVisible, setIsVisible] = useState(false);
 
   return (
@@ -63,6 +60,7 @@ function PasswordInput({ name, autoComplete, placeholder, value, onChange }: Pas
         placeholder={placeholder}
         value={value}
         onChange={onChange}
+        disabled={disabled}
       />
 
       <button
@@ -71,13 +69,13 @@ function PasswordInput({ name, autoComplete, placeholder, value, onChange }: Pas
         aria-label={isVisible ? 'Hide password' : 'Show password'}
         title={isVisible ? 'Hide password' : 'Show password'}
         onClick={() => setIsVisible((current) => !current)}
+        disabled={disabled}
       >
         <EyeIcon isVisible={isVisible} />
       </button>
     </div>
   );
 }
-
 
 const footerLinks = [
   {
@@ -140,10 +138,27 @@ function LoginFooter() {
   );
 }
 
+function getLoginErrorMessage(error: unknown) {
+  if (error instanceof MatrixLoginError) {
+    if (error.errcode === 'M_FORBIDDEN' || error.status === 403) {
+      return 'Incorrect username or password.';
+    }
+
+    if (error.status === 429) {
+      return 'Too many login attempts. Wait a moment, then try again.';
+    }
+
+    return error.message;
+  }
+
+  return 'Kodiak Connect could not reach the Matrix staging server.';
+}
+
 export function LoginScreen() {
   const [mode, setMode] = useState<LoginMode>('sign-in');
   const [failedAttempts, setFailedAttempts] = useState(0);
   const [message, setMessage] = useState<FormMessage | null>(null);
+  const [isSigningIn, setIsSigningIn] = useState(false);
 
   const [loginId, setLoginId] = useState('');
   const [loginPassword, setLoginPassword] = useState('');
@@ -158,7 +173,7 @@ export function LoginScreen() {
   const [resetEmail, setResetEmail] = useState('');
   const [resetCaptchaToken, setResetCaptchaToken] = useState('');
 
-  const isTurnstileConfigured = Boolean(import.meta.env.VITE_TURNSTILE_SITE_KEY);
+  const isTurnstileConfigured = Boolean(kodiakEnv.turnstileSiteKey);
   const showForgotPassword = failedAttempts >= 3;
 
   const emailMismatch = email.length > 0 && confirmEmail.length > 0 && normalizeEmail(email) !== normalizeEmail(confirmEmail);
@@ -190,7 +205,7 @@ export function LoginScreen() {
     setMessage(null);
   }
 
-  function handleSignIn(event: FormEvent<HTMLFormElement>) {
+  async function handleSignIn(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
     if (!loginId.trim() || !loginPassword) {
@@ -198,9 +213,20 @@ export function LoginScreen() {
       return;
     }
 
-    const nextAttempts = failedAttempts + 1;
-    setFailedAttempts(nextAttempts);
-    setError('Incorrect username or password.');
+    setIsSigningIn(true);
+    setMessage(null);
+
+    try {
+      const identity = await verifyMatrixLogin(loginId, loginPassword);
+      setFailedAttempts(0);
+      setSuccess(`Signed in as ${identity.userId}. Chat shell wiring is next.`);
+    } catch (error) {
+      const nextAttempts = failedAttempts + 1;
+      setFailedAttempts(nextAttempts);
+      setError(getLoginErrorMessage(error));
+    } finally {
+      setIsSigningIn(false);
+    }
   }
 
   function handleCreateAccount(event: FormEvent<HTMLFormElement>) {
@@ -246,7 +272,7 @@ export function LoginScreen() {
       return;
     }
 
-    setSuccess('Account details look good. Email verification will be required when registration is connected.');
+    setSuccess('Account details look good. Controlled registration will be connected after the Kodiak API is added.');
   }
 
   function handleResetPassword(event: FormEvent<HTMLFormElement>) {
@@ -288,9 +314,10 @@ export function LoginScreen() {
                 type="text"
                 name="username"
                 autoComplete="username"
-                placeholder="kodiak or kodiak@example.com"
+                placeholder="papakodiak"
                 value={loginId}
                 onChange={(event) => setLoginId(event.target.value)}
+                disabled={isSigningIn}
               />
             </label>
 
@@ -299,9 +326,10 @@ export function LoginScreen() {
               <PasswordInput
                 name="password"
                 autoComplete="current-password"
-                placeholder="Example: KodiakDen92"
+                placeholder="Your Matrix password"
                 value={loginPassword}
                 onChange={(event) => setLoginPassword(event.target.value)}
+                disabled={isSigningIn}
               />
             </label>
 
@@ -313,17 +341,19 @@ export function LoginScreen() {
             ) : null}
 
             <div className="login-actions">
-              <button type="submit" className="button-primary">
-                Sign In
+              <button type="submit" className="button-primary" disabled={isSigningIn}>
+                {isSigningIn ? 'Signing In...' : 'Sign In'}
               </button>
 
-              <button type="button" onClick={() => switchMode('create-account')}>
+              <button type="button" onClick={() => switchMode('create-account')} disabled={isSigningIn}>
                 Create Account
               </button>
             </div>
 
+            <p className="muted-text">Server: {kodiakEnv.matrixServerName}</p>
+
             {showForgotPassword ? (
-              <button type="button" className="login-link-button" onClick={() => switchMode('reset-password')}>
+              <button type="button" className="login-link-button" onClick={() => switchMode('reset-password')} disabled={isSigningIn}>
                 Forgot password?
               </button>
             ) : null}
@@ -458,5 +488,3 @@ export function LoginScreen() {
     </main>
   );
 }
-
-
