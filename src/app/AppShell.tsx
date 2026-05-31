@@ -25,6 +25,10 @@ export function AppShell() {
     );
   }
 
+  if (!auth.user) {
+    return null;
+  }
+
   return (
     <main className="app-shell app-shell--wide">
       <AppFrame user={auth.user} onExit={auth.signOut}>
