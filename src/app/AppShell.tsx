@@ -14,7 +14,7 @@ export function AppShell() {
   const updaterPanel = platform.kind === 'android' ? <AndroidUpdatePanel /> : <UpdaterPanel />;
 
   useEffect(() => {
-    const timeout = window.setTimeout(() => setIsBooting(false), 720);
+    const timeout = window.setTimeout(() => setIsBooting(false), 520);
     return () => window.clearTimeout(timeout);
   }, []);
 
@@ -29,32 +29,32 @@ export function AppShell() {
   return (
     <>
       <WindowTitleBar platformKind={platform.kind} />
-      <main className="app-shell app-shell--wide app-shell--framed">
+      <main className="app-shell app-shell--wide app-shell--framed app-shell--compact">
         <AppFrame user={auth.user}>
-          <section className="hero-card hero-card--brand">
-            <p className="eyebrow eyebrow--ember">Official space</p>
-            <h1>Kodiak Connect</h1>
-            <p className="lede">
-              Announcements, updater status, and active channels will live here as the Matrix layer comes online.
-            </p>
+          <div className="launcher-grid">
+            <section className="hero-card hero-card--brand launcher-summary">
+              <p className="eyebrow eyebrow--ember">Official space</p>
+              <h1>Kodiak Connect</h1>
+              <p className="lede">A secure communication foundation with validated installers, updater channels, and Matrix features coming next.</p>
 
-            <dl className="status-grid" aria-label="Foundation status">
-              <div>
-                <dt>Platform</dt>
-                <dd>{platform.kind}</dd>
-              </div>
-              <div>
-                <dt>Updater</dt>
-                <dd>Validated</dd>
-              </div>
-              <div>
-                <dt>Matrix</dt>
-                <dd>Coming Next</dd>
-              </div>
-            </dl>
-          </section>
+              <dl className="status-grid launcher-status-grid" aria-label="Foundation status">
+                <div>
+                  <dt>Platform</dt>
+                  <dd>{platform.kind}</dd>
+                </div>
+                <div>
+                  <dt>Updater</dt>
+                  <dd>Validated</dd>
+                </div>
+                <div>
+                  <dt>Matrix</dt>
+                  <dd>Coming Next</dd>
+                </div>
+              </dl>
+            </section>
 
-          {updaterPanel}
+            {updaterPanel}
+          </div>
         </AppFrame>
       </main>
     </>
