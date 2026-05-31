@@ -41,11 +41,6 @@ try {
     -Pattern "(currentVersion:\s*')\d+\.\d+\.\d+(')" `
     -Replacement "`${1}$Version`${2}"
 
-  Replace-RequiredMatch `
-    -Path 'src/features/updater/UpdaterPanel.tsx' `
-    -Pattern 'Updater foundation v\d+\.\d+\.\d+' `
-    -Replacement "Updater foundation v$Version"
-
   Write-Host "Kodiak Connect version set to $Version" -ForegroundColor Green
   Write-Host 'Next: build, publish, commit, and tag this release.' -ForegroundColor Cyan
 }
