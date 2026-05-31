@@ -1,4 +1,4 @@
-import { useMemo, useState, type ChangeEventHandler, type FormEvent } from 'react';
+import { useEffect, useMemo, useState, type ChangeEventHandler, type FormEvent } from 'react';
 import { openUrl } from '@tauri-apps/plugin-opener';
 import { TurnstileWidget } from '../../components/security/TurnstileWidget';
 import { kodiakEnv } from '../../config/env';
@@ -24,6 +24,8 @@ interface PasswordInputProps {
   onChange: ChangeEventHandler<HTMLInputElement>;
   disabled?: boolean;
 }
+
+const FALLBACK_RATE_LIMIT_MS = 60_000;
 
 function isValidEmail(value: string) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim());
@@ -158,11 +160,21 @@ function getLoginErrorMessage(error: unknown) {
   return 'Kodiak Connect could not reach the Matrix staging server.';
 }
 
+function getRetryCooldownMs(error: unknown) {
+  if (!(error instanceof MatrixLoginError) || error.status !== 429) {
+    return 0;
+  }
+
+  return error.retryAfterMs && error.retryAfterMs > 0 ? error.retryAfterMs : FALLBACK_RATE_LIMIT_MS;
+}
+
 export function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
   const [mode, setMode] = useState<LoginMode>('sign-in');
   const [failedAttempts, setFailedAttempts] = useState(0);
   const [message, setMessage] = useState<FormMessage | null>(null);
   const [isSigningIn, setIsSigningIn] = useState(false);
+  const [loginCooldownUntil, setLoginCooldownUntil] = useState<number | null>(null);
+  const [now, setNow] = useState(() => Date.now());
 
   const [loginId, setLoginId] = useState('');
   const [loginPassword, setLoginPassword] = useState('');
@@ -179,10 +191,29 @@ export function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
 
   const isTurnstileConfigured = Boolean(kodiakEnv.turnstileSiteKey);
   const showForgotPassword = failedAttempts >= 3;
+  const isLoginCoolingDown = Boolean(loginCooldownUntil && loginCooldownUntil > now);
+  const isSignInDisabled = isSigningIn || isLoginCoolingDown;
 
   const emailMismatch = email.length > 0 && confirmEmail.length > 0 && normalizeEmail(email) !== normalizeEmail(confirmEmail);
   const passwordTooShort = password.length > 0 && password.length < 8;
   const passwordMismatch = password.length > 0 && confirmPassword.length > 0 && password !== confirmPassword;
+
+  useEffect(() => {
+    if (!loginCooldownUntil) {
+      return undefined;
+    }
+
+    const timer = window.setInterval(() => {
+      const currentTime = Date.now();
+      setNow(currentTime);
+
+      if (currentTime >= loginCooldownUntil) {
+        setLoginCooldownUntil(null);
+      }
+    }, 1000);
+
+    return () => window.clearInterval(timer);
+  }, [loginCooldownUntil]);
 
   const heading = useMemo(() => {
     if (mode === 'create-account') return 'Create account.';
@@ -212,6 +243,10 @@ export function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
   async function handleSignIn(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
+    if (isLoginCoolingDown) {
+      return;
+    }
+
     if (!loginId.trim() || !loginPassword) {
       setError('Enter your username/email and password.');
       return;
@@ -223,11 +258,19 @@ export function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
     try {
       const identity = await verifyMatrixLogin(loginId, loginPassword);
       setFailedAttempts(0);
+      setLoginCooldownUntil(null);
       setSuccess('Signed in successfully. Preparing your workspace.');
       window.setTimeout(() => onLoginSuccess?.(identity), 350);
     } catch (error) {
       const nextAttempts = failedAttempts + 1;
+      const retryCooldownMs = getRetryCooldownMs(error);
+
       setFailedAttempts(nextAttempts);
+
+      if (retryCooldownMs > 0) {
+        setLoginCooldownUntil(Date.now() + retryCooldownMs);
+      }
+
       setError(getLoginErrorMessage(error));
     } finally {
       setIsSigningIn(false);
@@ -322,7 +365,7 @@ export function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
                 placeholder="Username or email"
                 value={loginId}
                 onChange={(event) => setLoginId(event.target.value)}
-                disabled={isSigningIn}
+                disabled={isSignInDisabled}
               />
             </label>
 
@@ -334,7 +377,7 @@ export function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
                 placeholder="Password"
                 value={loginPassword}
                 onChange={(event) => setLoginPassword(event.target.value)}
-                disabled={isSigningIn}
+                disabled={isSignInDisabled}
               />
             </label>
 
@@ -346,7 +389,7 @@ export function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
             ) : null}
 
             <div className="login-actions">
-              <button type="submit" className="button-primary" disabled={isSigningIn}>
+              <button type="submit" className="button-primary" disabled={isSignInDisabled}>
                 {isSigningIn ? 'Signing In...' : 'Sign In'}
               </button>
 
