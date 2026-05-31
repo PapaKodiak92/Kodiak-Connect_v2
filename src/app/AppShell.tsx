@@ -57,11 +57,21 @@ export function AppShell() {
         {updaterPanel}
 
         <footer className="launcher-footer" aria-label="Kodiak Connect links">
-          <a href="mailto:support@kodiak-connect.com?subject=Kodiak%20Connect%20Support">Support</a>
-          <a href="https://www.facebook.com/PapaKodiak/" target="_blank" rel="noreferrer">Facebook</a>
-          <a href="https://x.com/PapaKodiak92" target="_blank" rel="noreferrer">X</a>
-          <a href="https://www.instagram.com/papakodiak92/" target="_blank" rel="noreferrer">Instagram</a>
-          <a href="https://buymeacoffee.com/papakodiak" target="_blank" rel="noreferrer">Coffee</a>
+          <a className="launcher-social-link" href="mailto:support@kodiak-connect.com?subject=Kodiak%20Connect%20Support" title="Email support" aria-label="Email support">
+            <span aria-hidden="true">@</span>
+          </a>
+          <a className="launcher-social-link" href="https://www.facebook.com/PapaKodiak/" target="_blank" rel="noreferrer" title="Facebook" aria-label="Facebook">
+            <span aria-hidden="true">f</span>
+          </a>
+          <a className="launcher-social-link" href="https://x.com/PapaKodiak92" target="_blank" rel="noreferrer" title="X" aria-label="X">
+            <span aria-hidden="true">X</span>
+          </a>
+          <a className="launcher-social-link" href="https://www.instagram.com/papakodiak92/" target="_blank" rel="noreferrer" title="Instagram" aria-label="Instagram">
+            <span aria-hidden="true">◎</span>
+          </a>
+          <a className="launcher-social-link" href="https://buymeacoffee.com/papakodiak" target="_blank" rel="noreferrer" title="Buy me a coffee" aria-label="Buy me a coffee">
+            <span aria-hidden="true">☕</span>
+          </a>
         </footer>
       </main>
     </>
