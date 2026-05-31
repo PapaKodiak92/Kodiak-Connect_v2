@@ -27,6 +27,7 @@ export const officialSpace: WorkspaceSpace = {
           name: 'general',
           kind: 'text',
           description: 'The first public community channel for Kodiak Connect.',
+          matrixAlias: '#general:v2.kodiak-connect.com',
         },
       ],
     },
