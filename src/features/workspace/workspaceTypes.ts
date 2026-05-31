@@ -7,6 +7,8 @@ export interface WorkspaceChannel {
   description: string;
   disabled?: boolean;
   matrixAlias?: string;
+  readOnly?: boolean;
+  allowedPosterIds?: string[];
 }
 
 export interface WorkspaceChannelSection {
