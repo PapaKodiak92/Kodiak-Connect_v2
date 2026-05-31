@@ -56,7 +56,8 @@ button:disabled {
 .hero-card,
 .panel,
 .auth-card,
-.app-frame {
+.app-frame,
+.workspace-card {
   border: 1px solid rgba(148, 163, 184, 0.25);
   border-radius: 24px;
   background: rgba(15, 23, 42, 0.78);
@@ -205,21 +206,93 @@ h2 {
   font-size: 0.92rem;
 }
 
+.workspace-shell {
+  display: grid;
+  min-height: 100vh;
+  place-items: center;
+  padding: calc(42px + 1rem) 1rem 1rem;
+}
+
+.workspace-card {
+  display: grid;
+  gap: 1.25rem;
+  width: min(920px, 100%);
+  border-color: rgba(251, 146, 60, 0.22);
+  background: linear-gradient(145deg, rgba(15, 23, 42, 0.92), rgba(2, 6, 23, 0.86));
+  padding: clamp(1.25rem, 3vw, 2rem);
+}
+
+.workspace-card__header {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.workspace-card__header h1 {
+  max-width: none;
+  margin-bottom: 0.4rem;
+  font-size: clamp(2.25rem, 6vw, 4.25rem);
+}
+
+.workspace-card__grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.75rem;
+}
+
+.workspace-status-panel {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+  min-width: 0;
+  border: 1px solid rgba(251, 146, 60, 0.16);
+  border-radius: 18px;
+  background: rgba(15, 23, 42, 0.72);
+  padding: 1rem;
+}
+
+.workspace-status-panel strong {
+  display: block;
+  color: #fff7ed;
+}
+
+.workspace-status-panel p {
+  margin: 0.25rem 0 0;
+  color: #94a3b8;
+  overflow-wrap: anywhere;
+}
+
+.workspace-status-panel--muted {
+  opacity: 0.86;
+}
+
+.workspace-card__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  justify-content: flex-end;
+  border-top: 1px solid rgba(251, 146, 60, 0.14);
+  padding-top: 1rem;
+}
+
 @media (max-width: 720px) {
   .app-shell {
     padding: 2rem 0;
   }
 
-  .status-grid {
+  .status-grid,
+  .workspace-card__grid {
     grid-template-columns: 1fr;
   }
 
-  .app-frame__header {
+  .app-frame__header,
+  .workspace-card__header {
     align-items: flex-start;
     flex-direction: column;
   }
 
-  .app-frame__user {
+  .app-frame__user,
+  .workspace-card__actions {
     justify-content: flex-start;
   }
 }
