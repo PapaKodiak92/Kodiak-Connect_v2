@@ -4,10 +4,12 @@ import { playKodiakSound } from '../audio/kodiakSounds';
 import {
   loadKodiakPresence,
   loadKodiakProfiles,
+  loadKodiakReports,
   submitKodiakReport,
   saveKodiakProfile,
   sendKodiakPresenceHeartbeat,
   type KodiakPresenceState,
+  type KodiakReport,
   type KodiakReportCategory,
 } from '../backend/kodiakApiClient';
 import {
@@ -422,6 +424,24 @@ function renderMessageTextWithMentions(
   return renderedParts;
 }
 
+
+function getReportCategoryLabel(category: string) {
+  switch (category) {
+    case 'harassment':
+      return 'Harassment or abuse';
+    case 'spam':
+      return 'Spam';
+    case 'scam':
+      return 'Scam or suspicious behavior';
+    case 'threats':
+      return 'Threats or safety concern';
+    case 'impersonation':
+      return 'Impersonation';
+    default:
+      return 'Other';
+  }
+}
+
 export function MatrixChannelPanel({
   activeChannel,
   activeSpace,
@@ -474,6 +494,10 @@ export function MatrixChannelPanel({
   const [isSubmittingReport, setIsSubmittingReport] = useState(false);
   const [reportErrorText, setReportErrorText] = useState<string | null>(null);
   const [reportSuccessText, setReportSuccessText] = useState<string | null>(null);
+  const [isSafetyCenterOpen, setIsSafetyCenterOpen] = useState(false);
+  const [safetyReports, setSafetyReports] = useState<KodiakReport[]>([]);
+  const [isLoadingSafetyReports, setIsLoadingSafetyReports] = useState(false);
+  const [safetyReportErrorText, setSafetyReportErrorText] = useState<string | null>(null);
   const [areMessageSoundsEnabled, setAreMessageSoundsEnabled] = useState(() => window.localStorage.getItem('KC_SOUND_MESSAGES') !== 'false');
   const [isSentSoundEnabled, setIsSentSoundEnabled] = useState(() => window.localStorage.getItem('KC_SOUND_SENT') !== 'false');
   const [isReceivedSoundEnabled, setIsReceivedSoundEnabled] = useState(() => window.localStorage.getItem('KC_SOUND_RECEIVED') !== 'false');
@@ -1566,6 +1590,26 @@ export function MatrixChannelPanel({
     }
   }
 
+  async function refreshSafetyReports() {
+    setIsLoadingSafetyReports(true);
+    setSafetyReportErrorText(null);
+
+    try {
+      const reports = await loadKodiakReports(identity);
+      setSafetyReports(reports);
+    } catch (error) {
+      console.error('[Kodiak Connect] Failed to load safety reports', error);
+      setSafetyReportErrorText(error instanceof Error ? error.message : 'Could not load report history.');
+    } finally {
+      setIsLoadingSafetyReports(false);
+    }
+  }
+
+  function openSafetyCenter() {
+    setIsSafetyCenterOpen(true);
+    void refreshSafetyReports();
+  }
+
   function requestReportUser(userId: string) {
     setPendingReportUserId(userId);
     setReportCategory('harassment');
@@ -1603,6 +1647,7 @@ export function MatrixChannelPanel({
         targetUserId: pendingReportUserId,
       });
 
+      void refreshSafetyReports();
       setReportSuccessText('Report submitted. Kodiak Trust & Safety can review it.');
       setReportDetails('');
     } catch (error) {
@@ -1818,6 +1863,15 @@ export function MatrixChannelPanel({
           <h1>{channelHeadingPrefix}{activeChannel.name}</h1>
           <p>{activeChannel.description}</p>
         </div>
+
+        <button
+          type="button"
+          className="chat-placeholder__user chat-placeholder__user--button kodiak-safety-center-trigger"
+          onClick={openSafetyCenter}
+        >
+          <span className="status-light status-light--idle" aria-hidden="true" />
+          <span>Safety Center</span>
+        </button>
 
         <button
           type="button"
@@ -2435,6 +2489,83 @@ export function MatrixChannelPanel({
               >
                 {friendActionUserId === pendingUnfriendUserId ? 'Removing...' : 'Unfriend'}
               </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {isSafetyCenterOpen ? (
+        <div className="kodiak-modal-backdrop" role="presentation" onClick={() => setIsSafetyCenterOpen(false)}>
+          <div
+            className="kodiak-safety-center-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="safety-center-title"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <button
+              type="button"
+              className="kodiak-safety-center-modal__close"
+              aria-label="Close Safety Center"
+              onClick={() => setIsSafetyCenterOpen(false)}
+            >
+              ×
+            </button>
+
+            <div className="kodiak-safety-center-modal__header">
+              <p className="eyebrow eyebrow--ember">Trust & Safety</p>
+              <h2 id="safety-center-title">Safety Center</h2>
+              <p>View reports you have submitted. Admin review tools come later.</p>
+            </div>
+
+            <div className="kodiak-safety-center-modal__toolbar">
+              <span>{safetyReports.length} submitted report{safetyReports.length === 1 ? '' : 's'}</span>
+              <button type="button" onClick={() => void refreshSafetyReports()} disabled={isLoadingSafetyReports}>
+                {isLoadingSafetyReports ? 'Refreshing...' : 'Refresh'}
+              </button>
+            </div>
+
+            {safetyReportErrorText ? (
+              <p className="kodiak-safety-center-modal__error" role="alert">
+                {safetyReportErrorText}
+              </p>
+            ) : null}
+
+            <div className="kodiak-safety-center-modal__body">
+              {isLoadingSafetyReports && !safetyReports.length ? (
+                <p className="kodiak-safety-center-empty">Loading report history...</p>
+              ) : safetyReports.length ? (
+                <div className="kodiak-safety-report-list">
+                  {safetyReports.map((report) => (
+                    <article key={report.id} className="kodiak-safety-report-card">
+                      <div className="kodiak-safety-report-card__top">
+                        <div>
+                          <strong>{report.targetDisplayName || getKnownDisplayName(report.targetUserId)}</strong>
+                          <span>{report.targetUserId}</span>
+                        </div>
+                        <em className="kodiak-safety-report-card__status">{report.status}</em>
+                      </div>
+
+                      <div className="kodiak-safety-report-card__meta">
+                        <span>{getReportCategoryLabel(report.category)}</span>
+                        <span>{new Date(report.createdAt).toLocaleString()}</span>
+                      </div>
+
+                      <p>{report.details}</p>
+
+                      {report.context || report.roomId ? (
+                        <small>
+                          {report.context ? `Context: ${report.context}` : ''}
+                          {report.context && report.roomId ? ' · ' : ''}
+                          {report.roomId ? `Room: ${report.roomId}` : ''}
+                        </small>
+                      ) : null}
+                    </article>
+                  ))}
+                </div>
+              ) : (
+                <p className="kodiak-safety-center-empty">No submitted reports yet.</p>
+              )}
             </div>
           </div>
         </div>
