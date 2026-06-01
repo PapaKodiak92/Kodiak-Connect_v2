@@ -7,15 +7,23 @@ import {
   sendTextMessage,
   type MatrixTextMessage,
 } from '../matrix/matrixRestClient';
-import { MentionSuggestions } from './MentionSuggestions';
-import { applyMentionSuggestion, getActiveMentionSearch, getMentionSuggestions } from './mentionSuggestions';
-import type { MentionSuggestion } from './mentionSuggestions';
 import type { WorkspaceChannel, WorkspaceSpace } from './workspaceTypes';
 
 interface MatrixChannelPanelProps {
   activeChannel: WorkspaceChannel;
   activeSpace: WorkspaceSpace;
   identity: MatrixLoginIdentity;
+}
+
+interface MentionSearch {
+  query: string;
+  startIndex: number;
+}
+
+interface MentionSuggestion {
+  displayName: string;
+  localpart: string;
+  userId: string;
 }
 
 interface ParsedReplyContext {
@@ -33,6 +41,7 @@ const REPLY_EVENT_PREFIX = 'KC_REPLY_EVENT=';
 const REPLY_SENDER_PREFIX = 'KC_REPLY_SENDER=';
 const REPLY_PREVIEW_PREFIX = 'KC_REPLY_PREVIEW=';
 const MENTION_PATTERN = /(^|\s)(@[a-zA-Z0-9._-]{2,32})/g;
+const ACTIVE_MENTION_PATTERN = /(^|\s)@([a-zA-Z0-9._-]{0,32})$/;
 
 function getDisplayName(userId: string) {
   const withoutPrefix = userId.startsWith('@') ? userId.slice(1) : userId;
@@ -177,6 +186,53 @@ function buildReplyBody(replyTarget: MatrixTextMessage | null, body: string) {
     '',
     body,
   ].join('\n');
+}
+
+function getActiveMentionSearch(draftMessage: string): MentionSearch | null {
+  const match = draftMessage.match(ACTIVE_MENTION_PATTERN);
+
+  if (!match) {
+    return null;
+  }
+
+  return {
+    query: match[2].toLowerCase(),
+    startIndex: draftMessage.length - match[2].length - 1,
+  };
+}
+
+function getMentionSuggestions(messages: MatrixTextMessage[], currentUserLocalpart: string, search: MentionSearch | null) {
+  if (!search) {
+    return [];
+  }
+
+  const suggestionsByLocalpart = new Map<string, MentionSuggestion>();
+
+  for (const message of messages) {
+    const localpart = getUserLocalpart(message.sender);
+
+    if (!localpart || localpart === currentUserLocalpart || suggestionsByLocalpart.has(localpart)) {
+      continue;
+    }
+
+    suggestionsByLocalpart.set(localpart, {
+      displayName: getDisplayName(message.sender),
+      localpart,
+      userId: message.sender,
+    });
+  }
+
+  return [...suggestionsByLocalpart.values()]
+    .filter((suggestion) => suggestion.localpart.includes(search.query))
+    .slice(0, 6);
+}
+
+function applyMentionSuggestion(draftMessage: string, search: MentionSearch | null, suggestion: MentionSuggestion) {
+  if (!search) {
+    return draftMessage;
+  }
+
+  return `${draftMessage.slice(0, search.startIndex)}@${suggestion.localpart} `;
 }
 
 function renderMessageTextWithMentions(body: string, currentUserLocalpart: string): ReactNode[] {
@@ -442,7 +498,16 @@ export function MatrixChannelPanel({ activeChannel, activeSpace, identity }: Mat
           </div>
         ) : null}
 
-        <MentionSuggestions suggestions={mentionSuggestions} onSelect={insertMentionSuggestion} />
+        {mentionSuggestions.length ? (
+          <div className="message-mention-suggestions" role="listbox" aria-label="Mention suggestions">
+            {mentionSuggestions.map((suggestion) => (
+              <button key={suggestion.userId} type="button" onClick={() => insertMentionSuggestion(suggestion)}>
+                <span>@{suggestion.localpart}</span>
+                <small>{suggestion.displayName}</small>
+              </button>
+            ))}
+          </div>
+        ) : null}
 
         <input
           type="text"
