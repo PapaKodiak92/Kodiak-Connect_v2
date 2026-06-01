@@ -21,6 +21,19 @@ export interface MatrixTypingState {
   userIds?: string[];
 }
 
+export interface MatrixRoomMember {
+  avatarUrl?: string;
+  displayName?: string;
+  userId: string;
+}
+
+export type MatrixPresenceState = 'online' | 'offline' | 'unavailable';
+
+interface MatrixPresenceResponse {
+  presence?: MatrixPresenceState;
+  status_msg?: string;
+}
+
 export type MatrixDirectRoomsByUserId = Record<string, string[]>;
 
 interface MatrixErrorResponse {
@@ -56,6 +69,16 @@ interface MatrixMessagesResponse {
   chunk?: MatrixEvent[];
 }
 
+interface MatrixJoinedMembersResponse {
+  joined?: Record<
+    string,
+    {
+      avatar_url?: string;
+      display_name?: string;
+    }
+  >;
+}
+
 interface MatrixSyncResponse {
   next_batch?: string;
   rooms?: {
@@ -79,8 +102,10 @@ interface MatrixEphemeralEvent {
 
 interface MatrixEvent {
   content?: {
+    bio?: string;
     body?: string;
     msgtype?: string;
+    updated_at?: number;
     'm.new_content'?: {
       body?: string;
       msgtype?: string;
@@ -373,6 +398,34 @@ export async function uploadProfileAvatar(identity: MatrixLoginIdentity, file: F
   throw lastError ?? new MatrixRestError('Matrix avatar upload failed.');
 }
 
+export async function loadUserPresence(identity: MatrixLoginIdentity, userId: string) {
+  try {
+    const data = await matrixRequest<MatrixPresenceResponse>(
+      identity,
+      `/_matrix/client/v3/presence/${encodePathValue(userId)}/status`,
+    );
+
+    return data.presence ?? 'offline';
+  } catch {
+    return 'offline';
+  }
+}
+
+export async function setOwnPresence(identity: MatrixLoginIdentity, presence: MatrixPresenceState) {
+  try {
+    await matrixRequest<Record<string, never>>(
+      identity,
+      `/_matrix/client/v3/presence/${encodePathValue(identity.userId)}/status`,
+      {
+        method: 'PUT',
+        body: JSON.stringify({ presence }),
+      },
+    );
+  } catch {
+    // Presence can be disabled/limited on some homeserver configs. Do not block chat.
+  }
+}
+
 export async function loadProfileDisplayName(identity: MatrixLoginIdentity, userId: string) {
   try {
     const data = await matrixRequest<MatrixDisplayNameResponse>(
@@ -449,6 +502,19 @@ export async function createDirectMessageRoom(identity: MatrixLoginIdentity, tar
   });
 
   return data.room_id;
+}
+
+export async function loadRoomMembers(identity: MatrixLoginIdentity, roomId: string) {
+  const data = await matrixRequest<MatrixJoinedMembersResponse>(
+    identity,
+    `/_matrix/client/v3/rooms/${encodePathValue(roomId)}/joined_members`,
+  );
+
+  return Object.entries(data.joined ?? {}).map<MatrixRoomMember>(([userId, member]) => ({
+    avatarUrl: member.avatar_url,
+    displayName: member.display_name,
+    userId,
+  }));
 }
 
 export async function loadRecentMessages(identity: MatrixLoginIdentity, roomId: string, limit = 80) {
@@ -616,6 +682,49 @@ export async function resolveDirectMessageRoom(identity: MatrixLoginIdentity, ta
   }
 
   return bestRoom?.roomId ?? null;
+}
+
+export async function sendProfileBio(identity: MatrixLoginIdentity, roomId: string, bio: string) {
+  const txnId = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+
+  await matrixRequest<{ event_id: string }>(
+    identity,
+    `/_matrix/client/v3/rooms/${encodePathValue(roomId)}/send/com.kodiak.profile.bio/${encodePathValue(txnId)}`,
+    {
+      method: 'PUT',
+      body: JSON.stringify({
+        bio,
+        updated_at: Date.now(),
+      }),
+    },
+  );
+}
+
+export async function loadRecentProfileBios(identity: MatrixLoginIdentity, roomId: string, limit = 120) {
+  const data = await matrixRequest<MatrixMessagesResponse>(
+    identity,
+    `/_matrix/client/v3/rooms/${encodePathValue(roomId)}/messages?dir=b&limit=${limit}`,
+  );
+
+  const biosByUserId = new Map<string, { bio: string; updatedAt: number }>();
+
+  for (const event of data.chunk ?? []) {
+    if (event.type !== 'com.kodiak.profile.bio' || !event.sender || typeof event.content?.bio !== 'string') {
+      continue;
+    }
+
+    const updatedAt = event.content.updated_at ?? event.origin_server_ts ?? 0;
+    const existingBio = biosByUserId.get(event.sender);
+
+    if (!existingBio || updatedAt > existingBio.updatedAt) {
+      biosByUserId.set(event.sender, {
+        bio: event.content.bio,
+        updatedAt,
+      });
+    }
+  }
+
+  return Object.fromEntries([...biosByUserId.entries()].map(([userId, value]) => [userId, value.bio]));
 }
 
 export async function sendTextMessage(identity: MatrixLoginIdentity, roomId: string, body: string, replyToEventId?: string) {

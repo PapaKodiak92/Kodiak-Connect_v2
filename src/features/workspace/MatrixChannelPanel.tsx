@@ -10,7 +10,9 @@ import {
   joinRoomById,
   loadProfileAvatarUrl,
   loadProfileDisplayName,
+  loadUserPresence,
   loadRecentMessages,
+  loadRoomMembers,
   loadRecentProfileBios,
   saveDirectMessageRoom,
   loadTypingUsers,
@@ -24,6 +26,7 @@ import {
   uploadProfileAvatar,
   sendTextMessage,
   sendTypingState,
+  setOwnPresence,
   type MatrixTextMessage,
 } from '../matrix/matrixRestClient';
 import type { WorkspaceChannel, WorkspaceSpace } from './workspaceTypes';
@@ -392,6 +395,9 @@ export function MatrixChannelPanel({
   const [pendingDeleteMessage, setPendingDeleteMessage] = useState<MatrixTextMessage | null>(null);
   const [reactionPickerMessageId, setReactionPickerMessageId] = useState<string | null>(null);
   const [typingUserIds, setTypingUserIds] = useState<string[]>([]);
+  const [roomMemberUserIds, setRoomMemberUserIds] = useState<string[]>([]);
+  const [presenceByUserId, setPresenceByUserId] = useState<Record<string, 'online' | 'offline' | 'unavailable'>>({});
+  const [isMemberPanelOpen, setIsMemberPanelOpen] = useState(true);
   const [displayNamesByUserId, setDisplayNamesByUserId] = useState<Record<string, string>>({});
   const [avatarUrlsByUserId, setAvatarUrlsByUserId] = useState<Record<string, string>>({});
   const [avatarFile, setAvatarFile] = useState<File | null>(null);
@@ -429,6 +435,40 @@ export function MatrixChannelPanel({
 
   function getKnownAvatarUrl(userId: string) {
     return avatarUrlsByUserId[userId] || null;
+  }
+
+  function getMemberRoleLabel(userId: string) {
+    if (userId === identity.userId) {
+      return 'You';
+    }
+
+    if (canModerateMessages(userId)) {
+      return 'Owner';
+    }
+
+    return 'Member';
+  }
+
+  function getKnownPresence(userId: string) {
+    if (userId === identity.userId) {
+      return presenceByUserId[userId] ?? 'online';
+    }
+
+    return presenceByUserId[userId] ?? 'offline';
+  }
+
+  function getPresenceLabel(userId: string) {
+    const presence = getKnownPresence(userId);
+
+    if (presence === 'online') {
+      return 'Online';
+    }
+
+    if (presence === 'unavailable') {
+      return 'Idle';
+    }
+
+    return 'Offline';
   }
 
   function getAvatarInitials(displayName: string) {
@@ -538,6 +578,10 @@ export function MatrixChannelPanel({
       userIdsToLoad.add(userId);
     }
 
+    for (const userId of roomMemberUserIds) {
+      userIdsToLoad.add(userId);
+    }
+
     const userIdsToRefresh = [...userIdsToLoad];
 
     if (!userIdsToRefresh.length) {
@@ -578,7 +622,7 @@ export function MatrixChannelPanel({
     return () => {
       isActive = false;
     };
-  }, [displayNamesByUserId, identity, messages, typingUserIds]);
+  }, [displayNamesByUserId, identity, messages, roomMemberUserIds, typingUserIds]);
 
   useEffect(() => {
     let isActive = true;
@@ -595,6 +639,10 @@ export function MatrixChannelPanel({
     }
 
     for (const userId of typingUserIds) {
+      userIdsToLoad.add(userId);
+    }
+
+    for (const userId of roomMemberUserIds) {
       userIdsToLoad.add(userId);
     }
 
@@ -632,7 +680,7 @@ export function MatrixChannelPanel({
     return () => {
       isActive = false;
     };
-  }, [avatarUrlsByUserId, identity, messages, typingUserIds]);
+  }, [avatarUrlsByUserId, identity, messages, roomMemberUserIds, typingUserIds]);
 
   useEffect(() => {
     if (openProfileUserId && roomId) {
@@ -746,6 +794,152 @@ export function MatrixChannelPanel({
       isActive = false;
     };
   }, [activeChannel, activeChannel.matrixAlias, identity, refreshMessages]);
+
+  useEffect(() => {
+    void setOwnPresence(identity, 'online');
+
+    const handleBeforeUnload = () => {
+      void setOwnPresence(identity, 'offline');
+    };
+
+    window.addEventListener('beforeunload', handleBeforeUnload);
+
+    return () => {
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+      void setOwnPresence(identity, 'offline');
+    };
+  }, [identity]);
+
+  useEffect(() => {
+    if (!roomMemberUserIds.length) {
+      return undefined;
+    }
+
+    let isActive = true;
+
+    async function refreshMemberPresence() {
+      const presenceEntries = await Promise.all(
+        roomMemberUserIds.map(async (userId) => {
+          if (userId === identity.userId) {
+            return [userId, 'online'] as const;
+          }
+
+          return [userId, await loadUserPresence(identity, userId)] as const;
+        }),
+      );
+
+      if (!isActive) {
+        return;
+      }
+
+      setPresenceByUserId((currentPresence) => {
+        let hasChanged = false;
+        const nextPresence = { ...currentPresence };
+
+        for (const [userId, presence] of presenceEntries) {
+          if (nextPresence[userId] !== presence) {
+            nextPresence[userId] = presence;
+            hasChanged = true;
+          }
+        }
+
+        return hasChanged ? nextPresence : currentPresence;
+      });
+    }
+
+    void refreshMemberPresence();
+
+    const presenceIntervalId = window.setInterval(() => {
+      void refreshMemberPresence();
+    }, 10000);
+
+    return () => {
+      isActive = false;
+      window.clearInterval(presenceIntervalId);
+    };
+  }, [identity, roomMemberUserIds]);
+
+  useEffect(() => {
+    if (!roomId) {
+      setRoomMemberUserIds([]);
+      return undefined;
+    }
+
+    let isActive = true;
+
+    async function refreshRoomMembers() {
+      if (!roomId) {
+        return;
+      }
+
+      try {
+        const members = await loadRoomMembers(identity, roomId);
+
+        if (!isActive) {
+          return;
+        }
+
+        setRoomMemberUserIds(
+          members
+            .map((member) => member.userId)
+            .filter(Boolean)
+            .sort((a, b) => {
+              if (a === identity.userId) return -1;
+              if (b === identity.userId) return 1;
+
+              const roleRankA = canModerateMessages(a) ? 0 : 1;
+              const roleRankB = canModerateMessages(b) ? 0 : 1;
+
+              if (roleRankA !== roleRankB) {
+                return roleRankA - roleRankB;
+              }
+
+              return getKnownDisplayName(a).localeCompare(getKnownDisplayName(b));
+            }),
+        );
+
+        setDisplayNamesByUserId((currentNames) => {
+          let hasChanged = false;
+          const nextNames = { ...currentNames };
+
+          for (const member of members) {
+            if (member.displayName && nextNames[member.userId] !== member.displayName) {
+              nextNames[member.userId] = member.displayName;
+              hasChanged = true;
+            }
+          }
+
+          return hasChanged ? nextNames : currentNames;
+        });
+
+        setAvatarUrlsByUserId((currentAvatars) => {
+          let hasChanged = false;
+          const nextAvatars = { ...currentAvatars };
+
+          for (const member of members) {
+            if (member.avatarUrl && !nextAvatars[member.userId]) {
+              hasChanged = true;
+            }
+          }
+
+          return hasChanged ? nextAvatars : currentAvatars;
+        });
+      } catch (error) {
+        console.warn('[Kodiak Connect] Failed to load room members', error);
+      }
+    }
+
+    void refreshRoomMembers();
+
+    const memberIntervalId = window.setInterval(() => {
+      void refreshRoomMembers();
+    }, 15000);
+
+    return () => {
+      isActive = false;
+      window.clearInterval(memberIntervalId);
+    };
+  }, [identity, roomId]);
 
   useEffect(() => {
     if (!roomId) {
@@ -1212,6 +1406,7 @@ export function MatrixChannelPanel({
         </button>
       </header>
 
+      <div className={`matrix-channel-content ${isMemberPanelOpen ? '' : 'matrix-channel-content--members-collapsed'}`}>
       <div className="matrix-chat-body">
         {errorText ? (
           <div className="matrix-chat-status matrix-chat-status--error">
@@ -1315,6 +1510,44 @@ export function MatrixChannelPanel({
         ) : (
           <div className="matrix-empty-state">{getEmptyState(activeChannel, canPost)}</div>
         )}
+      </div>
+
+      <aside className={`matrix-member-panel ${isMemberPanelOpen ? '' : 'matrix-member-panel--collapsed'}`} aria-label="Room members">
+        <button
+          type="button"
+          className="matrix-member-panel__toggle"
+          aria-label={isMemberPanelOpen ? 'Hide member panel' : 'Show member panel'}
+          title={isMemberPanelOpen ? 'Hide members' : 'Show members'}
+          onClick={() => setIsMemberPanelOpen((isOpen) => !isOpen)}
+        >
+          {isMemberPanelOpen ? '›' : '‹'}
+        </button>
+
+        <div className="matrix-member-panel__inner">
+        <div className="matrix-member-panel__header">
+          <span>Members</span>
+          <strong>{roomMemberUserIds.length}</strong>
+        </div>
+
+        <div className="matrix-member-list">
+          {roomMemberUserIds.map((userId) => (
+            <button key={userId} type="button" className="matrix-member-row" onClick={() => setOpenProfileUserId(userId)}>
+              <span className="matrix-member-row__avatar">
+                {renderUserAvatar(userId, 'matrix-avatar--member')}
+                <i className={`matrix-presence-dot matrix-presence-dot--${getKnownPresence(userId)}`} aria-hidden="true" />
+              </span>
+              <span>
+                <strong>{getKnownDisplayName(userId)}</strong>
+                <small>
+                  <i className={`matrix-presence-text-dot matrix-presence-text-dot--${getKnownPresence(userId)}`} aria-hidden="true" />
+                  {getPresenceLabel(userId)} · {getMemberRoleLabel(userId)}
+                </small>
+              </span>
+            </button>
+          ))}
+        </div>
+        </div>
+      </aside>
       </div>
 
       <form className="message-composer-placeholder" onSubmit={handleSendMessage}>
