@@ -14,6 +14,7 @@ interface ChannelSidebarProps {
   activeSpace: WorkspaceSpace;
   channelActivity: ChannelActivityById;
   onSelectChannel: (channel: WorkspaceChannel) => void;
+  onStartDirectMessage?: () => void;
   onCloseDirectMessage?: (channelId: string) => void;
   onLogout: () => void;
 }
@@ -32,6 +33,7 @@ export function ChannelSidebar({
   activeSpace,
   channelActivity,
   onSelectChannel,
+  onStartDirectMessage,
   onCloseDirectMessage,
   onLogout,
 }: ChannelSidebarProps) {
@@ -116,7 +118,14 @@ export function ChannelSidebar({
       <nav className="channel-sidebar__sections" aria-label="Channel list">
         {activeSpace.sections.map((section) => (
           <section key={section.id} className="channel-section">
-            <h2>{section.title}</h2>
+            <div className="channel-section__heading">
+              <h2>{section.title}</h2>
+              {section.id === 'direct-messages' && onStartDirectMessage ? (
+                <button type="button" className="channel-section__start-dm" onClick={onStartDirectMessage}>
+                  + Start DM
+                </button>
+              ) : null}
+            </div>
 
             <div className="channel-section__list">
               {section.channels.map((channel) => {
