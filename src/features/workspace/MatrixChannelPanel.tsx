@@ -1,0 +1,2919 @@
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent, type MouseEvent, type ReactNode } from 'react';
+import type { MatrixLoginIdentity } from '../auth/matrixLoginService';
+import { playKodiakSound } from '../audio/kodiakSounds';
+import {
+  loadKodiakPresence,
+  loadKodiakProfiles,
+  loadKodiakReports,
+  submitKodiakReport,
+  saveKodiakProfile,
+  sendKodiakPresenceHeartbeat,
+  type KodiakPresenceState,
+  type KodiakReport,
+  type KodiakReportCategory,
+} from '../backend/kodiakApiClient';
+import {
+  createDirectMessageRoom,
+  findDirectMessageRoom,
+  getAuthenticatedMatrixMediaObjectUrl,
+  getMatrixMediaUrl,
+  joinRoomByAlias,
+  joinRoomById,
+  loadRecentMessages,
+  loadRoomMembers,
+  loadTypingUsers,
+  MatrixRestError,
+  redactMessage,
+  resolveDirectMessageRoom,
+  saveDirectMessageRoom,
+  sendReaction,
+  sendReplacementMessage,
+  sendTextMessage,
+  sendTypingState,
+  uploadProfileAvatar,
+  type MatrixTextMessage,
+} from '../matrix/matrixRestClient';
+import type { WorkspaceChannel, WorkspaceSpace } from './workspaceTypes';
+
+type FriendStatus = 'none' | 'incoming' | 'outgoing' | 'friends';
+
+interface MatrixChannelPanelProps {
+  activeChannel: WorkspaceChannel;
+  activeSpace: WorkspaceSpace;
+  identity: MatrixLoginIdentity;
+  blockedByUserIds?: string[];
+  blockedUserIds?: string[];
+  restrictedUserIds?: string[];
+  friendStatusByUserId?: Record<string, FriendStatus>;
+  isFriendCenterOpen?: boolean;
+  onCloseFriendCenter?: () => void;
+  onOpenDirectMessage?: (userId: string, displayName: string) => void;
+  onSendFriendRequest?: (userId: string, displayName: string) => Promise<void> | void;
+  onAcceptFriendRequest?: (userId: string) => Promise<void> | void;
+  onDeclineFriendRequest?: (userId: string) => Promise<void> | void;
+  onCancelFriendRequest?: (userId: string) => Promise<void> | void;
+  onBlockUser?: (userId: string) => Promise<void> | void;
+  onUnblockUser?: (userId: string) => Promise<void> | void;
+  onUnfriendUser?: (userId: string) => Promise<void> | void;
+}
+
+interface MentionSearch {
+  query: string;
+  startIndex: number;
+}
+
+interface MentionSuggestion {
+  displayName: string;
+  localpart: string;
+  userId: string;
+}
+
+interface ParsedReplyContext {
+  eventId?: string;
+  preview: string;
+  sender: string;
+}
+
+interface ParsedMessageBody {
+  body: string;
+  reply?: ParsedReplyContext;
+}
+
+const REPLY_EVENT_PREFIX = 'KC_REPLY_EVENT=';
+const REPLY_SENDER_PREFIX = 'KC_REPLY_SENDER=';
+const REPLY_PREVIEW_PREFIX = 'KC_REPLY_PREVIEW=';
+const MENTION_PATTERN = /(^|\s)(@[a-zA-Z0-9._-]{2,32})/g;
+const ACTIVE_MENTION_PATTERN = /(^|\s)@([a-zA-Z0-9._-]{0,32})$/;
+const REACTION_OPTIONS = ['\u{1F44D}', '\u{2764}\u{FE0F}', '\u{1F602}', '\u{1F525}', '\u{1F440}'];
+const PLATFORM_MODERATOR_IDS = ['@papakodiak:v2.kodiak-connect.com'];
+const MESSAGE_POLL_INTERVAL_MS = 5000;
+const TYPING_POLL_INTERVAL_MS = 2500;
+const TYPING_TIMEOUT_MS = 5000;
+const TYPING_IDLE_STOP_MS = 2500;
+const KODIAK_PROFILE_CACHE_KEY = 'KC_BACKEND_PROFILE_CACHE';
+
+function readKodiakProfileCache() {
+  try {
+    return JSON.parse(window.localStorage.getItem(KODIAK_PROFILE_CACHE_KEY) ?? '{}') as {
+      avatars?: Record<string, string>;
+      bios?: Record<string, string>;
+      displayNames?: Record<string, string>;
+    };
+  } catch {
+    return {};
+  }
+}
+
+function writeKodiakProfileCache(cache: {
+  avatars?: Record<string, string>;
+  bios?: Record<string, string>;
+  displayNames?: Record<string, string>;
+}) {
+  window.localStorage.setItem(KODIAK_PROFILE_CACHE_KEY, JSON.stringify(cache));
+}
+
+const RESERVED_DISPLAY_NAMES = new Set([
+  'admin',
+  'administrator',
+  'moderator',
+  'mod',
+  'support',
+  'system',
+  'kodiak',
+  'kodiak connect',
+  'kodiakconnect',
+  'official',
+  'security',
+  'trustandsafety',
+]);
+
+function getDmRoomCacheKey(currentUserId: string, targetUserId: string) {
+  return `KC_DM_ROOM:${[currentUserId, targetUserId].sort().join('|')}`;
+}
+
+function getDirectMessageTargetUserId(channel: WorkspaceChannel, currentUserId: string) {
+  if (!channel.matrixDmUserId) {
+    return null;
+  }
+
+  if (channel.matrixDmUserId !== currentUserId) {
+    return channel.matrixDmUserId;
+  }
+
+  // Staging fallback: when logged in as kodiaktest, the fixed test DM should point back to papakodiak.
+  if (currentUserId.toLowerCase().startsWith('@kodiaktest:')) {
+    return '@papakodiak:v2.kodiak-connect.com';
+  }
+
+  return channel.matrixDmUserId;
+}
+
+function normalizeDisplayName(displayName: string) {
+  return displayName.trim().replace(/\s+/g, ' ').toLowerCase();
+}
+
+function getDisplayName(userId: string) {
+  const withoutPrefix = userId.startsWith('@') ? userId.slice(1) : userId;
+  return withoutPrefix.split(':')[0] || userId;
+}
+
+function getUserLocalpart(userId: string) {
+  return getDisplayName(userId).toLowerCase();
+}
+
+function formatMessageTime(timestamp: number) {
+  if (!timestamp) {
+    return '';
+  }
+
+  return new Intl.DateTimeFormat(undefined, {
+    hour: 'numeric',
+    minute: '2-digit',
+  }).format(new Date(timestamp));
+}
+
+function getMatrixErrorMessage(error: unknown, activeChannel: WorkspaceChannel) {
+  if (error instanceof MatrixRestError) {
+    if (error.errcode === 'M_NOT_FOUND' || error.status === 404) {
+      return `This Matrix room does not exist yet. Create #${activeChannel.name} on staging.`;
+    }
+
+    if (error.errcode === 'M_FORBIDDEN' || error.status === 403) {
+      return 'You do not have access to this Matrix room yet.';
+    }
+
+    return error.message;
+  }
+
+  return 'Kodiak Connect could not reach the Matrix room.';
+}
+
+function canModerateMessages(userId: string) {
+  return PLATFORM_MODERATOR_IDS.includes(userId);
+}
+
+function canPostInChannel(channel: WorkspaceChannel, userId: string) {
+  if (!channel.readOnly) {
+    return true;
+  }
+
+  return channel.allowedPosterIds?.includes(userId) ?? false;
+}
+
+function getComposerPlaceholder(channel: WorkspaceChannel, canPost: boolean, roomId: string | null, replyTarget: MatrixTextMessage | null) {
+  if (!roomId) {
+    return 'Room unavailable';
+  }
+
+  if (!canPost) {
+    return 'Read-only official channel';
+  }
+
+  if (replyTarget) {
+    return `Reply to ${getDisplayName(replyTarget.sender)}`;
+  }
+
+  if (channel.readOnly) {
+    return `Post official update in #${channel.name}`;
+  }
+
+  return `Message ${channel.kind === 'dm' ? '@' : '#'}${channel.name}`;
+}
+
+function getEmptyState(channel: WorkspaceChannel, canPost: boolean) {
+  if (channel.kind === 'dm') {
+    return 'No messages yet. Send the first direct message.';
+  }
+
+  if (channel.id === 'dev-updates') {
+    return canPost
+      ? 'No development updates yet. Post the first curated changelog when ready.'
+      : 'No development updates yet. Official Kodiak updates will appear here.';
+  }
+
+  if (channel.id === 'announcements') {
+    return canPost ? 'No announcements yet. Publish the first official announcement when ready.' : 'No announcements yet.';
+  }
+
+  return 'No messages yet. Send the first message in Official Space.';
+}
+
+function getShortMessagePreview(body: string, maxLength = 52) {
+  const compactBody = body.replace(/\s+/g, ' ').trim();
+  return compactBody.length > maxLength ? `${compactBody.slice(0, maxLength).trim()}...` : compactBody;
+}
+
+function parseKeyedReplyBody(body: string): ParsedMessageBody | null {
+  if (!body.startsWith(REPLY_EVENT_PREFIX)) {
+    return null;
+  }
+
+  const [metadataBlock, ...bodyParts] = body.split('\n\n');
+  const metadataLines = metadataBlock.split('\n');
+  const eventId = metadataLines.find((line) => line.startsWith(REPLY_EVENT_PREFIX))?.slice(REPLY_EVENT_PREFIX.length);
+  const sender = metadataLines.find((line) => line.startsWith(REPLY_SENDER_PREFIX))?.slice(REPLY_SENDER_PREFIX.length);
+  const preview = metadataLines.find((line) => line.startsWith(REPLY_PREVIEW_PREFIX))?.slice(REPLY_PREVIEW_PREFIX.length);
+  const messageBody = bodyParts.join('\n\n').trim();
+
+  if (!sender || !preview || !messageBody) {
+    return null;
+  }
+
+  return {
+    body: messageBody,
+    reply: {
+      eventId,
+      preview: getShortMessagePreview(preview, 52),
+      sender,
+    },
+  };
+}
+
+function parseLegacyReplyBody(body: string): ParsedMessageBody | null {
+  const match = body.match(/^Replying to ([^:]+): ([\s\S]+?)\n\n([\s\S]+)$/);
+
+  if (!match) {
+    return null;
+  }
+
+  return {
+    body: match[3].trim(),
+    reply: {
+      preview: getShortMessagePreview(match[2], 52),
+      sender: match[1],
+    },
+  };
+}
+
+function parseMessageBody(body: string): ParsedMessageBody {
+  return parseKeyedReplyBody(body) ?? parseLegacyReplyBody(body) ?? { body };
+}
+
+function buildReplyBody(replyTarget: MatrixTextMessage | null, body: string) {
+  if (!replyTarget) {
+    return body;
+  }
+
+  const parsedTarget = parseMessageBody(replyTarget.body);
+
+  return [
+    `${REPLY_EVENT_PREFIX}${replyTarget.eventId}`,
+    `${REPLY_SENDER_PREFIX}${getDisplayName(replyTarget.sender)}`,
+    `${REPLY_PREVIEW_PREFIX}${getShortMessagePreview(parsedTarget.body, 52)}`,
+    '',
+    body,
+  ].join('\n');
+}
+
+function getActiveMentionSearch(draftMessage: string): MentionSearch | null {
+  const match = draftMessage.match(ACTIVE_MENTION_PATTERN);
+
+  if (!match) {
+    return null;
+  }
+
+  return {
+    query: match[2].toLowerCase(),
+    startIndex: draftMessage.length - match[2].length - 1,
+  };
+}
+
+function getMentionSuggestions(
+  eligibleUserIds: string[],
+  currentUserLocalpart: string,
+  search: MentionSearch | null,
+  displayNamesByUserId: Record<string, string>,
+) {
+  if (!search) {
+    return [];
+  }
+
+  const query = search.query.trim().toLowerCase();
+  const currentLocalpart = currentUserLocalpart.trim().toLowerCase();
+  const suggestionsByLocalpart = new Map<string, MentionSuggestion>();
+
+  for (const userId of eligibleUserIds) {
+    const localpart = getUserLocalpart(userId).trim().toLowerCase();
+
+    if (!localpart || localpart === currentLocalpart || suggestionsByLocalpart.has(localpart)) {
+      continue;
+    }
+
+    const displayName = displayNamesByUserId[userId] || getDisplayName(userId);
+
+    suggestionsByLocalpart.set(localpart, {
+      displayName,
+      localpart,
+      userId,
+    });
+  }
+
+  return [...suggestionsByLocalpart.values()]
+    .filter((suggestion) => {
+      return suggestion.localpart.includes(query) || suggestion.displayName.toLowerCase().includes(query);
+    })
+    .slice(0, 6);
+}
+
+function applyMentionSuggestion(draftMessage: string, search: MentionSearch | null, suggestion: MentionSuggestion) {
+  if (!search) {
+    return draftMessage;
+  }
+
+  return `${draftMessage.slice(0, search.startIndex)}@${suggestion.localpart} `;
+}
+
+function hasUserReacted(message: MatrixTextMessage, reactionKey: string, userId: string) {
+  return message.reactions?.some((reaction) => reaction.key === reactionKey && reaction.senders.includes(userId)) ?? false;
+}
+
+function getTypingIndicatorText(typingNames: string[]) {
+  if (typingNames.length === 0) {
+    return '';
+  }
+
+  if (typingNames.length === 1) {
+    return `${typingNames[0]} is typing`;
+  }
+
+  if (typingNames.length === 2) {
+    return `${typingNames[0]} and ${typingNames[1]} are typing`;
+  }
+
+  return `${typingNames[0]} and ${typingNames.length - 1} others are typing`;
+}
+
+function renderMessageTextWithMentions(
+  body: string,
+  currentUserLocalpart: string,
+  displayNamesByLocalpart: Record<string, string>,
+): ReactNode[] {
+  const renderedParts: ReactNode[] = [];
+  let lastIndex = 0;
+  let match: RegExpExecArray | null;
+
+  MENTION_PATTERN.lastIndex = 0;
+
+  while ((match = MENTION_PATTERN.exec(body)) !== null) {
+    const fullMatch = match[0];
+    const leadingWhitespace = match[1] ?? '';
+    const mention = match[2];
+    const mentionStart = match.index + leadingWhitespace.length;
+
+    if (mentionStart > lastIndex) {
+      renderedParts.push(body.slice(lastIndex, mentionStart));
+    }
+
+    const mentionLocalpart = mention.slice(1).toLowerCase();
+    const isMentioningCurrentUser = mentionLocalpart === currentUserLocalpart;
+    const visibleMentionName = displayNamesByLocalpart[mentionLocalpart] ?? mention.slice(1);
+
+    renderedParts.push(
+      <span key={`${mention}-${mentionStart}`} className={`matrix-mention ${isMentioningCurrentUser ? 'matrix-mention--self' : ''}`}>
+        {visibleMentionName}
+      </span>,
+    );
+
+    lastIndex = match.index + fullMatch.length;
+  }
+
+  if (lastIndex < body.length) {
+    renderedParts.push(body.slice(lastIndex));
+  }
+
+  return renderedParts;
+}
+
+
+function getReportCategoryLabel(category: string) {
+  switch (category) {
+    case 'harassment':
+      return 'Harassment or abuse';
+    case 'spam':
+      return 'Spam';
+    case 'scam':
+      return 'Scam or suspicious behavior';
+    case 'threats':
+      return 'Threats or safety concern';
+    case 'impersonation':
+      return 'Impersonation';
+    default:
+      return 'Other';
+  }
+}
+
+export function MatrixChannelPanel({
+  activeChannel,
+  activeSpace,
+  identity,
+  blockedByUserIds = [],
+  blockedUserIds = [],
+  restrictedUserIds = [],
+  friendStatusByUserId = {},
+  isFriendCenterOpen = false,
+  onCloseFriendCenter,
+  onOpenDirectMessage,
+  onSendFriendRequest,
+  onAcceptFriendRequest,
+  onDeclineFriendRequest,
+  onCancelFriendRequest,
+  onBlockUser,
+  onUnblockUser,
+  onUnfriendUser,
+}: MatrixChannelPanelProps) {
+  const [roomId, setRoomId] = useState<string | null>(null);
+  const [messages, setMessages] = useState<MatrixTextMessage[]>([]);
+  const [draftMessage, setDraftMessage] = useState('');
+  const [replyTarget, setReplyTarget] = useState<MatrixTextMessage | null>(null);
+  const [editingMessage, setEditingMessage] = useState<MatrixTextMessage | null>(null);
+  const [openActionMenu, setOpenActionMenu] = useState<{ messageId: string; x: number; y: number } | null>(null);
+  const [pendingDeleteMessage, setPendingDeleteMessage] = useState<MatrixTextMessage | null>(null);
+  const [reactionPickerMessageId, setReactionPickerMessageId] = useState<string | null>(null);
+  const [typingUserIds, setTypingUserIds] = useState<string[]>([]);
+  const [roomMemberUserIds, setRoomMemberUserIds] = useState<string[]>([]);
+  const [presenceByUserId, setPresenceByUserId] = useState<Record<string, KodiakPresenceState | 'unavailable'>>({});
+  const [isMemberPanelOpen, setIsMemberPanelOpen] = useState(true);
+  const [displayNamesByUserId, setDisplayNamesByUserId] = useState<Record<string, string>>(() => readKodiakProfileCache().displayNames ?? {});
+  const [avatarUrlsByUserId, setAvatarUrlsByUserId] = useState<Record<string, string>>(() => readKodiakProfileCache().avatars ?? {});
+  const [avatarFile, setAvatarFile] = useState<File | null>(null);
+  const [avatarPreviewUrl, setAvatarPreviewUrl] = useState<string | null>(null);
+  const [profileBiosByUserId, setProfileBiosByUserId] = useState<Record<string, string>>(() => readKodiakProfileCache().bios ?? {});
+  const [bioDraft, setBioDraft] = useState('');
+  const [openProfileUserId, setOpenProfileUserId] = useState<string | null>(null);
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [displayNameDraft, setDisplayNameDraft] = useState('');
+  const [isSavingSettings, setIsSavingSettings] = useState(false);
+  const [settingsErrorText, setSettingsErrorText] = useState<string | null>(null);
+  const [friendActionUserId, setFriendActionUserId] = useState<string | null>(null);
+  const [pendingUnfriendUserId, setPendingUnfriendUserId] = useState<string | null>(null);
+  const [pendingBlockUserId, setPendingBlockUserId] = useState<string | null>(null);
+  const [pendingUnblockUserId, setPendingUnblockUserId] = useState<string | null>(null);
+  const [pendingReportUserId, setPendingReportUserId] = useState<string | null>(null);
+  const [reportCategory, setReportCategory] = useState<KodiakReportCategory>('harassment');
+  const [reportDetails, setReportDetails] = useState('');
+  const [isSubmittingReport, setIsSubmittingReport] = useState(false);
+  const [reportErrorText, setReportErrorText] = useState<string | null>(null);
+  const [reportSuccessText, setReportSuccessText] = useState<string | null>(null);
+  const [isSafetyCenterOpen, setIsSafetyCenterOpen] = useState(false);
+  const [safetyReports, setSafetyReports] = useState<KodiakReport[]>([]);
+  const [isLoadingSafetyReports, setIsLoadingSafetyReports] = useState(false);
+  const [safetyReportErrorText, setSafetyReportErrorText] = useState<string | null>(null);
+  const [areMessageSoundsEnabled, setAreMessageSoundsEnabled] = useState(() => window.localStorage.getItem('KC_SOUND_MESSAGES') !== 'false');
+  const [isSentSoundEnabled, setIsSentSoundEnabled] = useState(() => window.localStorage.getItem('KC_SOUND_SENT') !== 'false');
+  const [isReceivedSoundEnabled, setIsReceivedSoundEnabled] = useState(() => window.localStorage.getItem('KC_SOUND_RECEIVED') !== 'false');
+  const [areBrowserNotificationsEnabled, setAreBrowserNotificationsEnabled] = useState(() => window.localStorage.getItem('KC_BROWSER_NOTIFICATIONS') === 'true');
+  const [isNotificationSoundEnabled, setIsNotificationSoundEnabled] = useState(() => window.localStorage.getItem('KC_NOTIFY_SOUND') !== 'false');
+  const [isLoading, setIsLoading] = useState(true);
+  const [isSending, setIsSending] = useState(false);
+  const [errorText, setErrorText] = useState<string | null>(null);
+  const [profileActionErrorText, setProfileActionErrorText] = useState<string | null>(null);
+  const messageElementRefs = useRef<Record<string, HTMLElement | null>>({});
+  const messageListRef = useRef<HTMLDivElement | null>(null);
+  const shouldStickToBottomRef = useRef(true);
+  const pollingTimer = useRef<number | null>(null);
+  const typingPollTimer = useRef<number | null>(null);
+  const typingStopTimer = useRef<number | null>(null);
+  const typingSinceBatchRef = useRef<string | undefined>(undefined);
+  const isTypingSentRef = useRef(false);
+  const hasLoadedSoundBaselineRef = useRef(false);
+  const latestSoundMessageTsRef = useRef(0);
+  const restrictedUserIdSetRef = useRef<Set<string>>(new Set());
+  const backendAvatarObjectUrlsRef = useRef<Record<string, { source: string; url: string }>>({});
+
+  const displayName = getDisplayName(identity.userId);
+  const currentUserLocalpart = getUserLocalpart(identity.userId);
+  const activeMentionSearch = getActiveMentionSearch(draftMessage);
+  const canPost = canPostInChannel(activeChannel, identity.userId);
+  const canModerate = canModerateMessages(identity.userId);
+  const openActionMenuMessage = openActionMenu ? messages.find((message) => message.eventId === openActionMenu.messageId) ?? null : null;
+  const openActionMenuParsedMessage = openActionMenuMessage ? parseMessageBody(openActionMenuMessage.body) : null;
+  function getKnownDisplayName(userId: string) {
+    return displayNamesByUserId[userId] || getDisplayName(userId);
+  }
+
+  function getKnownAvatarUrl(userId: string) {
+    return avatarUrlsByUserId[userId] || null;
+  }
+
+  const restrictedUserIdSet = useMemo(() => {
+    return new Set([...blockedUserIds, ...blockedByUserIds, ...restrictedUserIds]);
+  }, [blockedByUserIds, blockedUserIds, restrictedUserIds]);
+
+  useEffect(() => {
+    restrictedUserIdSetRef.current = restrictedUserIdSet;
+  }, [restrictedUserIdSet]);
+
+  const visibleRoomMemberUserIds = useMemo<string[]>(() => {
+    return roomMemberUserIds.filter((userId: string) => !isUserRestricted(userId));
+  }, [restrictedUserIdSet, roomMemberUserIds]);
+
+  const mentionSuggestions = useMemo<MentionSuggestion[]>(() => {
+    return getMentionSuggestions(
+      visibleRoomMemberUserIds,
+      getUserLocalpart(identity.userId),
+      getActiveMentionSearch(draftMessage),
+      displayNamesByUserId,
+    );
+  }, [displayNamesByUserId, draftMessage, identity.userId, visibleRoomMemberUserIds]);
+
+
+
+
+
+  function isUserRestricted(userId: string) {
+    return restrictedUserIdSet.has(userId);
+  }
+
+  function isUserBlocked(userId: string) {
+    return blockedUserIds.includes(userId);
+  }
+
+  function isUserBlockedBy(userId: string) {
+    return blockedByUserIds.includes(userId);
+  }
+
+
+  function doesMessageMentionBlockedUser(messageBody: string) {
+    const normalizedBody = messageBody.toLowerCase();
+
+    return [...new Set([...blockedUserIds, ...blockedByUserIds])].some((userId) => {
+      const displayName = getKnownDisplayName(userId).toLowerCase();
+      const localpart = getUserLocalpart(userId).toLowerCase();
+
+      return normalizedBody.includes(`@${displayName}`) || normalizedBody.includes(`@${localpart}`);
+    });
+  }
+
+  function doesMessageMentionRestrictedUser(messageBody: string) {
+    const normalizedBody = messageBody.toLowerCase();
+
+    return [...restrictedUserIdSet].some((userId) => {
+      const mentionKeys = [
+        getKnownDisplayName(userId),
+        getUserLocalpart(userId),
+      ]
+        .map((value) => value.trim().toLowerCase())
+        .filter((value) => value && value !== 'loading profile...');
+
+      return mentionKeys.some((mentionKey) => normalizedBody.includes(`@${mentionKey}`));
+    });
+  }
+
+  function getFriendStatus(userId: string) {
+    return friendStatusByUserId[userId] ?? 'none';
+  }
+
+  const incomingFriendUserIds = Object.entries(friendStatusByUserId)
+    .filter(([userId, status]) => status === 'incoming' && !isUserRestricted(userId))
+    .map(([userId]) => userId);
+
+  const outgoingFriendUserIds = Object.entries(friendStatusByUserId)
+    .filter(([userId, status]) => status === 'outgoing' && !isUserRestricted(userId))
+    .map(([userId]) => userId);
+
+  const friendUserIds = Object.entries(friendStatusByUserId)
+    .filter(([userId, status]) => status === 'friends' && !isUserRestricted(userId))
+    .map(([userId]) => userId);
+
+  function getMemberRoleLabel(userId: string) {
+    if (userId === identity.userId) {
+      return 'You';
+    }
+
+    if (canModerateMessages(userId)) {
+      return 'Owner';
+    }
+
+    return 'Member';
+  }
+
+  function getKnownPresence(userId: string) {
+    if (userId === identity.userId) {
+      return presenceByUserId[userId] ?? 'online';
+    }
+
+    return presenceByUserId[userId] ?? 'offline';
+  }
+
+  function getPresenceLabel(userId: string) {
+    const presence = getKnownPresence(userId);
+
+    if (presence === 'online') {
+      return 'Online';
+    }
+
+    if (presence === 'unavailable' || presence === 'idle') {
+      return 'Idle';
+    }
+
+    return 'Offline';
+  }
+
+  function getAvatarInitials(displayName: string) {
+    const compactName = displayName.trim();
+
+    if (!compactName) {
+      return '?';
+    }
+
+    const parts = compactName.split(/\s+/).filter(Boolean);
+
+    if (parts.length >= 2) {
+      return `${parts[0][0]}${parts[1][0]}`.toUpperCase();
+    }
+
+    return compactName.slice(0, 2).toUpperCase();
+  }
+
+  function renderUserAvatar(userId: string, className = '') {
+    const avatarUrl = getKnownAvatarUrl(userId);
+    const displayName = getKnownDisplayName(userId);
+
+    return (
+      <span className={`matrix-avatar ${className}`} aria-hidden="true">
+        {avatarUrl ? <img src={avatarUrl} alt="" /> : <span>{getAvatarInitials(displayName)}</span>}
+      </span>
+    );
+  }
+
+  useEffect(() => {
+    writeKodiakProfileCache({
+      avatars: avatarUrlsByUserId,
+      bios: profileBiosByUserId,
+      displayNames: displayNamesByUserId,
+    });
+  }, [avatarUrlsByUserId, displayNamesByUserId, profileBiosByUserId]);
+
+  useEffect(() => {
+    setProfileActionErrorText(null);
+  }, [openProfileUserId]);
+
+  // Safety/action errors should not sit in chat forever.
+  useEffect(() => {
+    if (!errorText) {
+      return undefined;
+    }
+
+    const errorTimerId = window.setTimeout(() => {
+      setErrorText(null);
+    }, 4500);
+
+    return () => {
+      window.clearTimeout(errorTimerId);
+    };
+  }, [errorText]);
+
+  const displayNamesByLocalpart = Object.fromEntries(
+    Object.entries(displayNamesByUserId).map(([userId, displayName]) => [getUserLocalpart(userId), displayName]),
+  );
+
+  useEffect(() => {
+    const userIdsToLoad = new Set<string>([identity.userId]);
+
+    for (const message of messages) {
+      userIdsToLoad.add(message.sender);
+
+      for (const reaction of message.reactions ?? []) {
+        for (const sender of reaction.senders) {
+          userIdsToLoad.add(sender);
+        }
+      }
+    }
+
+    for (const userId of typingUserIds) {
+      userIdsToLoad.add(userId);
+    }
+
+    for (const userId of roomMemberUserIds) {
+      userIdsToLoad.add(userId);
+    }
+
+    for (const userId of Object.keys(friendStatusByUserId)) {
+      userIdsToLoad.add(userId);
+    }
+
+    for (const userId of blockedUserIds) {
+      userIdsToLoad.add(userId);
+    }
+
+    for (const userId of blockedByUserIds ?? []) {
+      userIdsToLoad.add(userId);
+    }
+
+    for (const userId of restrictedUserIds ?? []) {
+      userIdsToLoad.add(userId);
+    }
+
+    if (openProfileUserId) {
+      userIdsToLoad.add(openProfileUserId);
+    }
+
+    const userIds = [...userIdsToLoad].filter(Boolean);
+
+    if (!userIds.length) {
+      return undefined;
+    }
+
+    let isActive = true;
+
+    async function refreshBackendProfiles() {
+      try {
+        const profilesByUserId = await loadKodiakProfiles(identity, userIds);
+
+        if (!isActive) {
+          return;
+        }
+
+        setDisplayNamesByUserId((currentNames) => {
+          let hasChanged = false;
+          const nextNames = { ...currentNames };
+
+          for (const [userId, profile] of Object.entries(profilesByUserId)) {
+            const nextDisplayName = profile.displayName || getDisplayName(userId);
+
+            if (nextNames[userId] !== nextDisplayName) {
+              nextNames[userId] = nextDisplayName;
+              hasChanged = true;
+            }
+          }
+
+          return hasChanged ? nextNames : currentNames;
+        });
+
+        setProfileBiosByUserId((currentBios) => {
+          let hasChanged = false;
+          const nextBios = { ...currentBios };
+
+          for (const [userId, profile] of Object.entries(profilesByUserId)) {
+            const nextBio = profile.bio ?? '';
+
+            if (nextBios[userId] !== nextBio) {
+              nextBios[userId] = nextBio;
+              hasChanged = true;
+            }
+          }
+
+          return hasChanged ? nextBios : currentBios;
+        });
+
+        const avatarEntries = await Promise.all(
+          Object.entries(profilesByUserId).map(async ([userId, profile]) => {
+            const profileAvatarUrl = profile.avatarUrl ?? '';
+
+            if (!profileAvatarUrl) {
+              return [userId, ''] as const;
+            }
+
+            const cachedAvatar = backendAvatarObjectUrlsRef.current[userId];
+
+            if (cachedAvatar?.source === profileAvatarUrl) {
+              return [userId, cachedAvatar.url] as const;
+            }
+
+            const avatarUrl = profileAvatarUrl.startsWith('mxc://')
+              ? (await getAuthenticatedMatrixMediaObjectUrl(identity, profileAvatarUrl, 96, 96).catch(() => null)) ?? ''
+              : profileAvatarUrl;
+
+            if (avatarUrl) {
+              backendAvatarObjectUrlsRef.current[userId] = {
+                source: profileAvatarUrl,
+                url: avatarUrl,
+              };
+            }
+
+            return [userId, avatarUrl] as const;
+          }),
+        );
+
+        if (!isActive) {
+          return;
+        }
+
+        setAvatarUrlsByUserId((currentAvatars) => {
+          let hasChanged = false;
+          const nextAvatars = { ...currentAvatars };
+
+          for (const [userId, avatarUrl] of avatarEntries) {
+            if (avatarUrl && nextAvatars[userId] !== avatarUrl) {
+              nextAvatars[userId] = avatarUrl;
+              hasChanged = true;
+            }
+          }
+
+          return hasChanged ? nextAvatars : currentAvatars;
+        });
+      } catch (error) {
+        console.warn('[Kodiak Connect] Backend profile refresh failed', error);
+      }
+    }
+
+    void refreshBackendProfiles();
+
+    const profileIntervalId = window.setInterval(() => {
+      void refreshBackendProfiles();
+    }, 30_000);
+
+    return () => {
+      isActive = false;
+      window.clearInterval(profileIntervalId);
+    };
+  }, [friendStatusByUserId, identity, messages, openProfileUserId, roomMemberUserIds, typingUserIds]);
+
+
+
+
+
+
+
+  const visibleMessages = useMemo<MatrixTextMessage[]>(() => {
+    return messages.filter((message: MatrixTextMessage) => !isUserRestricted(message.sender));
+  }, [messages, restrictedUserIdSet]);
+
+  const visibleTypingUserIds = useMemo<string[]>(() => {
+    return typingUserIds.filter((userId: string) => !isUserRestricted(userId));
+  }, [restrictedUserIdSet, typingUserIds]);
+
+  const typingIndicatorText = visibleTypingUserIds.length
+    ? getTypingIndicatorText(visibleTypingUserIds.map((userId: string) => getKnownDisplayName(userId)))
+    : '';
+  const channelHeadingPrefix = activeChannel.kind === 'dm' ? '' : '#';
+  const channelEyebrowLabel = activeChannel.kind === 'dm' ? 'Direct Message' : activeSpace.name;
+  const headerDisplayName = getKnownDisplayName(identity.userId);
+  const roomMemberPresenceKey = roomMemberUserIds.join('|');
+
+  const refreshProfileBios = useCallback(async (_targetRoomId: string) => {
+    // Kodiak Backend owns profile bios now.
+  }, []);
+
+  const refreshMessages = useCallback(
+    async (targetRoomId: string) => {
+      const recentMessages = await loadRecentMessages(identity, targetRoomId);
+
+      const latestMessageTs = recentMessages.reduce((latestTs, message) => Math.max(latestTs, message.originServerTs), 0);
+
+      if (!hasLoadedSoundBaselineRef.current) {
+        hasLoadedSoundBaselineRef.current = true;
+        latestSoundMessageTsRef.current = latestMessageTs;
+      } else if (areMessageSoundsEnabled && isReceivedSoundEnabled) {
+        const hasNewIncomingMessage = recentMessages.some((message) => {
+          return (
+            message.sender !== identity.userId &&
+            message.originServerTs > latestSoundMessageTsRef.current &&
+            !restrictedUserIdSetRef.current.has(message.sender.trim().toLowerCase())
+          );
+        });
+
+        if (hasNewIncomingMessage) {
+          playKodiakSound('messageReceived', 0.62);
+        }
+
+        latestSoundMessageTsRef.current = Math.max(latestSoundMessageTsRef.current, latestMessageTs);
+      }
+
+      setMessages(recentMessages);
+
+      void refreshProfileBios(targetRoomId).catch((error) => {
+        console.warn('[Kodiak Connect] Failed to refresh profile bios', error);
+      });
+    },
+    [areMessageSoundsEnabled, identity, isReceivedSoundEnabled, refreshProfileBios],
+  );
+
+  const stopTyping = useCallback(async () => {
+    if (!roomId || !isTypingSentRef.current) {
+      return;
+    }
+
+    isTypingSentRef.current = false;
+
+    try {
+      await sendTypingState(identity, roomId, false);
+    } catch (error) {
+      console.warn('[Kodiak Connect] Failed to stop Matrix typing notification', error);
+    }
+  }, [identity, roomId]);
+
+  useEffect(() => {
+    window.localStorage.setItem('KC_SOUND_MESSAGES', String(areMessageSoundsEnabled));
+    window.localStorage.setItem('KC_SOUND_SENT', String(isSentSoundEnabled));
+    window.localStorage.setItem('KC_SOUND_RECEIVED', String(isReceivedSoundEnabled));
+    window.localStorage.setItem('KC_BROWSER_NOTIFICATIONS', String(areBrowserNotificationsEnabled));
+    window.localStorage.setItem('KC_NOTIFY_SOUND', String(isNotificationSoundEnabled));
+  }, [areBrowserNotificationsEnabled, areMessageSoundsEnabled, isNotificationSoundEnabled, isReceivedSoundEnabled, isSentSoundEnabled]);
+
+  useEffect(() => {
+    shouldStickToBottomRef.current = true;
+    hasLoadedSoundBaselineRef.current = false;
+    latestSoundMessageTsRef.current = 0;
+  }, [activeChannel.id]);
+
+  // Matrix display-name reads disabled. Kodiak Backend owns display names.
+
+
+  // Matrix profile-avatar reads disabled. Kodiak Backend owns avatar references.
+
+
+  useEffect(() => {
+    if (openProfileUserId && roomId) {
+      void refreshProfileBios(roomId).catch((error) => {
+        console.warn('[Kodiak Connect] Failed to refresh profile bio on profile open', error);
+      });
+    }
+  }, [openProfileUserId, refreshProfileBios, roomId]);
+
+  // Matrix room bio reads disabled. Kodiak Backend owns bios.
+
+  useEffect(() => {
+    setDisplayNameDraft(getKnownDisplayName(identity.userId));
+    setBioDraft(profileBiosByUserId[identity.userId] ?? '');
+  }, [displayNamesByUserId, identity.userId, profileBiosByUserId]);
+
+  useEffect(() => {
+    let isActive = true;
+
+    async function connectRoom() {
+      if (!activeChannel.matrixAlias && !activeChannel.matrixDmUserId) {
+        setIsLoading(false);
+        setRoomId(null);
+        setErrorText('This channel is not connected to Matrix yet.');
+        return;
+      }
+
+      setIsLoading((currentLoading) => roomId ? currentLoading : true);
+      setErrorText(null);
+      setReplyTarget(null);
+      setEditingMessage(null);
+      setOpenActionMenu(null);
+      setPendingDeleteMessage(null);
+      setTypingUserIds([]);
+      typingSinceBatchRef.current = undefined;
+      isTypingSentRef.current = false;
+
+      try {
+        let joinedRoomId = '';
+
+        const directMessageTargetUserId = getDirectMessageTargetUserId(activeChannel, identity.userId);
+
+        if (directMessageTargetUserId) {
+          const dmCacheKey = getDmRoomCacheKey(identity.userId, directMessageTargetUserId);
+          const cachedRoomId = window.localStorage.getItem(dmCacheKey);
+
+          joinedRoomId = (await resolveDirectMessageRoom(identity, directMessageTargetUserId, cachedRoomId)) ?? '';
+
+          if (!joinedRoomId) {
+            joinedRoomId = await createDirectMessageRoom(
+              identity,
+              directMessageTargetUserId,
+              activeChannel.dmDisplayName ?? getDisplayName(directMessageTargetUserId),
+            );
+          }
+
+          window.localStorage.setItem(dmCacheKey, joinedRoomId);
+          await saveDirectMessageRoom(identity, directMessageTargetUserId, joinedRoomId);
+        } else {
+          joinedRoomId = await joinRoomByAlias(identity, activeChannel.matrixAlias ?? '');
+        }
+
+        if (!isActive) {
+          return;
+        }
+
+        setRoomId(joinedRoomId);
+        await refreshMessages(joinedRoomId);
+      } catch (error) {
+        if (!isActive) {
+          return;
+        }
+
+        console.error('[Kodiak Connect] Failed to connect Matrix room', error);
+        setRoomId(null);
+        setMessages([]);
+        setErrorText(getMatrixErrorMessage(error, activeChannel));
+      } finally {
+        if (isActive) {
+          setIsLoading(false);
+        }
+      }
+    }
+
+    void connectRoom();
+
+    return () => {
+      isActive = false;
+    };
+  }, [activeChannel, activeChannel.matrixAlias, identity, refreshMessages]);
+
+  useEffect(() => {
+    let isActive = true;
+
+    function sendPresenceHeartbeat() {
+      if (!isActive) {
+        return;
+      }
+
+      void sendKodiakPresenceHeartbeat(identity, getKnownDisplayName(identity.userId), getKnownAvatarUrl(identity.userId)).catch((error) => {
+        console.warn('[Kodiak Connect] Kodiak presence heartbeat failed', error);
+      });
+    }
+
+    sendPresenceHeartbeat();
+
+    const heartbeatIntervalId = window.setInterval(sendPresenceHeartbeat, 30_000);
+
+    return () => {
+      isActive = false;
+      window.clearInterval(heartbeatIntervalId);
+    };
+  }, [avatarUrlsByUserId, displayNamesByUserId, identity]);
+
+  useEffect(() => {
+    const presenceUserIds = roomMemberPresenceKey ? roomMemberPresenceKey.split('|').filter(Boolean) : [];
+
+    if (!presenceUserIds.length) {
+      return undefined;
+    }
+
+    let isActive = true;
+
+    async function refreshMemberPresence() {
+      const kodiakPresenceByUserId = await loadKodiakPresence(identity, presenceUserIds).catch((error) => {
+        console.warn('[Kodiak Connect] Kodiak presence lookup failed', error);
+        return {} as Record<string, KodiakPresenceState>;
+      });
+
+      const presenceEntries = presenceUserIds.map((userId) => {
+        if (userId === identity.userId) {
+          return [userId, 'online'] as const;
+        }
+
+        return [userId, kodiakPresenceByUserId[userId] ?? 'offline'] as const;
+      });
+
+      if (!isActive) {
+        return;
+      }
+
+      setPresenceByUserId((currentPresence) => {
+        let hasChanged = false;
+        const nextPresence = { ...currentPresence };
+
+        for (const [userId, presence] of presenceEntries) {
+          if (nextPresence[userId] !== presence) {
+            nextPresence[userId] = presence;
+            hasChanged = true;
+          }
+        }
+
+        return hasChanged ? nextPresence : currentPresence;
+      });
+    }
+
+    void refreshMemberPresence();
+
+    const presenceIntervalId = window.setInterval(() => {
+      void refreshMemberPresence();
+    }, 60000);
+
+    return () => {
+      isActive = false;
+      window.clearInterval(presenceIntervalId);
+    };
+  }, [identity, roomMemberPresenceKey]);
+
+  useEffect(() => {
+    if (!roomId) {
+      setRoomMemberUserIds([]);
+      return undefined;
+    }
+
+    let isActive = true;
+
+    async function refreshRoomMembers() {
+      if (!roomId) {
+        return;
+      }
+
+      try {
+        const members = await loadRoomMembers(identity, roomId);
+
+        if (!isActive) {
+          return;
+        }
+
+        setRoomMemberUserIds(
+          members
+            .map((member) => member.userId)
+            .filter(Boolean)
+            .sort((a, b) => {
+              if (a === identity.userId) return -1;
+              if (b === identity.userId) return 1;
+
+              const roleRankA = canModerateMessages(a) ? 0 : 1;
+              const roleRankB = canModerateMessages(b) ? 0 : 1;
+
+              if (roleRankA !== roleRankB) {
+                return roleRankA - roleRankB;
+              }
+
+              return getKnownDisplayName(a).localeCompare(getKnownDisplayName(b));
+            }),
+        );
+      } catch (error) {
+        console.warn('[Kodiak Connect] Failed to load room members', error);
+      }
+    }
+
+    void refreshRoomMembers();
+
+    const memberIntervalId = window.setInterval(() => {
+      void refreshRoomMembers();
+    }, 15000);
+
+    return () => {
+      isActive = false;
+      window.clearInterval(memberIntervalId);
+    };
+  }, [identity, roomId]);
+
+  useEffect(() => {
+    if (!roomId) {
+      return undefined;
+    }
+
+    pollingTimer.current = window.setInterval(() => {
+      void refreshMessages(roomId).catch((error) => {
+        console.error('[Kodiak Connect] Matrix room refresh failed', error);
+      });
+    }, MESSAGE_POLL_INTERVAL_MS);
+
+    return () => {
+      if (pollingTimer.current) {
+        window.clearInterval(pollingTimer.current);
+      }
+    };
+  }, [refreshMessages, roomId]);
+
+  useEffect(() => {
+    if (!roomId) {
+      return undefined;
+    }
+
+    async function refreshTypingUsers() {
+      if (!roomId) {
+        return;
+      }
+
+      try {
+        const typingState = await loadTypingUsers(identity, roomId, typingSinceBatchRef.current);
+        typingSinceBatchRef.current = typingState.nextBatch ?? typingSinceBatchRef.current;
+
+        if (typingState.userIds) {
+          setTypingUserIds(typingState.userIds.filter((userId) => userId !== identity.userId && !isUserRestricted(userId)));
+        }
+      } catch (error) {
+        console.warn('[Kodiak Connect] Matrix typing poll failed', error);
+      }
+    }
+
+    void refreshTypingUsers();
+
+    typingPollTimer.current = window.setInterval(() => {
+      void refreshTypingUsers();
+    }, TYPING_POLL_INTERVAL_MS);
+
+    return () => {
+      if (typingPollTimer.current) {
+        window.clearInterval(typingPollTimer.current);
+      }
+    };
+  }, [identity, roomId]);
+
+  useEffect(() => {
+    if (!roomId || !canPost) {
+      return undefined;
+    }
+
+    if (typingStopTimer.current) {
+      window.clearTimeout(typingStopTimer.current);
+      typingStopTimer.current = null;
+    }
+
+    if (!draftMessage.trim()) {
+      void stopTyping();
+      return undefined;
+    }
+
+    if (!isTypingSentRef.current) {
+      isTypingSentRef.current = true;
+      void sendTypingState(identity, roomId, true, TYPING_TIMEOUT_MS).catch((error) => {
+        isTypingSentRef.current = false;
+        console.warn('[Kodiak Connect] Failed to send Matrix typing notification', error);
+      });
+    }
+
+    typingStopTimer.current = window.setTimeout(() => {
+      void stopTyping();
+    }, TYPING_IDLE_STOP_MS);
+
+    return () => {
+      if (typingStopTimer.current) {
+        window.clearTimeout(typingStopTimer.current);
+      }
+    };
+  }, [canPost, draftMessage, identity, roomId, stopTyping]);
+
+  useEffect(() => {
+    return () => {
+      void stopTyping();
+    };
+  }, [stopTyping]);
+
+  useEffect(() => {
+    const messageList = messageListRef.current;
+
+    if (!messageList || !shouldStickToBottomRef.current) {
+      return;
+    }
+
+    messageList.scrollTop = messageList.scrollHeight;
+  }, [messages, activeChannel.id]);
+
+  function findMessageForDomTarget(target: EventTarget | null) {
+    const element = target instanceof HTMLElement ? target : null;
+    const messageElement = element?.closest<HTMLElement>('[data-message-event-id]');
+    const eventId = messageElement?.dataset.messageEventId;
+
+    if (!eventId) {
+      return null;
+    }
+
+    return messages.find((message) => message.eventId === eventId) ?? null;
+  }
+
+  function handleMessageListContextMenu(event: MouseEvent<HTMLDivElement>) {
+    const message = findMessageForDomTarget(event.target);
+
+    if (!message) {
+      return;
+    }
+
+    event.preventDefault();
+    event.stopPropagation();
+    openMessageActionMenu(message, event.clientX, event.clientY);
+  }
+
+  function handleMessageListScroll() {
+    const messageList = messageListRef.current;
+
+    if (!messageList) {
+      return;
+    }
+
+    const distanceFromBottom = messageList.scrollHeight - messageList.scrollTop - messageList.clientHeight;
+    shouldStickToBottomRef.current = distanceFromBottom < 160;
+  }
+
+  function handleJumpToMessage(eventId?: string) {
+    if (!eventId) {
+      return;
+    }
+
+    const targetElement = messageElementRefs.current[eventId];
+
+    if (!targetElement) {
+      return;
+    }
+
+    targetElement.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    targetElement.classList.add('matrix-message--focused');
+
+    window.setTimeout(() => {
+      targetElement.classList.remove('matrix-message--focused');
+    }, 1600);
+  }
+
+  function insertMentionSuggestion(suggestion: MentionSuggestion) {
+    setDraftMessage((currentDraft) => applyMentionSuggestion(currentDraft, getActiveMentionSearch(currentDraft), suggestion));
+  }
+
+  function handleComposerKeyDown(event: KeyboardEvent<HTMLInputElement>) {
+    const firstVisibleMentionSuggestion = mentionSuggestions.find((suggestion) => !isUserRestricted(suggestion.userId));
+
+    if (event.key !== 'Tab' || !firstVisibleMentionSuggestion) {
+      return;
+    }
+
+    event.preventDefault();
+    insertMentionSuggestion(firstVisibleMentionSuggestion);
+  }
+
+  function getSafeMenuPosition(clientX: number, clientY: number) {
+    const menuWidth = 230;
+    const menuHeight = 210;
+    const padding = 14;
+
+    return {
+      x: Math.min(Math.max(clientX, padding), window.innerWidth - menuWidth - padding),
+      y: Math.min(Math.max(clientY, padding), window.innerHeight - menuHeight - padding),
+    };
+  }
+
+  function closeMessageActionMenu() {
+    setOpenActionMenu(null);
+  }
+
+  function openMessageActionMenu(message: MatrixTextMessage, clientX: number, clientY: number) {
+    if (!canPost && !onOpenDirectMessage) {
+      return;
+    }
+
+    const position = getSafeMenuPosition(clientX, clientY);
+
+    setOpenActionMenu({
+      messageId: message.eventId,
+      x: position.x,
+      y: position.y,
+    });
+
+    setReactionPickerMessageId(null);
+  }
+
+  function startEditingMessage(message: MatrixTextMessage) {
+    const parsedMessage = parseMessageBody(message.body);
+
+    setEditingMessage({ ...message, body: parsedMessage.body });
+    setReplyTarget(null);
+    setReactionPickerMessageId(null);
+    setOpenActionMenu(null);
+    setDraftMessage(parsedMessage.body);
+  }
+
+  function cancelEditingMessage() {
+    setEditingMessage(null);
+    setDraftMessage('');
+  }
+
+  function requestDeleteMessage(message: MatrixTextMessage) {
+    if (!roomId || (!canModerate && message.sender !== identity.userId)) {
+      return;
+    }
+
+    setPendingDeleteMessage(message);
+    setOpenActionMenu(null);
+    setReactionPickerMessageId(null);
+  }
+
+  function closeDeleteConfirmation() {
+    setPendingDeleteMessage(null);
+  }
+
+  async function confirmDeleteMessage() {
+    const message = pendingDeleteMessage;
+
+    if (!roomId || !message || (!canModerate && message.sender !== identity.userId)) {
+      return;
+    }
+
+    setErrorText(null);
+
+    try {
+      await redactMessage(
+        identity,
+        roomId,
+        message.eventId,
+        message.sender === identity.userId ? 'User deleted message' : 'Moderator deleted message',
+      );
+      setPendingDeleteMessage(null);
+      setReactionPickerMessageId(null);
+      setOpenActionMenu(null);
+      await refreshMessages(roomId);
+    } catch (error) {
+      console.error('[Kodiak Connect] Failed to delete Matrix message', error);
+      setErrorText(getMatrixErrorMessage(error, activeChannel));
+    }
+  }
+
+  async function handleReactToMessage(message: MatrixTextMessage, reactionKey: string) {
+    if (!roomId || !canPost || hasUserReacted(message, reactionKey, identity.userId)) {
+      return;
+    }
+
+    setErrorText(null);
+
+    try {
+      await sendReaction(identity, roomId, message.eventId, reactionKey);
+      setReactionPickerMessageId(null);
+      await refreshMessages(roomId);
+    } catch (error) {
+      console.error('[Kodiak Connect] Failed to send Matrix reaction', error);
+      setErrorText(getMatrixErrorMessage(error, activeChannel));
+    }
+  }
+
+  async function handleBrowserNotificationToggle(enabled: boolean) {
+    if (!enabled) {
+      setAreBrowserNotificationsEnabled(false);
+      return;
+    }
+
+    if (!('Notification' in window)) {
+      setSettingsErrorText('Browser notifications are not supported in this browser.');
+      setAreBrowserNotificationsEnabled(false);
+      return;
+    }
+
+    if (!window.isSecureContext) {
+      setSettingsErrorText('Browser notifications require HTTPS or localhost. Use http://localhost:5173 for local testing, or an HTTPS staging URL.');
+      setAreBrowserNotificationsEnabled(false);
+      return;
+    }
+
+    if (Notification.permission === 'granted') {
+      setAreBrowserNotificationsEnabled(true);
+      return;
+    }
+
+    if (Notification.permission === 'denied') {
+      setSettingsErrorText('Browser notifications are blocked. Enable them in your browser site settings.');
+      setAreBrowserNotificationsEnabled(false);
+      return;
+    }
+
+    const permission = await Notification.requestPermission();
+    setAreBrowserNotificationsEnabled(permission === 'granted');
+
+    if (permission !== 'granted') {
+      setSettingsErrorText('Browser notification permission was not granted.');
+    }
+  }
+
+  async function handleSendFriendRequestClick(userId: string) {
+    if (isUserRestricted(userId)) {
+      setProfileActionErrorText('Cannot send a friend request while a block is active.');
+      setErrorText(null);
+      return;
+    }
+
+    if (!onSendFriendRequest) {
+      return;
+    }
+
+    setFriendActionUserId(userId);
+    setProfileActionErrorText(null);
+    setErrorText(null);
+
+    try {
+      await onSendFriendRequest(userId, getKnownDisplayName(userId));
+    } catch (error) {
+      console.error('[Kodiak Connect] Failed to send friend request', error);
+      setErrorText(null);
+      setProfileActionErrorText(error instanceof Error ? error.message : 'Could not send friend request. Try again.');
+    } finally {
+      setFriendActionUserId(null);
+    }
+  }
+
+  async function handleAcceptFriendRequestClick(userId: string) {
+    if (!onAcceptFriendRequest) {
+      return;
+    }
+
+    setFriendActionUserId(userId);
+    setErrorText(null);
+
+    try {
+      await onAcceptFriendRequest(userId);
+    } catch (error) {
+      console.error('[Kodiak Connect] Failed to accept friend request', error);
+      setErrorText('Could not accept friend request. Try again.');
+    } finally {
+      setFriendActionUserId(null);
+    }
+  }
+
+  async function handleDeclineFriendRequestClick(userId: string) {
+    if (!onDeclineFriendRequest) {
+      return;
+    }
+
+    setFriendActionUserId(userId);
+    setErrorText(null);
+
+    try {
+      await onDeclineFriendRequest(userId);
+    } catch (error) {
+      console.error('[Kodiak Connect] Failed to decline friend request', error);
+      setErrorText('Could not decline friend request. Try again.');
+    } finally {
+      setFriendActionUserId(null);
+    }
+  }
+
+  function requestUnfriendUser(userId: string) {
+    setPendingUnfriendUserId(userId);
+  }
+
+  async function handleCancelFriendRequestClick(userId: string) {
+    if (!onCancelFriendRequest) {
+      return;
+    }
+
+    setFriendActionUserId(userId);
+    setErrorText(null);
+
+    try {
+      await onCancelFriendRequest(userId);
+    } catch (error) {
+      console.error('[Kodiak Connect] Failed to cancel friend request', error);
+      setErrorText('Could not cancel friend request. Try again.');
+    } finally {
+      setFriendActionUserId(null);
+    }
+  }
+
+  async function handleUnfriendUserClick(userId: string) {
+    if (!onUnfriendUser) {
+      return;
+    }
+
+    setFriendActionUserId(userId);
+    setErrorText(null);
+
+    try {
+      await onUnfriendUser(userId);
+      setPendingUnfriendUserId(null);
+    } catch (error) {
+      console.error('[Kodiak Connect] Failed to unfriend user', error);
+      setErrorText('Could not remove friend. Try again.');
+    } finally {
+      setFriendActionUserId(null);
+    }
+  }
+
+  async function refreshSafetyReports() {
+    setIsLoadingSafetyReports(true);
+    setSafetyReportErrorText(null);
+
+    try {
+      const reports = await loadKodiakReports(identity);
+      setSafetyReports(reports);
+    } catch (error) {
+      console.error('[Kodiak Connect] Failed to load safety reports', error);
+      setSafetyReportErrorText(error instanceof Error ? error.message : 'Could not load report history.');
+    } finally {
+      setIsLoadingSafetyReports(false);
+    }
+  }
+
+  function openSafetyCenter() {
+    setIsSafetyCenterOpen(true);
+    void refreshSafetyReports();
+  }
+
+  function requestReportUser(userId: string) {
+    setPendingReportUserId(userId);
+    setReportCategory('harassment');
+    setReportDetails('');
+    setReportErrorText(null);
+    setReportSuccessText(null);
+  }
+
+  async function handleSubmitReportUser(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    if (!pendingReportUserId) {
+      return;
+    }
+
+    const trimmedDetails = reportDetails.trim();
+
+    if (trimmedDetails.length < 5) {
+      setReportErrorText('Please add a short description before submitting.');
+      return;
+    }
+
+    setIsSubmittingReport(true);
+    setReportErrorText(null);
+    setReportSuccessText(null);
+
+    try {
+      await submitKodiakReport(identity, {
+        category: reportCategory,
+        context: activeChannel.name,
+        details: trimmedDetails,
+        roomId: roomId ?? '',
+        targetAvatarUrl: avatarUrlsByUserId[pendingReportUserId] ?? '',
+        targetDisplayName: getKnownDisplayName(pendingReportUserId),
+        targetUserId: pendingReportUserId,
+      });
+
+      void refreshSafetyReports();
+      setReportSuccessText('Report submitted. Kodiak Trust & Safety can review it.');
+      setReportDetails('');
+    } catch (error) {
+      console.error('[Kodiak Connect] Failed to submit report', error);
+      setReportErrorText(error instanceof Error ? error.message : 'Could not submit report. Try again.');
+    } finally {
+      setIsSubmittingReport(false);
+    }
+  }
+
+  function requestBlockUser(userId: string) {
+    setPendingBlockUserId(userId);
+  }
+
+  function requestUnblockUser(userId: string) {
+    setPendingUnblockUserId(userId);
+  }
+
+  async function handleBlockUserClick(userId: string) {
+    if (!onBlockUser) {
+      return;
+    }
+
+    setFriendActionUserId(userId);
+    setErrorText(null);
+
+    try {
+      await onBlockUser(userId);
+      setPendingBlockUserId(null);
+      setOpenProfileUserId(null);
+    } catch (error) {
+      console.error('[Kodiak Connect] Failed to block user', error);
+      setErrorText('Could not block user. Try again.');
+    } finally {
+      setFriendActionUserId(null);
+    }
+  }
+
+  async function handleUnblockUserClick(userId: string) {
+    if (!onUnblockUser) {
+      return;
+    }
+
+    setFriendActionUserId(userId);
+    setErrorText(null);
+
+    try {
+      await onUnblockUser(userId);
+      setPendingUnblockUserId(null);
+    } catch (error) {
+      console.error('[Kodiak Connect] Failed to unblock user', error);
+      setErrorText('Could not unblock user. Try again.');
+    } finally {
+      setFriendActionUserId(null);
+    }
+  }
+
+  function handleAvatarFileChange(file: File | null) {
+    setSettingsErrorText(null);
+
+    if (!file) {
+      setAvatarFile(null);
+      setAvatarPreviewUrl(null);
+      return;
+    }
+
+    const allowedTypes = new Set(['image/png', 'image/jpeg', 'image/jpg', 'image/webp']);
+    const maxSizeBytes = 2 * 1024 * 1024;
+
+    if (!allowedTypes.has(file.type)) {
+      setSettingsErrorText('Profile picture must be a PNG, JPG, JPEG, or WEBP image.');
+      return;
+    }
+
+    if (file.size > maxSizeBytes) {
+      setSettingsErrorText('Profile picture must be 2 MB or smaller.');
+      return;
+    }
+
+    setAvatarFile(file);
+    setAvatarPreviewUrl(URL.createObjectURL(file));
+  }
+
+  async function handleSaveAccountSettings(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    const nextDisplayName = displayNameDraft.trim();
+
+    if (!nextDisplayName) {
+      setSettingsErrorText('Display name cannot be empty.');
+      return;
+    }
+
+    if (nextDisplayName.length > 32) {
+      setSettingsErrorText('Display name must be 32 characters or less.');
+      return;
+    }
+
+    const nextBio = bioDraft.trim();
+
+    if (nextBio.length > 180) {
+      setSettingsErrorText('Bio must be 180 characters or less.');
+      return;
+    }
+
+    setIsSavingSettings(true);
+    setSettingsErrorText(null);
+
+    try {
+      let nextAvatarSource = '';
+
+      if (avatarFile) {
+        const avatarMxcUrl = await uploadProfileAvatar(identity, avatarFile);
+        nextAvatarSource = avatarMxcUrl;
+      }
+
+      const savedProfile = await saveKodiakProfile(identity, {
+        ...(nextAvatarSource ? { avatarUrl: nextAvatarSource } : {}),
+        bio: nextBio,
+        displayName: nextDisplayName,
+      });
+
+      setDisplayNamesByUserId((currentNames) => ({
+        ...currentNames,
+        [identity.userId]: savedProfile?.displayName ?? nextDisplayName,
+      }));
+
+      setProfileBiosByUserId((currentBios) => ({
+        ...currentBios,
+        [identity.userId]: savedProfile?.bio ?? nextBio,
+      }));
+
+      if (nextAvatarSource) {
+        const authenticatedAvatarUrl = await getAuthenticatedMatrixMediaObjectUrl(identity, nextAvatarSource, 96, 96).catch(() => null);
+        const savedAvatarUrl = authenticatedAvatarUrl ?? avatarPreviewUrl ?? '';
+
+        if (savedAvatarUrl) {
+          setAvatarUrlsByUserId((currentAvatars) => ({
+            ...currentAvatars,
+            [identity.userId]: savedAvatarUrl,
+          }));
+
+          backendAvatarObjectUrlsRef.current[identity.userId] = {
+            source: nextAvatarSource,
+            url: savedAvatarUrl,
+          };
+        }
+      }
+
+      setAvatarFile(null);
+      setAvatarPreviewUrl(null);
+      setIsSettingsOpen(false);
+    } catch (error) {
+      console.error('[Kodiak Connect] Failed to save profile settings', error);
+      setSettingsErrorText(error instanceof Error ? error.message : 'Could not save profile settings. Try again.');
+    } finally {
+      setIsSavingSettings(false);
+    }
+  }
+
+  async function handleSendMessage(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    const trimmedMessage = draftMessage.trim();
+
+    if (!roomId || !trimmedMessage || !canPost) {
+      return;
+    }
+
+    if (doesMessageMentionRestrictedUser(trimmedMessage)) {
+      setErrorText('You cannot @mention someone while a block is active.');
+      return;
+    }
+
+    if (doesMessageMentionBlockedUser(trimmedMessage)) {
+      setErrorText('You cannot @mention someone while a block is active.');
+      return;
+    }
+
+    setIsSending(true);
+    setErrorText(null);
+
+    try {
+      await stopTyping();
+
+      if (editingMessage) {
+        await sendReplacementMessage(identity, roomId, editingMessage.eventId, trimmedMessage);
+        setEditingMessage(null);
+      } else {
+        await sendTextMessage(identity, roomId, buildReplyBody(replyTarget, trimmedMessage));
+
+        if (areMessageSoundsEnabled && isSentSoundEnabled) {
+          playKodiakSound('messageSent', 0.55);
+        }
+      }
+
+      setDraftMessage('');
+      setReplyTarget(null);
+      await refreshMessages(roomId);
+    } catch (error) {
+      console.error('[Kodiak Connect] Failed to send Matrix message', error);
+      setErrorText(getMatrixErrorMessage(error, activeChannel));
+    } finally {
+      setIsSending(false);
+    }
+  }
+
+  return (
+    <section className="chat-placeholder" aria-label={`${activeChannel.name} channel`}>
+      <header className="chat-placeholder__header">
+        <div>
+          <p className="eyebrow eyebrow--ember">{channelEyebrowLabel}</p>
+          <h1>{channelHeadingPrefix}{activeChannel.name}</h1>
+          <p>{activeChannel.description}</p>
+        </div>
+
+        <button
+          type="button"
+          className="chat-placeholder__user chat-placeholder__user--button kodiak-safety-center-trigger"
+          onClick={openSafetyCenter}
+        >
+          <span className="status-light status-light--idle" aria-hidden="true" />
+          <span>Safety Center</span>
+        </button>
+
+        <button
+          type="button"
+          className="chat-placeholder__user chat-placeholder__user--button"
+          onClick={() => {
+            setDisplayNameDraft(getKnownDisplayName(identity.userId));
+            setAvatarFile(null);
+            setAvatarPreviewUrl(null);
+            setBioDraft(profileBiosByUserId[identity.userId] ?? '');
+            setSettingsErrorText(null);
+            setIsSettingsOpen(true);
+          }}
+        >
+          {renderUserAvatar(identity.userId, 'matrix-avatar--pill')}
+          <span className="status-light status-light--online" aria-hidden="true" />
+          <span>{headerDisplayName}</span>
+        </button>
+      </header>
+
+      <div className={`matrix-channel-content ${isMemberPanelOpen ? '' : 'matrix-channel-content--members-collapsed'}`}>
+      <div className="matrix-chat-body">
+        {errorText ? (
+          <div className="matrix-chat-status matrix-chat-status--error">
+            <span className="status-light status-light--offline" aria-hidden="true" />
+            <span>{errorText}</span>
+          </div>
+        ) : null}
+
+        {isLoading ? (
+          <div className="matrix-empty-state">Loading #{activeChannel.name}...</div>
+        ) : messages.length ? (
+          <div
+            ref={messageListRef}
+            className="matrix-message-list"
+            aria-label="Message history"
+            onContextMenuCapture={handleMessageListContextMenu}
+            onScroll={handleMessageListScroll}
+          >
+            {visibleMessages.map((message: MatrixTextMessage) => {
+              const parsedMessage = parseMessageBody(message.body);
+              const isOwnMessage = message.sender === identity.userId;
+
+              return (
+                <div key={message.eventId} className={`matrix-message-group ${isOwnMessage ? 'matrix-message-group--own' : ''}`}>
+                  {parsedMessage.reply ? (
+                    <button
+                      type="button"
+                      className="matrix-reply-thread-link"
+                      onClick={() => handleJumpToMessage(parsedMessage.reply?.eventId)}
+                      disabled={!parsedMessage.reply.eventId}
+                      title={`Replying to ${parsedMessage.reply.sender}: ${parsedMessage.reply.preview}`}
+                    >
+                      <span className="matrix-reply-thread-link__arrow" aria-hidden="true">↪</span>
+                      <strong>{parsedMessage.reply.sender}</strong>
+                      <span className="matrix-reply-thread-link__separator" aria-hidden="true">·</span>
+                      <span className="matrix-reply-thread-link__preview">{parsedMessage.reply.preview}</span>
+                    </button>
+                  ) : null}
+
+                  <article
+                    ref={(element) => {
+                      messageElementRefs.current[message.eventId] = element;
+                    }}
+                    className={`matrix-message ${isOwnMessage ? 'matrix-message--own' : ''}`}
+                    data-message-event-id={message.eventId}
+                  >
+                    <button
+                      type="button"
+                      className="matrix-profile-trigger matrix-message__avatar-slot"
+                      onClick={() => setOpenProfileUserId(message.sender)}
+                    >
+                      {renderUserAvatar(message.sender, 'matrix-avatar--message')}
+                    </button>
+
+                    <div className="matrix-message__content">
+                      <header className="matrix-message__meta">
+                        <button
+                          type="button"
+                          className="matrix-profile-trigger matrix-profile-trigger--name"
+                          onClick={() => setOpenProfileUserId(message.sender)}
+                        >
+                          <strong>{getKnownDisplayName(message.sender)}</strong>
+                        </button>
+                        <time>{formatMessageTime(message.originServerTs)}</time>
+                      </header>
+                      <p>{renderMessageTextWithMentions(parsedMessage.body, currentUserLocalpart, displayNamesByLocalpart)}</p>
+                    {message.editedAt ? <span className="matrix-message__edited">edited</span> : null}
+
+                    {message.reactions?.length ? (
+                      <div className="matrix-reactions" aria-label="Message reactions">
+                        {message.reactions.map((reaction) => (
+                          <button
+                            key={reaction.key}
+                            type="button"
+                            className={hasUserReacted(message, reaction.key, identity.userId) ? 'matrix-reaction--mine' : undefined}
+                            onClick={() => void handleReactToMessage(message, reaction.key)}
+                            title={reaction.senders.map(getKnownDisplayName).join(', ')}
+                          >
+                            <span>{reaction.key}</span>
+                            <strong>{reaction.count}</strong>
+                          </button>
+                        ))}
+                      </div>
+                    ) : null}
+
+                    {reactionPickerMessageId === message.eventId ? (
+                      <div className="matrix-reaction-picker" aria-label="Choose a reaction">
+                        {REACTION_OPTIONS.map((reactionKey) => (
+                          <button key={reactionKey} type="button" onClick={() => void handleReactToMessage(message, reactionKey)}>
+                            {reactionKey}
+                          </button>
+                        ))}
+                      </div>
+                    ) : null}
+                    </div>
+                  </article>
+                </div>
+              );
+            })}
+          </div>
+        ) : (
+          <div className="matrix-empty-state">{getEmptyState(activeChannel, canPost)}</div>
+        )}
+      </div>
+
+      <aside className={`matrix-member-panel ${isMemberPanelOpen ? '' : 'matrix-member-panel--collapsed'}`} aria-label="Room members">
+        <button
+          type="button"
+          className="matrix-member-panel__toggle"
+          aria-label={isMemberPanelOpen ? 'Hide member panel' : 'Show member panel'}
+          title={isMemberPanelOpen ? 'Hide members' : 'Show members'}
+          onClick={() => setIsMemberPanelOpen((isOpen) => !isOpen)}
+        >
+          {isMemberPanelOpen ? '›' : '‹'}
+        </button>
+
+        <div className="matrix-member-panel__inner">
+        <div className="matrix-member-panel__header">
+          <span>Members</span>
+          <strong>{visibleRoomMemberUserIds.length}</strong>
+        </div>
+
+        <div className="matrix-member-list">
+          {visibleRoomMemberUserIds.map((userId: string) => (
+            <button key={userId} type="button" className="matrix-member-row" onClick={() => setOpenProfileUserId(userId)}>
+              <span className="matrix-member-row__avatar">
+                {renderUserAvatar(userId, 'matrix-avatar--member')}
+                <i className={`matrix-presence-dot matrix-presence-dot--${getKnownPresence(userId)}`} aria-hidden="true" />
+              </span>
+              <span>
+                <strong>{getKnownDisplayName(userId)}</strong>
+                <small>
+                  <i className={`matrix-presence-text-dot matrix-presence-text-dot--${getKnownPresence(userId)}`} aria-hidden="true" />
+                  {getPresenceLabel(userId)} · {getMemberRoleLabel(userId)}
+                </small>
+              </span>
+            </button>
+          ))}
+        </div>
+        </div>
+      </aside>
+      </div>
+
+      <form className="message-composer-placeholder" onSubmit={handleSendMessage}>
+        {typingIndicatorText ? (
+          <div className="matrix-typing-indicator" aria-live="polite">
+            <span>{typingIndicatorText}</span>
+            <i aria-hidden="true" />
+            <i aria-hidden="true" />
+            <i aria-hidden="true" />
+          </div>
+        ) : null}
+
+        {editingMessage ? (
+          <div className="message-edit-preview">
+            <div>
+              <strong>Editing message</strong>
+              <span>Save your changes or cancel editing.</span>
+            </div>
+            <button type="button" onClick={cancelEditingMessage} aria-label="Cancel edit">
+              Cancel
+            </button>
+          </div>
+        ) : null}
+
+        {!editingMessage && replyTarget ? (
+          <div className="message-reply-preview">
+            <div>
+              <strong>Replying to {getKnownDisplayName(replyTarget.sender)}</strong>
+              <span>{getShortMessagePreview(parseMessageBody(replyTarget.body).body, 72)}</span>
+            </div>
+            <button type="button" onClick={() => setReplyTarget(null)} aria-label="Cancel reply">
+              Cancel
+            </button>
+          </div>
+        ) : null}
+
+        {mentionSuggestions.filter((suggestion) => !isUserRestricted(suggestion.userId)).length ? (
+          <div className="message-mention-suggestions" role="listbox" aria-label="Mention suggestions">
+            {mentionSuggestions.filter((suggestion) => !isUserRestricted(suggestion.userId)).map((suggestion) => (
+              <button key={suggestion.userId} type="button" onClick={() => insertMentionSuggestion(suggestion)}>
+                {renderUserAvatar(suggestion.userId, 'matrix-avatar--suggestion')}
+                <span>{suggestion.displayName}</span>
+                <small>Press Tab to mention</small>
+              </button>
+            ))}
+          </div>
+        ) : null}
+
+        <input
+          type="text"
+          placeholder={editingMessage ? 'Edit message' : getComposerPlaceholder(activeChannel, canPost, roomId, replyTarget)}
+          value={draftMessage}
+          onChange={(event) => setDraftMessage(event.target.value)}
+          onKeyDown={handleComposerKeyDown}
+          disabled={!roomId || isSending || !canPost}
+        />
+        <button type="submit" disabled={!roomId || isSending || !canPost || !draftMessage.trim()}>
+          {isSending ? (editingMessage ? 'Saving...' : 'Sending...') : editingMessage ? 'Save' : activeChannel.readOnly ? 'Publish' : 'Send'}
+        </button>
+      </form>
+
+      {openActionMenu && openActionMenuMessage && openActionMenuParsedMessage ? (
+        <div
+          className="matrix-message-action-menu matrix-message-action-menu--floating kodiak-global-message-action-menu"
+          style={{ left: openActionMenu.x, top: openActionMenu.y }}
+          onContextMenu={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+          }}
+        >
+          {openActionMenuMessage.sender !== identity.userId && onOpenDirectMessage ? (
+            <button
+              type="button"
+              onClick={() => {
+                onOpenDirectMessage(openActionMenuMessage.sender, getKnownDisplayName(openActionMenuMessage.sender));
+                setOpenActionMenu(null);
+                setReactionPickerMessageId(null);
+                setReplyTarget(null);
+                setEditingMessage(null);
+              }}
+            >
+              Message {getKnownDisplayName(openActionMenuMessage.sender)}
+            </button>
+          ) : null}
+          {canPost ? (
+            <button
+              type="button"
+              onClick={() => {
+                setReactionPickerMessageId((currentMessageId) =>
+                  currentMessageId === openActionMenuMessage.eventId ? null : openActionMenuMessage.eventId,
+                );
+                setOpenActionMenu(null);
+              }}
+            >
+              React
+            </button>
+          ) : null}
+          {canPost ? (
+            <button
+              type="button"
+              onClick={() => {
+                setReplyTarget({ ...openActionMenuMessage, body: openActionMenuParsedMessage.body });
+                setEditingMessage(null);
+                setOpenActionMenu(null);
+              }}
+            >
+              Reply
+            </button>
+          ) : null}
+          {openActionMenuMessage.sender === identity.userId ? (
+            <button type="button" onClick={() => startEditingMessage({ ...openActionMenuMessage, body: openActionMenuParsedMessage.body })}>
+              Edit
+            </button>
+          ) : null}
+          {openActionMenuMessage.sender === identity.userId || canModerate ? (
+            <button type="button" className="matrix-message-action--danger" onClick={() => requestDeleteMessage(openActionMenuMessage)}>
+              Delete
+            </button>
+          ) : null}
+        </div>
+      ) : null}
+
+      {openActionMenu ? (
+        <div
+          className="matrix-action-menu-backdrop"
+          aria-label="Close message actions"
+          role="presentation"
+          onClick={closeMessageActionMenu}
+          onMouseDown={(event) => {
+            if (event.button === 2) {
+              event.preventDefault();
+              event.stopPropagation();
+              closeMessageActionMenu();
+            }
+          }}
+          onContextMenu={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            closeMessageActionMenu();
+          }}
+        />
+      ) : null}
+
+      {openProfileUserId ? (
+        <div className="kodiak-modal-backdrop" role="presentation" onClick={() => setOpenProfileUserId(null)}>
+          <div
+            className="kodiak-profile-card"
+            role="dialog"
+            aria-modal="true"
+            aria-label={`${getKnownDisplayName(openProfileUserId)} profile`}
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="kodiak-profile-card__hero">
+              {renderUserAvatar(openProfileUserId, 'matrix-avatar--profile-card')}
+              <div>
+                <h2>{getKnownDisplayName(openProfileUserId)}</h2>
+                <p>{profileBiosByUserId[openProfileUserId]?.trim() || 'No bio yet.'}</p>
+              </div>
+            </div>
+
+            <div className="kodiak-profile-card__actions">
+              {openProfileUserId === identity.userId ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setOpenProfileUserId(null);
+                    setDisplayNameDraft(getKnownDisplayName(identity.userId));
+                    setBioDraft(profileBiosByUserId[identity.userId] ?? '');
+                    setAvatarFile(null);
+                    setAvatarPreviewUrl(null);
+                    setSettingsErrorText(null);
+                    setIsSettingsOpen(true);
+                  }}
+                >
+                  Edit profile
+                </button>
+              ) : onOpenDirectMessage ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    onOpenDirectMessage(openProfileUserId, getKnownDisplayName(openProfileUserId));
+                    setOpenProfileUserId(null);
+                  }}
+                >
+                  Message
+                </button>
+              ) : null}
+              {openProfileUserId !== identity.userId ? (
+                isUserBlocked(openProfileUserId) ? (
+                  <button type="button" disabled>Blocked</button>
+                ) : getFriendStatus(openProfileUserId) === 'friends' ? (
+                  <button type="button" disabled>Friends</button>
+                ) : getFriendStatus(openProfileUserId) === 'outgoing' ? (
+                  <button
+                    type="button"
+                    className="kodiak-profile-card__danger"
+                    disabled={friendActionUserId === openProfileUserId || !onCancelFriendRequest}
+                    onClick={() => void handleCancelFriendRequestClick(openProfileUserId)}
+                  >
+                    {friendActionUserId === openProfileUserId ? 'Canceling...' : 'Cancel Request'}
+                  </button>
+                ) : getFriendStatus(openProfileUserId) === 'incoming' ? (
+                  <>
+                    <button type="button" disabled={friendActionUserId === openProfileUserId} onClick={() => void handleAcceptFriendRequestClick(openProfileUserId)}>
+                      {friendActionUserId === openProfileUserId ? 'Accepting...' : 'Accept'}
+                    </button>
+                    <button type="button" disabled={friendActionUserId === openProfileUserId} onClick={() => void handleDeclineFriendRequestClick(openProfileUserId)}>
+                      Decline
+                    </button>
+                  </>
+                ) : (
+                  <button type="button" disabled={friendActionUserId === openProfileUserId || !onSendFriendRequest} onClick={() => void handleSendFriendRequestClick(openProfileUserId)}>
+                    {friendActionUserId === openProfileUserId ? 'Sending...' : 'Add Friend'}
+                  </button>
+                )
+              ) : null}
+              {openProfileUserId !== identity.userId ? (
+                isUserBlocked(openProfileUserId) ? (
+                  <button
+                    type="button"
+                    className="kodiak-profile-card__danger"
+                    disabled={friendActionUserId === openProfileUserId || !onUnblockUser}
+                    onClick={() => requestUnblockUser(openProfileUserId)}
+                  >
+                    Unblock
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    className="kodiak-profile-card__danger"
+                    disabled={friendActionUserId === openProfileUserId || !onBlockUser}
+                    onClick={() => requestBlockUser(openProfileUserId)}
+                  >
+                    Block
+                  </button>
+                )
+              ) : null}
+              {openProfileUserId !== identity.userId ? (
+                <button
+                  type="button"
+                  className="kodiak-profile-card__danger"
+                  onClick={() => requestReportUser(openProfileUserId)}
+                >
+                  Report
+                </button>
+              ) : null}
+            </div>
+
+            {profileActionErrorText ? (
+              <p className="kodiak-profile-card__action-error" role="alert">
+                {profileActionErrorText}
+              </p>
+            ) : null}
+          </div>
+        </div>
+      ) : null}
+
+      {pendingReportUserId ? (
+        <div className="kodiak-modal-backdrop kodiak-modal-backdrop--stacked" role="presentation" onClick={() => setPendingReportUserId(null)}>
+          <form
+            className="kodiak-report-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="report-modal-title"
+            onClick={(event) => event.stopPropagation()}
+            onSubmit={(event) => void handleSubmitReportUser(event)}
+          >
+            <div className="kodiak-report-modal__header">
+              <p className="eyebrow eyebrow--ember">Trust & Safety</p>
+              <h2 id="report-modal-title">Report {getKnownDisplayName(pendingReportUserId)}</h2>
+              <p>Send a report to Kodiak Trust & Safety. Blocking protects you; reporting helps protect the platform.</p>
+            </div>
+
+            <div className="kodiak-report-modal__user">
+              {renderUserAvatar(pendingReportUserId, 'matrix-avatar--suggestion')}
+              <div>
+                <strong>{getKnownDisplayName(pendingReportUserId)}</strong>
+                <span>{pendingReportUserId}</span>
+              </div>
+            </div>
+
+            {reportSuccessText ? (
+              <div className="kodiak-report-modal__success" role="status">
+                {reportSuccessText}
+              </div>
+            ) : (
+              <>
+                <label className="kodiak-report-modal__field">
+                  <span>Reason</span>
+                  <select value={reportCategory} onChange={(event) => setReportCategory(event.target.value as KodiakReportCategory)}>
+                    <option value="harassment">Harassment or abuse</option>
+                    <option value="spam">Spam</option>
+                    <option value="scam">Scam or suspicious behavior</option>
+                    <option value="threats">Threats or safety concern</option>
+                    <option value="impersonation">Impersonation</option>
+                    <option value="other">Other</option>
+                  </select>
+                </label>
+
+                <label className="kodiak-report-modal__field">
+                  <span>Details</span>
+                  <textarea
+                    value={reportDetails}
+                    onChange={(event) => setReportDetails(event.target.value)}
+                    placeholder="What happened?"
+                    maxLength={1500}
+                    rows={5}
+                  />
+                  <small>{reportDetails.length}/1500</small>
+                </label>
+
+                {reportErrorText ? (
+                  <p className="kodiak-report-modal__error" role="alert">
+                    {reportErrorText}
+                  </p>
+                ) : null}
+              </>
+            )}
+
+            <div className="kodiak-report-modal__actions">
+              <button
+                type="button"
+                onClick={() => {
+                  setPendingReportUserId(null);
+                  setReportErrorText(null);
+                  setReportSuccessText(null);
+                }}
+              >
+                {reportSuccessText ? 'Done' : 'Cancel'}
+              </button>
+
+              {!reportSuccessText ? (
+                <button type="submit" className="kodiak-report-modal__danger" disabled={isSubmittingReport}>
+                  {isSubmittingReport ? 'Submitting...' : 'Submit Report'}
+                </button>
+              ) : null}
+            </div>
+          </form>
+        </div>
+      ) : null}
+
+      {pendingBlockUserId ? (
+        <div className="kodiak-modal-backdrop kodiak-modal-backdrop--stacked" role="presentation" onClick={() => setPendingBlockUserId(null)}>
+          <div
+            className="kodiak-block-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="block-modal-title"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="kodiak-block-modal__header">
+              <p className="eyebrow eyebrow--ember">Safety</p>
+              <h2 id="block-modal-title">Block {getKnownDisplayName(pendingBlockUserId)}?</h2>
+              <p>This removes them from your Friend Center and hides them from user search. Message suppression is coming next.</p>
+            </div>
+
+            <div className="kodiak-block-modal__user">
+              {renderUserAvatar(pendingBlockUserId, 'matrix-avatar--suggestion')}
+              <div>
+                <strong>{getKnownDisplayName(pendingBlockUserId)}</strong>
+                <span>User will be blocked</span>
+              </div>
+            </div>
+
+            <div className="kodiak-block-modal__actions">
+              <button type="button" onClick={() => setPendingBlockUserId(null)}>
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="kodiak-block-modal__danger"
+                disabled={friendActionUserId === pendingBlockUserId}
+                onClick={() => void handleBlockUserClick(pendingBlockUserId)}
+              >
+                {friendActionUserId === pendingBlockUserId ? 'Blocking...' : 'Block'}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {pendingUnblockUserId ? (
+        <div className="kodiak-modal-backdrop kodiak-modal-backdrop--stacked" role="presentation" onClick={() => setPendingUnblockUserId(null)}>
+          <div
+            className="kodiak-block-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="unblock-modal-title"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="kodiak-block-modal__header">
+              <p className="eyebrow eyebrow--ember">Safety</p>
+              <h2 id="unblock-modal-title">Unblock {getKnownDisplayName(pendingUnblockUserId)}?</h2>
+              <p>They will be visible in user search again. This does not automatically restore friendship.</p>
+            </div>
+
+            <div className="kodiak-block-modal__user">
+              {renderUserAvatar(pendingUnblockUserId, 'matrix-avatar--suggestion')}
+              <div>
+                <strong>{getKnownDisplayName(pendingUnblockUserId)}</strong>
+                <span>User will be unblocked</span>
+              </div>
+            </div>
+
+            <div className="kodiak-block-modal__actions">
+              <button type="button" onClick={() => setPendingUnblockUserId(null)}>
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="kodiak-block-modal__danger"
+                disabled={friendActionUserId === pendingUnblockUserId}
+                onClick={() => void handleUnblockUserClick(pendingUnblockUserId)}
+              >
+                {friendActionUserId === pendingUnblockUserId ? 'Unblocking...' : 'Unblock'}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {pendingUnfriendUserId ? (
+        <div className="kodiak-modal-backdrop kodiak-modal-backdrop--stacked" role="presentation" onClick={() => setPendingUnfriendUserId(null)}>
+          <div
+            className="kodiak-unfriend-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="unfriend-modal-title"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="kodiak-unfriend-modal__header">
+              <p className="eyebrow eyebrow--ember">Friend Center</p>
+              <h2 id="unfriend-modal-title">Unfriend {getKnownDisplayName(pendingUnfriendUserId)}?</h2>
+              <p>This removes them from your Friend Center. You can send another request later.</p>
+            </div>
+
+            <div className="kodiak-unfriend-modal__user">
+              {renderUserAvatar(pendingUnfriendUserId, 'matrix-avatar--suggestion')}
+              <div>
+                <strong>{getKnownDisplayName(pendingUnfriendUserId)}</strong>
+                <span>Friend</span>
+              </div>
+            </div>
+
+            <div className="kodiak-unfriend-modal__actions">
+              <button type="button" onClick={() => setPendingUnfriendUserId(null)}>
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="kodiak-unfriend-modal__danger"
+                disabled={friendActionUserId === pendingUnfriendUserId}
+                onClick={() => void handleUnfriendUserClick(pendingUnfriendUserId)}
+              >
+                {friendActionUserId === pendingUnfriendUserId ? 'Removing...' : 'Unfriend'}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {isSafetyCenterOpen ? (
+        <div className="kodiak-modal-backdrop" role="presentation" onClick={() => setIsSafetyCenterOpen(false)}>
+          <div
+            className="kodiak-safety-center-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="safety-center-title"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <button
+              type="button"
+              className="kodiak-safety-center-modal__close"
+              aria-label="Close Safety Center"
+              onClick={() => setIsSafetyCenterOpen(false)}
+            >
+              ×
+            </button>
+
+            <div className="kodiak-safety-center-modal__header">
+              <p className="eyebrow eyebrow--ember">Trust & Safety</p>
+              <h2 id="safety-center-title">Safety Center</h2>
+              <p>View reports you have submitted. Admin review tools come later.</p>
+            </div>
+
+            <div className="kodiak-safety-center-modal__toolbar">
+              <span>{safetyReports.length} submitted report{safetyReports.length === 1 ? '' : 's'}</span>
+              <button type="button" onClick={() => void refreshSafetyReports()} disabled={isLoadingSafetyReports}>
+                {isLoadingSafetyReports ? 'Refreshing...' : 'Refresh'}
+              </button>
+            </div>
+
+            {safetyReportErrorText ? (
+              <p className="kodiak-safety-center-modal__error" role="alert">
+                {safetyReportErrorText}
+              </p>
+            ) : null}
+
+            <div className="kodiak-safety-center-modal__body">
+              {isLoadingSafetyReports && !safetyReports.length ? (
+                <p className="kodiak-safety-center-empty">Loading report history...</p>
+              ) : safetyReports.length ? (
+                <div className="kodiak-safety-report-list">
+                  {safetyReports.map((report) => (
+                    <article key={report.id} className="kodiak-safety-report-card">
+                      <div className="kodiak-safety-report-card__top">
+                        <div>
+                          <strong>{report.targetDisplayName || getKnownDisplayName(report.targetUserId)}</strong>
+                          <span>{report.targetUserId}</span>
+                        </div>
+                        <em className="kodiak-safety-report-card__status">{report.status}</em>
+                      </div>
+
+                      <div className="kodiak-safety-report-card__meta">
+                        <span>{getReportCategoryLabel(report.category)}</span>
+                        <span>{new Date(report.createdAt).toLocaleString()}</span>
+                      </div>
+
+                      <p>{report.details}</p>
+
+                      {report.context || report.roomId ? (
+                        <small>
+                          {report.context ? `Context: ${report.context}` : ''}
+                          {report.context && report.roomId ? ' · ' : ''}
+                          {report.roomId ? `Room: ${report.roomId}` : ''}
+                        </small>
+                      ) : null}
+                    </article>
+                  ))}
+                </div>
+              ) : (
+                <p className="kodiak-safety-center-empty">No submitted reports yet.</p>
+              )}
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {isFriendCenterOpen ? (
+        <div className="kodiak-modal-backdrop" role="presentation" onClick={onCloseFriendCenter}>
+          <div
+            className="kodiak-friend-center-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="friend-center-title"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <button type="button" className="kodiak-friend-center-modal__close" aria-label="Close Friend Center" onClick={onCloseFriendCenter}>
+              ×
+            </button>
+
+            <div className="kodiak-friend-center-modal__header">
+              <p className="eyebrow eyebrow--ember">Social</p>
+              <h2 id="friend-center-title">Friend Center</h2>
+              <p>Manage friends, incoming requests, and outgoing requests.</p>
+            </div>
+
+            <div className="kodiak-friend-center-modal__body">
+              <section className="kodiak-friend-center-section kodiak-friend-center-section--blocked">
+                <div className="kodiak-friend-center-section__heading">
+                  <span>Blocked Users</span>
+                  <strong>{blockedUserIds.length}</strong>
+                </div>
+
+                {blockedUserIds.length ? (
+                  <div className="kodiak-friend-center-list">
+                    {blockedUserIds.map((userId) => (
+                      <div key={userId} className="kodiak-friend-center-row">
+                        {renderUserAvatar(userId, 'matrix-avatar--suggestion')}
+                        <div>
+                          <strong>{getKnownDisplayName(userId)}</strong>
+                          <small>Blocked</small>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            onCloseFriendCenter?.();
+                            setOpenProfileUserId(userId);
+                          }}
+                        >
+                          Profile
+                        </button>
+                        <button
+                          type="button"
+                          className="kodiak-friend-center-row__danger"
+                          disabled={friendActionUserId === userId || !onUnblockUser}
+                          onClick={() => void handleUnblockUserClick(userId)}
+                        >
+                          {friendActionUserId === userId ? 'Unblocking...' : 'Unblock'}
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="kodiak-friend-center-empty">No blocked users.</p>
+                )}
+              </section>
+              <section className="kodiak-friend-center-section">
+                <div className="kodiak-friend-center-section__heading">
+                  <span>Incoming Requests</span>
+                  <strong>{incomingFriendUserIds.length}</strong>
+                </div>
+
+                {incomingFriendUserIds.length ? (
+                  <div className="kodiak-friend-center-list">
+                    {incomingFriendUserIds.map((userId) => (
+                      <div key={userId} className="kodiak-friend-center-row">
+                        {renderUserAvatar(userId, 'matrix-avatar--suggestion')}
+                        <div>
+                          <strong>{getKnownDisplayName(userId)}</strong>
+                          <small>Wants to be friends</small>
+                        </div>
+                        <button type="button" disabled={friendActionUserId === userId} onClick={() => void handleAcceptFriendRequestClick(userId)}>
+                          Accept
+                        </button>
+                        <button type="button" disabled={friendActionUserId === userId} onClick={() => void handleDeclineFriendRequestClick(userId)}>
+                          Decline
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            onCloseFriendCenter?.();
+                            setOpenProfileUserId(userId);
+                          }}
+                        >
+                          Profile
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="kodiak-friend-center-empty">No incoming friend requests.</p>
+                )}
+              </section>
+
+              <section className="kodiak-friend-center-section">
+                <div className="kodiak-friend-center-section__heading">
+                  <span>Friends</span>
+                  <strong>{friendUserIds.length}</strong>
+                </div>
+
+                {friendUserIds.length ? (
+                  <div className="kodiak-friend-center-list">
+                    {friendUserIds.map((userId) => (
+                      <div key={userId} className="kodiak-friend-center-row">
+                        {renderUserAvatar(userId, 'matrix-avatar--suggestion')}
+                        <div>
+                          <strong>{getKnownDisplayName(userId)}</strong>
+                          <small>Friend</small>
+                        </div>
+                        {onOpenDirectMessage ? (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              onOpenDirectMessage(userId, getKnownDisplayName(userId));
+                              onCloseFriendCenter?.();
+                            }}
+                          >
+                            Message
+                          </button>
+                        ) : null}
+                        <button
+                          type="button"
+                          onClick={() => {
+                            onCloseFriendCenter?.();
+                            setOpenProfileUserId(userId);
+                          }}
+                        >
+                          Profile
+                        </button>
+                        <button
+                          type="button"
+                          className="kodiak-friend-center-row__danger"
+                          disabled={friendActionUserId === userId}
+                          onClick={() => requestUnfriendUser(userId)}
+                        >
+                          {friendActionUserId === userId ? 'Removing...' : 'Unfriend'}
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="kodiak-friend-center-empty">No friends yet.</p>
+                )}
+              </section>
+
+              <section className="kodiak-friend-center-section">
+                <div className="kodiak-friend-center-section__heading">
+                  <span>Outgoing Requests</span>
+                  <strong>{outgoingFriendUserIds.length}</strong>
+                </div>
+
+                {outgoingFriendUserIds.length ? (
+                  <div className="kodiak-friend-center-list">
+                    {outgoingFriendUserIds.map((userId) => (
+                      <div key={userId} className="kodiak-friend-center-row">
+                        {renderUserAvatar(userId, 'matrix-avatar--suggestion')}
+                        <div>
+                          <strong>{getKnownDisplayName(userId)}</strong>
+                          <small>Pending request</small>
+                        </div>
+                        <em>Pending</em>
+                        <button
+                          type="button"
+                          className="kodiak-friend-center-row__danger"
+                          disabled={friendActionUserId === userId || !onCancelFriendRequest}
+                          onClick={() => void handleCancelFriendRequestClick(userId)}
+                        >
+                          {friendActionUserId === userId ? 'Canceling...' : 'Cancel'}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            onCloseFriendCenter?.();
+                            setOpenProfileUserId(userId);
+                          }}
+                        >
+                          Profile
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="kodiak-friend-center-empty">No outgoing friend requests.</p>
+                )}
+              </section>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {isSettingsOpen ? (
+        <div className="kodiak-modal-backdrop" role="presentation">
+          <form className="kodiak-confirm-modal kodiak-settings-modal" role="dialog" aria-modal="true" aria-labelledby="account-settings-title" onSubmit={handleSaveAccountSettings}>
+            <button
+              type="button"
+              className="kodiak-settings-modal__close"
+              aria-label="Close profile settings"
+              onClick={() => setIsSettingsOpen(false)}
+            >
+              ×
+            </button>
+            <div className="kodiak-confirm-modal__header">
+              <p className="eyebrow eyebrow--ember">Account settings</p>
+              <h2 id="account-settings-title">Profile settings</h2>
+              <p>This is how people see you in chats, DMs, replies, and mentions.</p>
+            </div>
+
+            <div className="kodiak-avatar-setting">
+              <div className="kodiak-avatar-setting__preview">
+                {avatarPreviewUrl ? (
+                  <img src={avatarPreviewUrl} alt="" />
+                ) : getKnownAvatarUrl(identity.userId) ? (
+                  <img src={getKnownAvatarUrl(identity.userId) ?? ''} alt="" />
+                ) : (
+                  <span>{getAvatarInitials(headerDisplayName)}</span>
+                )}
+              </div>
+              <label>
+                <span>Profile picture</span>
+                <input
+                  type="file"
+                  accept="image/png,image/jpeg,image/jpg,image/webp"
+                  onChange={(event) => handleAvatarFileChange(event.target.files?.[0] ?? null)}
+                />
+              </label>
+            </div>
+
+            <label className="kodiak-settings-field">
+              <span>Display name</span>
+              <input
+                type="text"
+                value={displayNameDraft}
+                onChange={(event) => setDisplayNameDraft(event.target.value)}
+                maxLength={32}
+                placeholder="PapaKodiak"
+                autoFocus
+              />
+            </label>
+
+            <label className="kodiak-settings-field kodiak-settings-field--bio">
+              <span>Bio</span>
+              <textarea
+                value={bioDraft}
+                onChange={(event) => setBioDraft(event.target.value)}
+                maxLength={180}
+                placeholder="Tell people a little about yourself."
+              />
+              <small>{bioDraft.length}/180</small>
+            </label>
+
+            <div className="kodiak-sound-settings">
+              <strong>Sounds</strong>
+              <label>
+                <input
+                  type="checkbox"
+                  checked={areMessageSoundsEnabled}
+                  onChange={(event) => setAreMessageSoundsEnabled(event.target.checked)}
+                />
+                <span>Message sounds</span>
+              </label>
+              <label>
+                <input
+                  type="checkbox"
+                  checked={isSentSoundEnabled}
+                  onChange={(event) => setIsSentSoundEnabled(event.target.checked)}
+                  disabled={!areMessageSoundsEnabled}
+                />
+                <span>Sent sound</span>
+              </label>
+              <label>
+                <input
+                  type="checkbox"
+                  checked={isReceivedSoundEnabled}
+                  onChange={(event) => setIsReceivedSoundEnabled(event.target.checked)}
+                  disabled={!areMessageSoundsEnabled}
+                />
+                <span>Received sound</span>
+              </label>
+            </div>
+
+            <div className="kodiak-sound-settings kodiak-notification-settings">
+              <strong>Notifications</strong>
+              <label>
+                <input
+                  type="checkbox"
+                  checked={areBrowserNotificationsEnabled}
+                  onChange={(event) => void handleBrowserNotificationToggle(event.target.checked)}
+                />
+                <span>Browser notifications</span>
+              </label>
+              <label>
+                <input
+                  type="checkbox"
+                  checked={isNotificationSoundEnabled}
+                  onChange={(event) => setIsNotificationSoundEnabled(event.target.checked)}
+                  disabled={!areBrowserNotificationsEnabled}
+                />
+                <span>Notification sound</span>
+              </label>
+            </div>
+
+            {settingsErrorText ? <p className="kodiak-settings-error">{settingsErrorText}</p> : null}
+
+            <div className="kodiak-confirm-modal__actions">
+              <button type="button" onClick={() => setIsSettingsOpen(false)}>
+                Cancel
+              </button>
+              <button type="submit" disabled={isSavingSettings}>
+                {isSavingSettings ? 'Saving...' : 'Save'}
+              </button>
+            </div>
+          </form>
+        </div>
+      ) : null}
+
+      {pendingDeleteMessage ? (
+        <div className="kodiak-modal-backdrop" role="presentation">
+          <div className="kodiak-confirm-modal" role="dialog" aria-modal="true" aria-labelledby="delete-message-title">
+            <div className="kodiak-confirm-modal__header">
+              <p className="eyebrow eyebrow--ember">Message action</p>
+              <h2 id="delete-message-title">Delete this message?</h2>
+              <p>This removes the message from the room history. This action cannot be undone.</p>
+            </div>
+
+            <div className="kodiak-confirm-modal__preview">
+              <strong>{getKnownDisplayName(pendingDeleteMessage.sender)}</strong>
+              <span>{getShortMessagePreview(parseMessageBody(pendingDeleteMessage.body).body, 120)}</span>
+            </div>
+
+            <div className="kodiak-confirm-modal__actions">
+              <button type="button" onClick={closeDeleteConfirmation}>
+                Cancel
+              </button>
+              <button type="button" className="kodiak-confirm-modal__danger" onClick={() => void confirmDeleteMessage()}>
+                Delete message
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+    </section>
+  );
+}

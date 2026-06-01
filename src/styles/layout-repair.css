@@ -1,0 +1,238 @@
+/* Kodiak Connect staging layout repair pass
+   Keep this file imported last so it can cleanly override older stacked CSS experiments. */
+
+:root {
+  --workspace-top-offset: 0px;
+}
+
+.workspace-app-shell {
+  padding-top: 0 !important;
+}
+
+.workspace-app-shell::before {
+  inset: 0 0 0 0 !important;
+}
+
+.workspace-app-shell::after {
+  top: var(--workspace-header-height) !important;
+}
+
+.window-titlebar:empty {
+  display: none !important;
+}
+
+.channel-sidebar,
+.chat-placeholder {
+  height: 100vh !important;
+}
+
+.chat-placeholder {
+  min-height: 0 !important;
+}
+
+.kodiak-safety-center-trigger {
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  gap: 0.45rem !important;
+  min-height: auto !important;
+  border-color: rgba(34, 197, 94, 0.24) !important;
+  background: rgba(2, 6, 23, 0.55) !important;
+  color: #dcfce7 !important;
+  padding: 0.62rem 0.95rem !important;
+}
+
+.kodiak-safety-center-trigger .status-light {
+  position: static !important;
+  left: auto !important;
+  bottom: auto !important;
+  width: 0.55rem !important;
+  height: 0.55rem !important;
+  border: 0 !important;
+  box-shadow: 0 0 12px rgba(34, 197, 94, 0.38) !important;
+}
+
+.kodiak-safety-center-trigger > span:last-child {
+  color: #dcfce7 !important;
+  font-size: 0.88rem !important;
+  font-weight: 900 !important;
+  max-width: none !important;
+}
+
+.kodiak-safety-center-trigger:hover,
+.kodiak-safety-center-trigger:focus-visible {
+  border-color: rgba(34, 197, 94, 0.5) !important;
+  background: rgba(20, 83, 45, 0.22) !important;
+}
+
+.policy-modal-backdrop {
+  align-items: start !important;
+  justify-items: center !important;
+  z-index: 1400 !important;
+  overflow: auto !important;
+  padding: 0.9rem 1rem 1rem !important;
+}
+
+.policy-modal {
+  width: min(760px, calc(100vw - 2rem)) !important;
+  max-height: calc(100dvh - 2rem) !important;
+  gap: 0.95rem !important;
+  overscroll-behavior: contain !important;
+  padding: clamp(1rem, 2.4vw, 1.5rem) !important;
+  scrollbar-width: thin !important;
+}
+
+.policy-modal__brand {
+  align-items: start !important;
+}
+
+.policy-modal__brand .brand-orb {
+  width: 3.25rem !important;
+  height: 3.25rem !important;
+  border-radius: 18px !important;
+}
+
+.policy-modal__brand h1 {
+  max-width: 15ch !important;
+  margin: 0 0 0.35rem !important;
+  font-size: clamp(2rem, 5vw, 3.2rem) !important;
+  line-height: 0.95 !important;
+}
+
+.policy-modal__brand p {
+  max-width: 66ch !important;
+}
+
+.policy-modal__content {
+  padding: 0.9rem 1rem !important;
+}
+
+.policy-modal__content ul {
+  gap: 0.55rem !important;
+}
+
+.policy-modal__actions {
+  position: sticky;
+  right: 0;
+  bottom: 0;
+  padding-top: 0.4rem;
+  background: linear-gradient(180deg, transparent, rgba(15, 23, 42, 0.96) 38%);
+}
+
+.kodiak-modal-backdrop {
+  position: fixed !important;
+  inset: 0 !important;
+  z-index: 1250 !important;
+  display: grid !important;
+  place-items: center !important;
+  overflow: auto !important;
+  background: rgba(2, 6, 23, 0.78) !important;
+  backdrop-filter: blur(12px) !important;
+  padding: 1rem !important;
+}
+
+.kodiak-modal-backdrop--stacked {
+  z-index: 1260 !important;
+}
+
+.kodiak-profile-card,
+.kodiak-report-modal,
+.kodiak-confirm-modal,
+.kodiak-start-dm-modal {
+  position: relative !important;
+  width: min(31rem, calc(100vw - 2rem)) !important;
+  max-height: calc(100dvh - 2rem) !important;
+  overflow: auto !important;
+  transform: none !important;
+}
+
+.kodiak-profile-card {
+  display: grid !important;
+  gap: 1rem !important;
+  margin: 0 auto !important;
+}
+
+.kodiak-profile-card__hero {
+  align-items: center !important;
+}
+
+.kodiak-profile-card__actions {
+  grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+}
+
+.matrix-message-list {
+  align-content: end !important;
+}
+
+.matrix-message-group:has(.matrix-media-message) {
+  width: min(520px, 92%) !important;
+}
+
+.matrix-message-group--own:has(.matrix-media-message) {
+  align-self: flex-end !important;
+}
+
+.matrix-message:has(.matrix-media-message) {
+  width: fit-content !important;
+  max-width: min(520px, 100%) !important;
+  padding: 0.85rem !important;
+}
+
+.matrix-message--own:has(.matrix-media-message) {
+  justify-self: end !important;
+}
+
+.matrix-message:has(.matrix-media-message) .matrix-message__content {
+  width: min(420px, calc(100vw - 30rem)) !important;
+  min-width: min(320px, 100%) !important;
+}
+
+.matrix-message:has(.matrix-media-message) .matrix-message__content > p {
+  text-align: left !important;
+  white-space: normal !important;
+}
+
+.matrix-media-message {
+  width: 100% !important;
+  max-width: 420px !important;
+  border-radius: 16px !important;
+}
+
+.matrix-media-message audio,
+.matrix-media-message video,
+.matrix-media-message img {
+  max-width: 100% !important;
+}
+
+@media (max-width: 900px) {
+  .matrix-message:has(.matrix-media-message) .matrix-message__content {
+    width: min(420px, calc(100vw - 8rem)) !important;
+  }
+}
+
+@media (max-width: 720px) {
+  .policy-modal-backdrop,
+  .kodiak-modal-backdrop {
+    align-items: start !important;
+    padding: 0.75rem !important;
+  }
+
+  .policy-modal__brand,
+  .kodiak-profile-card__hero {
+    align-items: center !important;
+    text-align: center !important;
+  }
+
+  .policy-modal__brand {
+    display: grid !important;
+    justify-items: center !important;
+  }
+
+  .kodiak-profile-card__hero {
+    flex-direction: column !important;
+  }
+
+  .kodiak-profile-card__actions {
+    grid-template-columns: 1fr !important;
+  }
+}

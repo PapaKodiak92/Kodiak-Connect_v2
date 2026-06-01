@@ -1,0 +1,20 @@
+{
+  "@papakodiak:v2.kodiak-connect.com": {
+    "avatarUrl": "mxc://v2.kodiak-connect.com/xYtJdoHGwuCaUFKkzlTmCeXS",
+    "bio": "Just a bear dad doing bear dad things! Love my cubs more then picnic baskets themselves! aaaa",
+    "createdAt": 1780301629408,
+    "displayName": "PapaKodiakIsABear",
+    "normalizedDisplayName": "papakodiakisabear",
+    "updatedAt": 1780302215889,
+    "userId": "@papakodiak:v2.kodiak-connect.com"
+  },
+  "@kodiaktest:v2.kodiak-connect.com": {
+    "avatarUrl": "mxc://v2.kodiak-connect.com/uzJvIWAUAncgwLkODZBFGUZg",
+    "bio": "I am a test user!",
+    "createdAt": 1780302246437,
+    "displayName": "TestBear",
+    "normalizedDisplayName": "testbear",
+    "updatedAt": 1780302261470,
+    "userId": "@kodiaktest:v2.kodiak-connect.com"
+  }
+}

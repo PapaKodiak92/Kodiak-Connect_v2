@@ -1,0 +1,62 @@
+{
+  "report_mpv2mrm7_hblx8o6g": {
+    "category": "spam",
+    "context": "general",
+    "createdAt": 1780310041423,
+    "details": "He is the owner",
+    "id": "report_mpv2mrm7_hblx8o6g",
+    "messageEventId": "",
+    "reporterUserId": "@papakodiak:v2.kodiak-connect.com",
+    "roomId": "!rpBOUuwrdLuSRdadJl:v2.kodiak-connect.com",
+    "status": "open",
+    "targetAvatarUrl": "blob:http://localhost:5173/f7cbd7ed-ae1b-4c2b-ba9b-61965bc921a0",
+    "targetDisplayName": "TestBear",
+    "targetUserId": "@kodiaktest:v2.kodiak-connect.com",
+    "updatedAt": 1780310041423
+  },
+  "report_mpv2n9zy_lerff6wc": {
+    "category": "harassment",
+    "context": "general",
+    "createdAt": 1780310065246,
+    "details": "Abused me building this app",
+    "id": "report_mpv2n9zy_lerff6wc",
+    "messageEventId": "",
+    "reporterUserId": "@kodiaktest:v2.kodiak-connect.com",
+    "roomId": "!rpBOUuwrdLuSRdadJl:v2.kodiak-connect.com",
+    "status": "open",
+    "targetAvatarUrl": "blob:http://localhost:5173/2ab0d06d-ad02-4de2-9983-378b6c86befb",
+    "targetDisplayName": "PapaKodiakIsABear",
+    "targetUserId": "@papakodiak:v2.kodiak-connect.com",
+    "updatedAt": 1780310065246
+  },
+  "report_mpv3e4aw_t0rti5jx": {
+    "category": "harassment",
+    "context": "general",
+    "createdAt": 1780311317576,
+    "details": "testing this for app",
+    "id": "report_mpv3e4aw_t0rti5jx",
+    "messageEventId": "",
+    "reporterUserId": "@papakodiak:v2.kodiak-connect.com",
+    "roomId": "!rpBOUuwrdLuSRdadJl:v2.kodiak-connect.com",
+    "status": "open",
+    "targetAvatarUrl": "blob:http://localhost:5173/bed061e9-79a8-492b-9ed3-e22987176474",
+    "targetDisplayName": "TestBear",
+    "targetUserId": "@kodiaktest:v2.kodiak-connect.com",
+    "updatedAt": 1780311317576
+  },
+  "report_mpv3ee2v_211kq47d": {
+    "category": "harassment",
+    "context": "general",
+    "createdAt": 1780311330247,
+    "details": "never helps me anymore",
+    "id": "report_mpv3ee2v_211kq47d",
+    "messageEventId": "",
+    "reporterUserId": "@kodiaktest:v2.kodiak-connect.com",
+    "roomId": "!rpBOUuwrdLuSRdadJl:v2.kodiak-connect.com",
+    "status": "open",
+    "targetAvatarUrl": "blob:http://localhost:5173/487e0daf-c888-4d10-8dd2-bcdc1b26397f",
+    "targetDisplayName": "PapaKodiakIsABear",
+    "targetUserId": "@papakodiak:v2.kodiak-connect.com",
+    "updatedAt": 1780311330247
+  }
+}

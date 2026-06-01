@@ -1,4 +1,4 @@
-﻿import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { openUrl } from '@tauri-apps/plugin-opener';
 import { KodiakStatusCard } from '../../components/ui/KodiakStatusCard';
 import { updateManifest } from './updateManifest';
@@ -89,9 +89,10 @@ interface UpdaterPanelProps {
   onUpToDate?: () => void;
   onUpdateRequired?: () => void;
   onUpdateCheckFailed?: () => void;
+  allowContinueOnFailure?: boolean;
 }
 
-export function UpdaterPanel({ onUpToDate, onUpdateRequired, onUpdateCheckFailed }: UpdaterPanelProps) {
+export function UpdaterPanel({ onUpToDate, onUpdateRequired, onUpdateCheckFailed, allowContinueOnFailure = false }: UpdaterPanelProps) {
   const [status, setStatus] = useState<DesktopUpdaterStatus>('checking');
   const [updateInfo, setUpdateInfo] = useState<DesktopUpdateInfo | null>(null);
   const [progressText, setProgressText] = useState('Checking current version...');
@@ -115,10 +116,14 @@ export function UpdaterPanel({ onUpToDate, onUpdateRequired, onUpdateCheckFailed
     } catch (error) {
       console.error('[Kodiak Connect] Updater check failed', error);
       setStatus('error');
-      setProgressText('Could not reach the update server.');
+      setProgressText(allowContinueOnFailure ? 'Dev mode: continuing without updater.' : 'Could not reach the update server.');
       onUpdateCheckFailed?.();
+
+      if (allowContinueOnFailure) {
+        window.setTimeout(() => onUpToDate?.(), 650);
+      }
     }
-  }, []);
+  }, [allowContinueOnFailure, onUpdateCheckFailed, onUpdateRequired, onUpToDate]);
 
   useEffect(() => {
     if (hasAutoChecked.current) return;
@@ -179,4 +184,3 @@ export function UpdaterPanel({ onUpToDate, onUpdateRequired, onUpdateCheckFailed
     </KodiakStatusCard>
   );
 }
-

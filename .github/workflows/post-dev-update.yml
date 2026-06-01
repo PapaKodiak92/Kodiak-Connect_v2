@@ -4,11 +4,11 @@ on:
   workflow_dispatch:
     inputs:
       title:
-        description: Optional dev update title/version. If blank, the script uses the changelog file heading.
-        required: false
+        description: Dev update title/version
+        required: true
         type: string
-      changelog_file:
-        description: Changelog file path, for example docs/changelogs/v0.3.0-staging.md
+      changelog:
+        description: Curated changelog body
         required: true
         type: string
 
@@ -23,6 +23,9 @@ jobs:
     permissions:
       contents: read
 
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
@@ -30,7 +33,7 @@ jobs:
       - name: Set up Node
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 24
 
       - name: Post curated changelog to Matrix
         run: node scripts/post-matrix-dev-update.mjs
@@ -39,4 +42,4 @@ jobs:
           MATRIX_BASE_URL: https://matrix-v2.kodiak-connect.com
           MATRIX_ROOM_ALIAS: "#dev-updates:v2.kodiak-connect.com"
           DEV_UPDATE_TITLE: ${{ github.event.inputs.title || github.event.release.name || github.event.release.tag_name }}
-          CHANGELOG_FILE: ${{ github.event.inputs.changelog_file }}
+          DEV_UPDATE_BODY: ${{ github.event.inputs.changelog || github.event.release.body }}

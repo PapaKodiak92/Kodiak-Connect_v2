@@ -1,13 +1,17 @@
-﻿import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { LoginScreen } from '../features/auth/LoginScreen';
+import type { MatrixLoginIdentity } from '../features/auth/matrixLoginService';
+import { KodiakAttachmentBridge } from '../features/attachments/KodiakAttachmentBridge';
+import { MatrixMediaDomEnhancer } from '../features/attachments/MatrixMediaDomEnhancer';
 import { AndroidUpdatePanel } from '../features/updater/AndroidUpdatePanel';
 import { UpdaterPanel } from '../features/updater/UpdaterPanel';
+import { WorkspaceShell } from '../features/workspace/WorkspaceShell';
 import { KodiakSplashScreen } from '../components/layout/KodiakSplashScreen';
 import { WindowTitleBar } from '../components/layout/WindowTitleBar';
 import { openAndroidApkDownload } from '../platform/android/androidUpdateService';
 import { usePlatformInfo } from '../platform/usePlatformInfo';
 
-type AppState = 'booting' | 'checking-update' | 'update-required' | 'login';
+type AppState = 'booting' | 'checking-update' | 'update-required' | 'login' | 'workspace';
 
 const launcherLinks = [
   {
@@ -72,9 +76,11 @@ function LauncherSocialLinks({ isMobile }: LauncherSocialLinksProps) {
 export function AppShell() {
   const platform = usePlatformInfo();
   const [appState, setAppState] = useState<AppState>('booting');
+  const [matrixIdentity, setMatrixIdentity] = useState<MatrixLoginIdentity | null>(null);
   const updaterOnline = true;
   const serverOnline = false;
   const isMobile = platform.kind === 'android';
+  const isWebDev = import.meta.env.DEV && platform.kind === 'web';
   const platformLabel = isMobile ? 'Mobile' : platform.kind === 'desktop' ? 'Desktop' : 'Web';
 
   useEffect(() => {
@@ -90,21 +96,56 @@ export function AppShell() {
     setAppState('update-required');
   }, []);
 
+  const handleUpdateCheckFailed = useCallback(() => {
+    if (isWebDev) {
+      setAppState('login');
+      return;
+    }
+
+    setAppState('update-required');
+  }, [isWebDev]);
+
+  const handleLoginSuccess = useCallback((identity: MatrixLoginIdentity) => {
+    setMatrixIdentity(identity);
+    setAppState('workspace');
+  }, []);
+
+  const handleLogout = useCallback(() => {
+    setMatrixIdentity(null);
+    setAppState('login');
+  }, []);
+
   const updaterPanel = isMobile ? (
-    <AndroidUpdatePanel onUpToDate={handleUpToDate} onUpdateRequired={handleUpdateRequired} onUpdateCheckFailed={handleUpdateRequired} />
+    <AndroidUpdatePanel onUpToDate={handleUpToDate} onUpdateRequired={handleUpdateRequired} onUpdateCheckFailed={handleUpdateCheckFailed} />
   ) : (
-    <UpdaterPanel onUpToDate={handleUpToDate} onUpdateRequired={handleUpdateRequired} onUpdateCheckFailed={handleUpdateRequired} />
+    <UpdaterPanel
+      onUpToDate={handleUpToDate}
+      onUpdateRequired={handleUpdateRequired}
+      onUpdateCheckFailed={handleUpdateCheckFailed}
+      allowContinueOnFailure={isWebDev}
+    />
   );
 
   if (appState === 'booting') {
     return <KodiakSplashScreen />;
   }
 
+  if (appState === 'workspace' && matrixIdentity) {
+    return (
+      <>
+        <WindowTitleBar platformKind={platform.kind} />
+        <WorkspaceShell identity={matrixIdentity} onLogout={handleLogout} />
+        <KodiakAttachmentBridge identity={matrixIdentity} />
+        <MatrixMediaDomEnhancer identity={matrixIdentity} />
+      </>
+    );
+  }
+
   if (appState === 'login') {
     return (
       <>
         <WindowTitleBar platformKind={platform.kind} />
-        <LoginScreen />
+        <LoginScreen onLoginSuccess={handleLoginSuccess} />
       </>
     );
   }
