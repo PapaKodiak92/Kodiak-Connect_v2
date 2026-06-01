@@ -2,6 +2,8 @@ import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import type { MatrixLoginIdentity } from '../auth/matrixLoginService';
 import {
   addKodiakReportNote,
+  archiveKodiakReport,
+  deleteKodiakReport,
   loadKodiakReports,
   replyToKodiakReport,
   updateKodiakReportStatus,
@@ -19,7 +21,7 @@ interface ChatPlaceholderProps {
 
 const PLATFORM_MODERATOR_IDS = ['@papakodiak:v2.kodiak-connect.com'];
 
-type ReportComposerMode = 'reply' | 'note' | 'close' | 'dismiss' | 'reopen';
+type ReportComposerMode = 'reply' | 'note' | 'close' | 'dismiss' | 'reopen' | 'archive' | 'delete';
 
 function getDisplayName(userId: string) {
   const withoutPrefix = userId.startsWith('@') ? userId.slice(1) : userId;
@@ -58,11 +60,19 @@ function getReportCategoryLabel(category: KodiakReport['category']) {
 
 function getActionLabel(action: KodiakReportAction) {
   if (action.type === 'reply') {
-    return 'Moderator reply';
+    return 'Reply';
   }
 
   if (action.type === 'note') {
     return 'Private note';
+  }
+
+  if (action.type === 'archive') {
+    return 'Archived';
+  }
+
+  if (action.type === 'delete') {
+    return 'Deleted';
   }
 
   const nextStatus = action.toStatus ? getReportStatusLabel(action.toStatus) : 'Updated';
@@ -75,7 +85,7 @@ function isPlatformModerator(userId: string) {
 
 function getComposerPlaceholder(mode: ReportComposerMode) {
   if (mode === 'reply') {
-    return 'Write a response visible to the reporter...';
+    return 'Write a reply in this report thread...';
   }
 
   if (mode === 'note') {
@@ -90,14 +100,24 @@ function getComposerPlaceholder(mode: ReportComposerMode) {
     return 'Optional dismissal reason visible to the reporter...';
   }
 
+  if (mode === 'archive') {
+    return 'Optional internal archive note...';
+  }
+
+  if (mode === 'delete') {
+    return 'Optional. Deleting permanently removes this report from the local report store.';
+  }
+
   return 'Optional reopen note visible to the reporter...';
 }
 
 function getComposerTitle(mode: ReportComposerMode) {
-  if (mode === 'reply') return 'Reply to reporter';
+  if (mode === 'reply') return 'Reply to report';
   if (mode === 'note') return 'Add private note';
   if (mode === 'close') return 'Close report';
   if (mode === 'dismiss') return 'Dismiss report';
+  if (mode === 'archive') return 'Archive report';
+  if (mode === 'delete') return 'Delete report';
   return 'Reopen report';
 }
 
@@ -233,15 +253,30 @@ function SafetyCenterReports({ identity }: Pick<ChatPlaceholderProps, 'identity'
         updatedReport = await replyToKodiakReport(identity, activeReportAction.reportId, trimmedDraft);
       } else if (activeReportAction.mode === 'note') {
         updatedReport = await addKodiakReportNote(identity, activeReportAction.reportId, trimmedDraft);
+      } else if (activeReportAction.mode === 'archive') {
+        updatedReport = await archiveKodiakReport(identity, activeReportAction.reportId, trimmedDraft);
+      } else if (activeReportAction.mode === 'delete') {
+        await deleteKodiakReport(identity, activeReportAction.reportId);
+        setReports((currentReports) => currentReports.filter((report) => report.id !== activeReportAction.reportId));
       } else if (nextStatus) {
         updatedReport = await updateKodiakReportStatus(identity, activeReportAction.reportId, nextStatus, trimmedDraft);
       }
 
       if (updatedReport) {
-        setReports((currentReports) => upsertReport(currentReports, updatedReport));
+        if (updatedReport.archivedAt) {
+          setReports((currentReports) => currentReports.filter((report) => report.id !== updatedReport?.id));
+        } else {
+          setReports((currentReports) => upsertReport(currentReports, updatedReport as KodiakReport));
+        }
       }
 
-      setActionSuccessText('Report updated.');
+      setActionSuccessText(
+        activeReportAction.mode === 'archive'
+          ? 'Report archived.'
+          : activeReportAction.mode === 'delete'
+            ? 'Report deleted.'
+            : 'Report updated.',
+      );
       cancelReportAction();
     } catch (error) {
       console.error('[Kodiak Connect] Failed to handle report', error);
@@ -263,8 +298,8 @@ function SafetyCenterReports({ identity }: Pick<ChatPlaceholderProps, 'identity'
           <h2>Report review is online.</h2>
           <p>
             {canReviewAllReports
-              ? 'Moderator view is enabled. You can reply, add private notes, close, dismiss, or reopen reports.'
-              : 'This view shows reports you submitted and public moderator responses.'}
+              ? 'Moderator view is enabled. Reply, add notes, close, dismiss, archive, or delete reports.'
+              : 'This view shows your reports. You can reply in the report thread when a moderator responds.'}
           </p>
         </div>
 
@@ -317,7 +352,7 @@ function SafetyCenterReports({ identity }: Pick<ChatPlaceholderProps, 'identity'
 
       {!isLoadingReports && !reports.length && !reportsErrorText ? (
         <div className="matrix-empty-state">
-          {canReviewAllReports ? 'No reports have been submitted yet.' : 'You have not submitted any reports yet.'}
+          {canReviewAllReports ? 'No active reports are waiting for review.' : 'You have not submitted any active reports.'}
         </div>
       ) : null}
 
@@ -378,21 +413,25 @@ function SafetyCenterReports({ identity }: Pick<ChatPlaceholderProps, 'identity'
                   </div>
                 ) : null}
 
-                {canReviewAllReports ? (
-                  <div className="safety-report-controls" aria-label="Report actions">
-                    <button type="button" onClick={() => beginReportAction(report.id, 'reply')}>Reply</button>
-                    <button type="button" onClick={() => beginReportAction(report.id, 'note')}>Private note</button>
-                    {report.status !== 'reviewed' ? (
-                      <button type="button" onClick={() => beginReportAction(report.id, 'close')}>Close</button>
-                    ) : null}
-                    {report.status !== 'dismissed' ? (
-                      <button type="button" onClick={() => beginReportAction(report.id, 'dismiss')}>Dismiss</button>
-                    ) : null}
-                    {report.status !== 'open' ? (
-                      <button type="button" onClick={() => beginReportAction(report.id, 'reopen')}>Reopen</button>
-                    ) : null}
-                  </div>
-                ) : null}
+                <div className="safety-report-controls" aria-label="Report actions">
+                  <button type="button" onClick={() => beginReportAction(report.id, 'reply')}>Reply</button>
+                  {canReviewAllReports ? (
+                    <>
+                      <button type="button" onClick={() => beginReportAction(report.id, 'note')}>Private note</button>
+                      {report.status !== 'reviewed' ? (
+                        <button type="button" onClick={() => beginReportAction(report.id, 'close')}>Close</button>
+                      ) : null}
+                      {report.status !== 'dismissed' ? (
+                        <button type="button" onClick={() => beginReportAction(report.id, 'dismiss')}>Dismiss</button>
+                      ) : null}
+                      {report.status !== 'open' ? (
+                        <button type="button" onClick={() => beginReportAction(report.id, 'reopen')}>Reopen</button>
+                      ) : null}
+                      <button type="button" onClick={() => beginReportAction(report.id, 'archive')}>Archive</button>
+                      <button className="safety-report-control--danger" type="button" onClick={() => beginReportAction(report.id, 'delete')}>Delete</button>
+                    </>
+                  ) : null}
+                </div>
 
                 {activeActionForReport ? (
                   <form className="safety-report-composer" onSubmit={handleSubmitReportAction}>
@@ -407,8 +446,16 @@ function SafetyCenterReports({ identity }: Pick<ChatPlaceholderProps, 'identity'
                     </label>
                     <div>
                       <button type="button" onClick={cancelReportAction} disabled={isSubmittingAction}>Cancel</button>
-                      <button type="submit" disabled={isSubmittingAction}>
-                        {isSubmittingAction ? 'Saving...' : 'Save action'}
+                      <button
+                        className={activeActionForReport === 'delete' ? 'safety-report-control--danger' : undefined}
+                        type="submit"
+                        disabled={isSubmittingAction}
+                      >
+                        {isSubmittingAction
+                          ? 'Saving...'
+                          : activeActionForReport === 'delete'
+                            ? 'Delete permanently'
+                            : 'Save action'}
                       </button>
                     </div>
                   </form>
