@@ -1,7 +1,7 @@
 .kodiak-attachment-bridge {
   position: fixed;
-  right: 1.05rem;
-  bottom: 5.75rem;
+  right: 6.2rem;
+  bottom: 1.18rem;
   z-index: 75;
   display: grid;
   justify-items: end;
@@ -15,8 +15,8 @@
 
 .kodiak-attachment-bridge__toggle {
   display: grid;
-  width: 3rem;
-  height: 3rem;
+  width: 2.75rem;
+  height: 2.75rem;
   place-items: center;
   border: 1px solid rgba(251, 146, 60, 0.34);
   border-radius: 999px;
@@ -32,8 +32,8 @@
 .kodiak-attachment-bridge__panel {
   display: grid;
   gap: 0.75rem;
-  width: min(440px, calc(100vw - 2rem));
-  max-height: min(560px, calc(100vh - 8rem));
+  width: min(410px, calc(100vw - 2rem));
+  max-height: min(520px, calc(100vh - 8rem));
   overflow: hidden;
   border: 1px solid rgba(251, 146, 60, 0.22);
   border-radius: 24px;
@@ -42,6 +42,7 @@
     linear-gradient(180deg, rgba(15, 23, 42, 0.985), rgba(2, 6, 23, 0.985));
   box-shadow: 0 30px 90px rgba(0, 0, 0, 0.46);
   padding: 1rem;
+  transform: translateY(-0.45rem);
 }
 
 .kodiak-attachment-bridge__panel header {
@@ -59,12 +60,25 @@
 
 .kodiak-attachment-bridge__panel header button,
 .kodiak-attachment-actions button,
+.kodiak-attachment-tabs button,
 .kodiak-attachment-card button {
   border-color: rgba(251, 146, 60, 0.24);
   background: rgba(2, 6, 23, 0.48);
   color: #fed7aa;
   font-size: 0.78rem;
   padding: 0.55rem 0.78rem;
+}
+
+.kodiak-attachment-tabs {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.45rem;
+}
+
+.kodiak-attachment-tabs button.is-active {
+  border-color: rgba(251, 146, 60, 0.6);
+  background: rgba(251, 146, 60, 0.14);
+  color: #fff7ed;
 }
 
 .kodiak-attachment-actions {
@@ -95,6 +109,50 @@
   border-color: rgba(248, 113, 113, 0.24);
   background: rgba(127, 29, 29, 0.2);
   color: #fecaca;
+}
+
+.kodiak-giphy-panel {
+  display: grid;
+  gap: 0.65rem;
+  min-height: 0;
+}
+
+.kodiak-giphy-panel input {
+  width: 100%;
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  border-radius: 999px;
+  background: rgba(2, 6, 23, 0.72);
+  color: #fff7ed;
+  font: inherit;
+  padding: 0.72rem 0.9rem;
+}
+
+.kodiak-giphy-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.45rem;
+  max-height: 260px;
+  overflow: auto;
+  scrollbar-width: none;
+}
+
+.kodiak-giphy-grid::-webkit-scrollbar {
+  display: none;
+}
+
+.kodiak-giphy-grid button {
+  overflow: hidden;
+  aspect-ratio: 1;
+  border: 1px solid rgba(148, 163, 184, 0.14);
+  border-radius: 14px;
+  background: rgba(2, 6, 23, 0.62);
+  padding: 0;
+}
+
+.kodiak-giphy-grid img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
 }
 
 .kodiak-attachment-list {
@@ -160,12 +218,13 @@
 
 @media (max-width: 760px) {
   .kodiak-attachment-bridge {
-    right: 0.75rem;
-    bottom: 5rem;
+    right: 5.55rem;
+    bottom: 0.9rem;
   }
 
   .kodiak-attachment-actions,
-  .kodiak-attachment-card {
+  .kodiak-attachment-card,
+  .kodiak-giphy-grid {
     grid-template-columns: 1fr;
   }
 }
