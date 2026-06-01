@@ -1,0 +1,42 @@
+name: Post Dev Update
+
+on:
+  workflow_dispatch:
+    inputs:
+      title:
+        description: Dev update title/version
+        required: true
+        type: string
+      changelog:
+        description: Curated changelog body
+        required: true
+        type: string
+
+  release:
+    types:
+      - published
+
+jobs:
+  post-dev-update:
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Post curated changelog to Matrix
+        run: node scripts/post-matrix-dev-update.mjs
+        env:
+          MATRIX_ACCESS_TOKEN: ${{ secrets.MATRIX_DEV_UPDATE_TOKEN }}
+          MATRIX_BASE_URL: https://matrix-v2.kodiak-connect.com
+          MATRIX_ROOM_ALIAS: "#dev-updates:v2.kodiak-connect.com"
+          DEV_UPDATE_TITLE: ${{ github.event.inputs.title || github.event.release.name || github.event.release.tag_name }}
+          DEV_UPDATE_BODY: ${{ github.event.inputs.changelog || github.event.release.body }}
