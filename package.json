@@ -16,7 +16,9 @@
     "tauri:signer:generate": "tauri signer generate -w ~/.tauri/kodiak-connect-v2.key",
     "check": "tsc -b",
     "backend:dev": "node backend/server.mjs",
-    "backend:health": "node -e \"fetch('http://localhost:8787/api/health').then(r=>r.json()).then(console.log).catch(console.error)\""
+    "backend:health": "node -e \"fetch('http://localhost:8787/api/health').then(r=>r.json()).then(console.log).catch(console.error)\"",
+    "auth:dev": "node backend/authServer.mjs",
+    "auth:health": "node -e \"fetch('http://localhost:8788/api/auth/health').then(r=>r.json()).then(console.log).catch(console.error)\""
   },
   "dependencies": {
     "@capacitor/android": "latest",
