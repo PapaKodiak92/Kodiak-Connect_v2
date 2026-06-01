@@ -37,6 +37,13 @@ interface KodiakProfileResponse {
   profile?: KodiakProfile;
 }
 
+interface KodiakBlockStateResponse {
+  blockedByUserIds?: string[];
+  blockedUserIds?: string[];
+  restrictedUserIds?: string[];
+  statuses?: Record<string, KodiakFriendStatus>;
+}
+
 const KODIAK_API_BASE_URL =
   (import.meta.env.VITE_KODIAK_API_BASE_URL as string | undefined)?.trim() || 'http://localhost:8787';
 
@@ -200,4 +207,54 @@ export async function searchKodiakProfiles(identity: MatrixLoginIdentity, query:
 
   const data = (await response.json()) as KodiakProfilesResponse;
   return Object.values(data.profiles ?? {});
+}
+
+
+export async function loadKodiakBlockState(identity: MatrixLoginIdentity) {
+  const response = await fetch(
+    `${KODIAK_API_BASE_URL}/api/blocks/state?userId=${encodeURIComponent(identity.userId)}`,
+    {
+      headers: getHeaders(identity),
+    },
+  );
+
+  if (!response.ok) {
+    throw new Error('Kodiak block state request failed.');
+  }
+
+  const data = (await response.json()) as KodiakBlockStateResponse;
+
+  return {
+    blockedByUserIds: data.blockedByUserIds ?? [],
+    blockedUserIds: data.blockedUserIds ?? [],
+    restrictedUserIds: data.restrictedUserIds ?? [
+      ...new Set([...(data.blockedUserIds ?? []), ...(data.blockedByUserIds ?? [])]),
+    ],
+  };
+}
+
+export async function blockKodiakUser(identity: MatrixLoginIdentity, targetUserId: string) {
+  const data = await postKodiak<KodiakBlockStateResponse>(identity, '/api/blocks/block', { targetUserId });
+
+  return {
+    blockedByUserIds: data.blockedByUserIds ?? [],
+    blockedUserIds: data.blockedUserIds ?? [],
+    restrictedUserIds: data.restrictedUserIds ?? [
+      ...new Set([...(data.blockedUserIds ?? []), ...(data.blockedByUserIds ?? [])]),
+    ],
+    statuses: data.statuses ?? {},
+  };
+}
+
+export async function unblockKodiakUser(identity: MatrixLoginIdentity, targetUserId: string) {
+  const data = await postKodiak<KodiakBlockStateResponse>(identity, '/api/blocks/unblock', { targetUserId });
+
+  return {
+    blockedByUserIds: data.blockedByUserIds ?? [],
+    blockedUserIds: data.blockedUserIds ?? [],
+    restrictedUserIds: data.restrictedUserIds ?? [
+      ...new Set([...(data.blockedUserIds ?? []), ...(data.blockedByUserIds ?? [])]),
+    ],
+    statuses: data.statuses ?? {},
+  };
 }

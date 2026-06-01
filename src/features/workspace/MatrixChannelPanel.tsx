@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type FormEvent, type KeyboardEvent, type MouseEvent, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent, type MouseEvent, type ReactNode } from 'react';
 import type { MatrixLoginIdentity } from '../auth/matrixLoginService';
 import { playKodiakSound } from '../audio/kodiakSounds';
 import {
@@ -37,6 +37,9 @@ interface MatrixChannelPanelProps {
   activeChannel: WorkspaceChannel;
   activeSpace: WorkspaceSpace;
   identity: MatrixLoginIdentity;
+  blockedByUserIds?: string[];
+  blockedUserIds?: string[];
+  restrictedUserIds?: string[];
   friendStatusByUserId?: Record<string, FriendStatus>;
   isFriendCenterOpen?: boolean;
   onCloseFriendCenter?: () => void;
@@ -45,6 +48,8 @@ interface MatrixChannelPanelProps {
   onAcceptFriendRequest?: (userId: string) => Promise<void> | void;
   onDeclineFriendRequest?: (userId: string) => Promise<void> | void;
   onCancelFriendRequest?: (userId: string) => Promise<void> | void;
+  onBlockUser?: (userId: string) => Promise<void> | void;
+  onUnblockUser?: (userId: string) => Promise<void> | void;
   onUnfriendUser?: (userId: string) => Promise<void> | void;
 }
 
@@ -310,7 +315,7 @@ function getActiveMentionSearch(draftMessage: string): MentionSearch | null {
 }
 
 function getMentionSuggestions(
-  messages: MatrixTextMessage[],
+  eligibleUserIds: string[],
   currentUserLocalpart: string,
   search: MentionSearch | null,
   displayNamesByUserId: Record<string, string>,
@@ -319,25 +324,28 @@ function getMentionSuggestions(
     return [];
   }
 
+  const query = search.query.trim().toLowerCase();
+  const currentLocalpart = currentUserLocalpart.trim().toLowerCase();
   const suggestionsByLocalpart = new Map<string, MentionSuggestion>();
 
-  for (const message of messages) {
-    const localpart = getUserLocalpart(message.sender);
+  for (const userId of eligibleUserIds) {
+    const localpart = getUserLocalpart(userId).trim().toLowerCase();
 
-    if (!localpart || localpart === currentUserLocalpart || suggestionsByLocalpart.has(localpart)) {
+    if (!localpart || localpart === currentLocalpart || suggestionsByLocalpart.has(localpart)) {
       continue;
     }
 
+    const displayName = displayNamesByUserId[userId] || getDisplayName(userId);
+
     suggestionsByLocalpart.set(localpart, {
-      displayName: displayNamesByUserId[message.sender] || getDisplayName(message.sender),
+      displayName,
       localpart,
-      userId: message.sender,
+      userId,
     });
   }
 
   return [...suggestionsByLocalpart.values()]
     .filter((suggestion) => {
-      const query = search.query.toLowerCase();
       return suggestion.localpart.includes(query) || suggestion.displayName.toLowerCase().includes(query);
     })
     .slice(0, 6);
@@ -416,6 +424,9 @@ export function MatrixChannelPanel({
   activeChannel,
   activeSpace,
   identity,
+  blockedByUserIds = [],
+  blockedUserIds = [],
+  restrictedUserIds = [],
   friendStatusByUserId = {},
   isFriendCenterOpen = false,
   onCloseFriendCenter,
@@ -424,6 +435,8 @@ export function MatrixChannelPanel({
   onAcceptFriendRequest,
   onDeclineFriendRequest,
   onCancelFriendRequest,
+  onBlockUser,
+  onUnblockUser,
   onUnfriendUser,
 }: MatrixChannelPanelProps) {
   const [roomId, setRoomId] = useState<string | null>(null);
@@ -451,6 +464,8 @@ export function MatrixChannelPanel({
   const [settingsErrorText, setSettingsErrorText] = useState<string | null>(null);
   const [friendActionUserId, setFriendActionUserId] = useState<string | null>(null);
   const [pendingUnfriendUserId, setPendingUnfriendUserId] = useState<string | null>(null);
+  const [pendingBlockUserId, setPendingBlockUserId] = useState<string | null>(null);
+  const [pendingUnblockUserId, setPendingUnblockUserId] = useState<string | null>(null);
   const [areMessageSoundsEnabled, setAreMessageSoundsEnabled] = useState(() => window.localStorage.getItem('KC_SOUND_MESSAGES') !== 'false');
   const [isSentSoundEnabled, setIsSentSoundEnabled] = useState(() => window.localStorage.getItem('KC_SOUND_SENT') !== 'false');
   const [isReceivedSoundEnabled, setIsReceivedSoundEnabled] = useState(() => window.localStorage.getItem('KC_SOUND_RECEIVED') !== 'false');
@@ -459,6 +474,7 @@ export function MatrixChannelPanel({
   const [isLoading, setIsLoading] = useState(true);
   const [isSending, setIsSending] = useState(false);
   const [errorText, setErrorText] = useState<string | null>(null);
+  const [profileActionErrorText, setProfileActionErrorText] = useState<string | null>(null);
   const messageElementRefs = useRef<Record<string, HTMLElement | null>>({});
   const messageListRef = useRef<HTMLDivElement | null>(null);
   const shouldStickToBottomRef = useRef(true);
@@ -469,12 +485,12 @@ export function MatrixChannelPanel({
   const isTypingSentRef = useRef(false);
   const hasLoadedSoundBaselineRef = useRef(false);
   const latestSoundMessageTsRef = useRef(0);
+  const restrictedUserIdSetRef = useRef<Set<string>>(new Set());
   const backendAvatarObjectUrlsRef = useRef<Record<string, { source: string; url: string }>>({});
 
   const displayName = getDisplayName(identity.userId);
   const currentUserLocalpart = getUserLocalpart(identity.userId);
   const activeMentionSearch = getActiveMentionSearch(draftMessage);
-  const mentionSuggestions = getMentionSuggestions(messages, currentUserLocalpart, activeMentionSearch, displayNamesByUserId);
   const canPost = canPostInChannel(activeChannel, identity.userId);
   const canModerate = canModerateMessages(identity.userId);
   const openActionMenuMessage = openActionMenu ? messages.find((message) => message.eventId === openActionMenu.messageId) ?? null : null;
@@ -487,20 +503,84 @@ export function MatrixChannelPanel({
     return avatarUrlsByUserId[userId] || null;
   }
 
+  const restrictedUserIdSet = useMemo(() => {
+    return new Set([...blockedUserIds, ...blockedByUserIds, ...restrictedUserIds]);
+  }, [blockedByUserIds, blockedUserIds, restrictedUserIds]);
+
+  useEffect(() => {
+    restrictedUserIdSetRef.current = restrictedUserIdSet;
+  }, [restrictedUserIdSet]);
+
+  const visibleRoomMemberUserIds = useMemo<string[]>(() => {
+    return roomMemberUserIds.filter((userId: string) => !isUserRestricted(userId));
+  }, [restrictedUserIdSet, roomMemberUserIds]);
+
+  const mentionSuggestions = useMemo<MentionSuggestion[]>(() => {
+    return getMentionSuggestions(
+      visibleRoomMemberUserIds,
+      getUserLocalpart(identity.userId),
+      getActiveMentionSearch(draftMessage),
+      displayNamesByUserId,
+    );
+  }, [displayNamesByUserId, draftMessage, identity.userId, visibleRoomMemberUserIds]);
+
+
+
+
+
+  function isUserRestricted(userId: string) {
+    return restrictedUserIdSet.has(userId);
+  }
+
+  function isUserBlocked(userId: string) {
+    return blockedUserIds.includes(userId);
+  }
+
+  function isUserBlockedBy(userId: string) {
+    return blockedByUserIds.includes(userId);
+  }
+
+
+  function doesMessageMentionBlockedUser(messageBody: string) {
+    const normalizedBody = messageBody.toLowerCase();
+
+    return [...new Set([...blockedUserIds, ...blockedByUserIds])].some((userId) => {
+      const displayName = getKnownDisplayName(userId).toLowerCase();
+      const localpart = getUserLocalpart(userId).toLowerCase();
+
+      return normalizedBody.includes(`@${displayName}`) || normalizedBody.includes(`@${localpart}`);
+    });
+  }
+
+  function doesMessageMentionRestrictedUser(messageBody: string) {
+    const normalizedBody = messageBody.toLowerCase();
+
+    return [...restrictedUserIdSet].some((userId) => {
+      const mentionKeys = [
+        getKnownDisplayName(userId),
+        getUserLocalpart(userId),
+      ]
+        .map((value) => value.trim().toLowerCase())
+        .filter((value) => value && value !== 'loading profile...');
+
+      return mentionKeys.some((mentionKey) => normalizedBody.includes(`@${mentionKey}`));
+    });
+  }
+
   function getFriendStatus(userId: string) {
     return friendStatusByUserId[userId] ?? 'none';
   }
 
   const incomingFriendUserIds = Object.entries(friendStatusByUserId)
-    .filter(([, status]) => status === 'incoming')
+    .filter(([userId, status]) => status === 'incoming' && !isUserRestricted(userId))
     .map(([userId]) => userId);
 
   const outgoingFriendUserIds = Object.entries(friendStatusByUserId)
-    .filter(([, status]) => status === 'outgoing')
+    .filter(([userId, status]) => status === 'outgoing' && !isUserRestricted(userId))
     .map(([userId]) => userId);
 
   const friendUserIds = Object.entries(friendStatusByUserId)
-    .filter(([, status]) => status === 'friends')
+    .filter(([userId, status]) => status === 'friends' && !isUserRestricted(userId))
     .map(([userId]) => userId);
 
   function getMemberRoleLabel(userId: string) {
@@ -572,6 +652,25 @@ export function MatrixChannelPanel({
     });
   }, [avatarUrlsByUserId, displayNamesByUserId, profileBiosByUserId]);
 
+  useEffect(() => {
+    setProfileActionErrorText(null);
+  }, [openProfileUserId]);
+
+  // Safety/action errors should not sit in chat forever.
+  useEffect(() => {
+    if (!errorText) {
+      return undefined;
+    }
+
+    const errorTimerId = window.setTimeout(() => {
+      setErrorText(null);
+    }, 4500);
+
+    return () => {
+      window.clearTimeout(errorTimerId);
+    };
+  }, [errorText]);
+
   const displayNamesByLocalpart = Object.fromEntries(
     Object.entries(displayNamesByUserId).map(([userId, displayName]) => [getUserLocalpart(userId), displayName]),
   );
@@ -598,6 +697,18 @@ export function MatrixChannelPanel({
     }
 
     for (const userId of Object.keys(friendStatusByUserId)) {
+      userIdsToLoad.add(userId);
+    }
+
+    for (const userId of blockedUserIds) {
+      userIdsToLoad.add(userId);
+    }
+
+    for (const userId of blockedByUserIds ?? []) {
+      userIdsToLoad.add(userId);
+    }
+
+    for (const userId of restrictedUserIds ?? []) {
       userIdsToLoad.add(userId);
     }
 
@@ -716,8 +827,22 @@ export function MatrixChannelPanel({
     };
   }, [friendStatusByUserId, identity, messages, openProfileUserId, roomMemberUserIds, typingUserIds]);
 
-  const typingIndicatorText = typingUserIds.length
-    ? getTypingIndicatorText(typingUserIds.map((userId) => getKnownDisplayName(userId)))
+
+
+
+
+
+
+  const visibleMessages = useMemo<MatrixTextMessage[]>(() => {
+    return messages.filter((message: MatrixTextMessage) => !isUserRestricted(message.sender));
+  }, [messages, restrictedUserIdSet]);
+
+  const visibleTypingUserIds = useMemo<string[]>(() => {
+    return typingUserIds.filter((userId: string) => !isUserRestricted(userId));
+  }, [restrictedUserIdSet, typingUserIds]);
+
+  const typingIndicatorText = visibleTypingUserIds.length
+    ? getTypingIndicatorText(visibleTypingUserIds.map((userId: string) => getKnownDisplayName(userId)))
     : '';
   const channelHeadingPrefix = activeChannel.kind === 'dm' ? '' : '#';
   const channelEyebrowLabel = activeChannel.kind === 'dm' ? 'Direct Message' : activeSpace.name;
@@ -739,7 +864,11 @@ export function MatrixChannelPanel({
         latestSoundMessageTsRef.current = latestMessageTs;
       } else if (areMessageSoundsEnabled && isReceivedSoundEnabled) {
         const hasNewIncomingMessage = recentMessages.some((message) => {
-          return message.sender !== identity.userId && message.originServerTs > latestSoundMessageTsRef.current;
+          return (
+            message.sender !== identity.userId &&
+            message.originServerTs > latestSoundMessageTsRef.current &&
+            !restrictedUserIdSetRef.current.has(message.sender.trim().toLowerCase())
+          );
         });
 
         if (hasNewIncomingMessage) {
@@ -818,7 +947,7 @@ export function MatrixChannelPanel({
         return;
       }
 
-      setIsLoading(true);
+      setIsLoading((currentLoading) => roomId ? currentLoading : true);
       setErrorText(null);
       setReplyTarget(null);
       setEditingMessage(null);
@@ -1047,7 +1176,7 @@ export function MatrixChannelPanel({
         typingSinceBatchRef.current = typingState.nextBatch ?? typingSinceBatchRef.current;
 
         if (typingState.userIds) {
-          setTypingUserIds(typingState.userIds.filter((userId) => userId !== identity.userId));
+          setTypingUserIds(typingState.userIds.filter((userId) => userId !== identity.userId && !isUserRestricted(userId)));
         }
       } catch (error) {
         console.warn('[Kodiak Connect] Matrix typing poll failed', error);
@@ -1176,12 +1305,14 @@ export function MatrixChannelPanel({
   }
 
   function handleComposerKeyDown(event: KeyboardEvent<HTMLInputElement>) {
-    if (event.key !== 'Tab' || mentionSuggestions.length === 0) {
+    const firstVisibleMentionSuggestion = mentionSuggestions.find((suggestion) => !isUserRestricted(suggestion.userId));
+
+    if (event.key !== 'Tab' || !firstVisibleMentionSuggestion) {
       return;
     }
 
     event.preventDefault();
-    insertMentionSuggestion(mentionSuggestions[0]);
+    insertMentionSuggestion(firstVisibleMentionSuggestion);
   }
 
   function getSafeMenuPosition(clientX: number, clientY: number) {
@@ -1325,18 +1456,26 @@ export function MatrixChannelPanel({
   }
 
   async function handleSendFriendRequestClick(userId: string) {
+    if (isUserRestricted(userId)) {
+      setProfileActionErrorText('Cannot send a friend request while a block is active.');
+      setErrorText(null);
+      return;
+    }
+
     if (!onSendFriendRequest) {
       return;
     }
 
     setFriendActionUserId(userId);
+    setProfileActionErrorText(null);
     setErrorText(null);
 
     try {
       await onSendFriendRequest(userId, getKnownDisplayName(userId));
     } catch (error) {
       console.error('[Kodiak Connect] Failed to send friend request', error);
-      setErrorText('Could not send friend request. Try again.');
+      setErrorText(null);
+      setProfileActionErrorText(error instanceof Error ? error.message : 'Could not send friend request. Try again.');
     } finally {
       setFriendActionUserId(null);
     }
@@ -1414,6 +1553,53 @@ export function MatrixChannelPanel({
     } catch (error) {
       console.error('[Kodiak Connect] Failed to unfriend user', error);
       setErrorText('Could not remove friend. Try again.');
+    } finally {
+      setFriendActionUserId(null);
+    }
+  }
+
+  function requestBlockUser(userId: string) {
+    setPendingBlockUserId(userId);
+  }
+
+  function requestUnblockUser(userId: string) {
+    setPendingUnblockUserId(userId);
+  }
+
+  async function handleBlockUserClick(userId: string) {
+    if (!onBlockUser) {
+      return;
+    }
+
+    setFriendActionUserId(userId);
+    setErrorText(null);
+
+    try {
+      await onBlockUser(userId);
+      setPendingBlockUserId(null);
+      setOpenProfileUserId(null);
+    } catch (error) {
+      console.error('[Kodiak Connect] Failed to block user', error);
+      setErrorText('Could not block user. Try again.');
+    } finally {
+      setFriendActionUserId(null);
+    }
+  }
+
+  async function handleUnblockUserClick(userId: string) {
+    if (!onUnblockUser) {
+      return;
+    }
+
+    setFriendActionUserId(userId);
+    setErrorText(null);
+
+    try {
+      await onUnblockUser(userId);
+      setPendingUnblockUserId(null);
+    } catch (error) {
+      console.error('[Kodiak Connect] Failed to unblock user', error);
+      setErrorText('Could not unblock user. Try again.');
     } finally {
       setFriendActionUserId(null);
     }
@@ -1531,6 +1717,16 @@ export function MatrixChannelPanel({
       return;
     }
 
+    if (doesMessageMentionRestrictedUser(trimmedMessage)) {
+      setErrorText('You cannot @mention someone while a block is active.');
+      return;
+    }
+
+    if (doesMessageMentionBlockedUser(trimmedMessage)) {
+      setErrorText('You cannot @mention someone while a block is active.');
+      return;
+    }
+
     setIsSending(true);
     setErrorText(null);
 
@@ -1605,7 +1801,7 @@ export function MatrixChannelPanel({
             onContextMenuCapture={handleMessageListContextMenu}
             onScroll={handleMessageListScroll}
           >
-            {messages.map((message) => {
+            {visibleMessages.map((message: MatrixTextMessage) => {
               const parsedMessage = parseMessageBody(message.body);
               const isOwnMessage = message.sender === identity.userId;
 
@@ -1706,11 +1902,11 @@ export function MatrixChannelPanel({
         <div className="matrix-member-panel__inner">
         <div className="matrix-member-panel__header">
           <span>Members</span>
-          <strong>{roomMemberUserIds.length}</strong>
+          <strong>{visibleRoomMemberUserIds.length}</strong>
         </div>
 
         <div className="matrix-member-list">
-          {roomMemberUserIds.map((userId) => (
+          {visibleRoomMemberUserIds.map((userId: string) => (
             <button key={userId} type="button" className="matrix-member-row" onClick={() => setOpenProfileUserId(userId)}>
               <span className="matrix-member-row__avatar">
                 {renderUserAvatar(userId, 'matrix-avatar--member')}
@@ -1764,9 +1960,9 @@ export function MatrixChannelPanel({
           </div>
         ) : null}
 
-        {mentionSuggestions.length ? (
+        {mentionSuggestions.filter((suggestion) => !isUserRestricted(suggestion.userId)).length ? (
           <div className="message-mention-suggestions" role="listbox" aria-label="Mention suggestions">
-            {mentionSuggestions.map((suggestion) => (
+            {mentionSuggestions.filter((suggestion) => !isUserRestricted(suggestion.userId)).map((suggestion) => (
               <button key={suggestion.userId} type="button" onClick={() => insertMentionSuggestion(suggestion)}>
                 {renderUserAvatar(suggestion.userId, 'matrix-avatar--suggestion')}
                 <span>{suggestion.displayName}</span>
@@ -1916,7 +2112,9 @@ export function MatrixChannelPanel({
                 </button>
               ) : null}
               {openProfileUserId !== identity.userId ? (
-                getFriendStatus(openProfileUserId) === 'friends' ? (
+                isUserBlocked(openProfileUserId) ? (
+                  <button type="button" disabled>Blocked</button>
+                ) : getFriendStatus(openProfileUserId) === 'friends' ? (
                   <button type="button" disabled>Friends</button>
                 ) : getFriendStatus(openProfileUserId) === 'outgoing' ? (
                   <button
@@ -1942,8 +2140,114 @@ export function MatrixChannelPanel({
                   </button>
                 )
               ) : null}
-              <button type="button" disabled>Block Soon</button>
+              {openProfileUserId !== identity.userId ? (
+                isUserBlocked(openProfileUserId) ? (
+                  <button
+                    type="button"
+                    className="kodiak-profile-card__danger"
+                    disabled={friendActionUserId === openProfileUserId || !onUnblockUser}
+                    onClick={() => requestUnblockUser(openProfileUserId)}
+                  >
+                    Unblock
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    className="kodiak-profile-card__danger"
+                    disabled={friendActionUserId === openProfileUserId || !onBlockUser}
+                    onClick={() => requestBlockUser(openProfileUserId)}
+                  >
+                    Block
+                  </button>
+                )
+              ) : null}
               <button type="button" className="kodiak-profile-card__danger" disabled>Report Soon</button>
+            </div>
+
+            {profileActionErrorText ? (
+              <p className="kodiak-profile-card__action-error" role="alert">
+                {profileActionErrorText}
+              </p>
+            ) : null}
+          </div>
+        </div>
+      ) : null}
+
+      {pendingBlockUserId ? (
+        <div className="kodiak-modal-backdrop kodiak-modal-backdrop--stacked" role="presentation" onClick={() => setPendingBlockUserId(null)}>
+          <div
+            className="kodiak-block-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="block-modal-title"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="kodiak-block-modal__header">
+              <p className="eyebrow eyebrow--ember">Safety</p>
+              <h2 id="block-modal-title">Block {getKnownDisplayName(pendingBlockUserId)}?</h2>
+              <p>This removes them from your Friend Center and hides them from user search. Message suppression is coming next.</p>
+            </div>
+
+            <div className="kodiak-block-modal__user">
+              {renderUserAvatar(pendingBlockUserId, 'matrix-avatar--suggestion')}
+              <div>
+                <strong>{getKnownDisplayName(pendingBlockUserId)}</strong>
+                <span>User will be blocked</span>
+              </div>
+            </div>
+
+            <div className="kodiak-block-modal__actions">
+              <button type="button" onClick={() => setPendingBlockUserId(null)}>
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="kodiak-block-modal__danger"
+                disabled={friendActionUserId === pendingBlockUserId}
+                onClick={() => void handleBlockUserClick(pendingBlockUserId)}
+              >
+                {friendActionUserId === pendingBlockUserId ? 'Blocking...' : 'Block'}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {pendingUnblockUserId ? (
+        <div className="kodiak-modal-backdrop kodiak-modal-backdrop--stacked" role="presentation" onClick={() => setPendingUnblockUserId(null)}>
+          <div
+            className="kodiak-block-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="unblock-modal-title"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="kodiak-block-modal__header">
+              <p className="eyebrow eyebrow--ember">Safety</p>
+              <h2 id="unblock-modal-title">Unblock {getKnownDisplayName(pendingUnblockUserId)}?</h2>
+              <p>They will be visible in user search again. This does not automatically restore friendship.</p>
+            </div>
+
+            <div className="kodiak-block-modal__user">
+              {renderUserAvatar(pendingUnblockUserId, 'matrix-avatar--suggestion')}
+              <div>
+                <strong>{getKnownDisplayName(pendingUnblockUserId)}</strong>
+                <span>User will be unblocked</span>
+              </div>
+            </div>
+
+            <div className="kodiak-block-modal__actions">
+              <button type="button" onClick={() => setPendingUnblockUserId(null)}>
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="kodiak-block-modal__danger"
+                disabled={friendActionUserId === pendingUnblockUserId}
+                onClick={() => void handleUnblockUserClick(pendingUnblockUserId)}
+              >
+                {friendActionUserId === pendingUnblockUserId ? 'Unblocking...' : 'Unblock'}
+              </button>
             </div>
           </div>
         </div>
@@ -2009,6 +2313,45 @@ export function MatrixChannelPanel({
             </div>
 
             <div className="kodiak-friend-center-modal__body">
+              <section className="kodiak-friend-center-section kodiak-friend-center-section--blocked">
+                <div className="kodiak-friend-center-section__heading">
+                  <span>Blocked Users</span>
+                  <strong>{blockedUserIds.length}</strong>
+                </div>
+
+                {blockedUserIds.length ? (
+                  <div className="kodiak-friend-center-list">
+                    {blockedUserIds.map((userId) => (
+                      <div key={userId} className="kodiak-friend-center-row">
+                        {renderUserAvatar(userId, 'matrix-avatar--suggestion')}
+                        <div>
+                          <strong>{getKnownDisplayName(userId)}</strong>
+                          <small>Blocked</small>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            onCloseFriendCenter?.();
+                            setOpenProfileUserId(userId);
+                          }}
+                        >
+                          Profile
+                        </button>
+                        <button
+                          type="button"
+                          className="kodiak-friend-center-row__danger"
+                          disabled={friendActionUserId === userId || !onUnblockUser}
+                          onClick={() => void handleUnblockUserClick(userId)}
+                        >
+                          {friendActionUserId === userId ? 'Unblocking...' : 'Unblock'}
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="kodiak-friend-center-empty">No blocked users.</p>
+                )}
+              </section>
               <section className="kodiak-friend-center-section">
                 <div className="kodiak-friend-center-section__heading">
                   <span>Incoming Requests</span>

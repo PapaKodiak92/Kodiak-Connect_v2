@@ -2,12 +2,15 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { MatrixLoginIdentity } from '../auth/matrixLoginService';
 import {
   acceptKodiakFriendRequest,
+  blockKodiakUser,
   cancelKodiakFriendRequest,
   declineKodiakFriendRequest,
+  loadKodiakBlockState,
   loadKodiakFriendState,
   removeKodiakFriend,
   searchKodiakProfiles,
   sendKodiakFriendRequest,
+  unblockKodiakUser,
 } from '../backend/kodiakApiClient';
 import {
   createDirectMessageRoom,
@@ -242,6 +245,8 @@ export function WorkspaceShell({ identity, onLogout }: WorkspaceShellProps) {
   const [backendUserSearchResults, setBackendUserSearchResults] = useState<DirectMessageSearchUser[]>([]);
   const [dmDisplayNamesByUserId, setDmDisplayNamesByUserId] = useState<Record<string, string>>({});
   const [friendStatusByUserId, setFriendStatusByUserId] = useState<FriendStatusByUserId>({});
+  const [blockedUserIds, setBlockedUserIds] = useState<string[]>([]);
+  const [blockedByUserIds, setBlockedByUserIds] = useState<string[]>([]);
   const friendStatusByUserIdRef = useRef<FriendStatusByUserId>({});
   const [channelActivity, setChannelActivity] = useState<ChannelActivityById>({});
   const [lastSeenByChannel, setLastSeenByChannel] = useState<Record<string, number>>(() => readLastSeenByChannel(identity.userId));
@@ -257,6 +262,9 @@ export function WorkspaceShell({ identity, onLogout }: WorkspaceShellProps) {
     friendStatusByUserIdRef.current = friendStatusByUserId;
   }, [friendStatusByUserId]);
 
+  const restrictedBlockUserIds = useMemo(() => [...new Set([...blockedUserIds, ...blockedByUserIds])], [blockedByUserIds, blockedUserIds]);
+  const blockedUserIdSet = useMemo(() => new Set(restrictedBlockUserIds), [restrictedBlockUserIds]);
+
   const activeSpace = useMemo(() => {
     const selectedSpace = spaces.find((space) => space.id === activeSpaceId) ?? officialSpace;
     return mergeDirectMessagesIntoSpace(selectedSpace, directMessageChannels);
@@ -271,13 +279,18 @@ export function WorkspaceShell({ identity, onLogout }: WorkspaceShellProps) {
     const usersById = new Map<string, DirectMessageSearchUser>();
 
     for (const user of backendUserSearchResults) {
-      if (user.userId !== identity.userId) {
+      if (user.userId !== identity.userId && !blockedUserIdSet.has(user.userId)) {
         usersById.set(user.userId, user);
       }
     }
 
     for (const channel of directMessageChannels) {
-      if (!channel.matrixDmUserId || channel.matrixDmUserId === identity.userId || usersById.has(channel.matrixDmUserId)) {
+      if (
+        !channel.matrixDmUserId ||
+        channel.matrixDmUserId === identity.userId ||
+        blockedUserIdSet.has(channel.matrixDmUserId) ||
+        usersById.has(channel.matrixDmUserId)
+      ) {
         continue;
       }
 
@@ -289,7 +302,7 @@ export function WorkspaceShell({ identity, onLogout }: WorkspaceShellProps) {
     }
 
     return [...usersById.values()].slice(0, 8);
-  }, [backendUserSearchResults, directMessageChannels, dmDisplayNamesByUserId, identity.userId]);
+  }, [backendUserSearchResults, blockedUserIdSet, directMessageChannels, dmDisplayNamesByUserId, identity.userId]);
 
   useEffect(() => {
     let isActive = true;
@@ -302,7 +315,7 @@ export function WorkspaceShell({ identity, onLogout }: WorkspaceShellProps) {
           }
 
           const users = profiles
-            .filter((profile) => profile.userId !== identity.userId)
+            .filter((profile) => profile.userId !== identity.userId && !blockedUserIdSet.has(profile.userId))
             .map((profile) => ({
               avatarUrl: profile.avatarUrl,
               bio: profile.bio,
@@ -331,7 +344,7 @@ export function WorkspaceShell({ identity, onLogout }: WorkspaceShellProps) {
       isActive = false;
       window.clearTimeout(searchTimerId);
     };
-  }, [dmSearchQuery, identity]);
+  }, [blockedUserIdSet, dmSearchQuery, identity]);
 
   // Backend profile search powers Start DM. Manual raw Matrix IDs are intentionally not shown in normal search.
   const manualDirectMessageUserId =
@@ -461,6 +474,34 @@ export function WorkspaceShell({ identity, onLogout }: WorkspaceShellProps) {
     };
   }, [identity]);
 
+  useEffect(() => {
+    let isActive = true;
+
+    async function refreshBlockState() {
+      try {
+        const blockState = await loadKodiakBlockState(identity);
+
+        if (isActive) {
+          setBlockedUserIds(blockState.blockedUserIds);
+          setBlockedByUserIds(blockState.blockedByUserIds);
+        }
+      } catch (error) {
+        console.warn('[Kodiak Connect] Backend block state refresh failed', error);
+      }
+    }
+
+    void refreshBlockState();
+
+    const intervalId = window.setInterval(() => {
+      void refreshBlockState();
+    }, 15_000);
+
+    return () => {
+      isActive = false;
+      window.clearInterval(intervalId);
+    };
+  }, [identity]);
+
   const markChannelSeen = useCallback(
     (channelId: string, latestTs: number) => {
       if (!latestTs) {
@@ -537,7 +578,7 @@ export function WorkspaceShell({ identity, onLogout }: WorkspaceShellProps) {
 
           const lastSeenTs = lastSeenByChannel[channel.id] ?? 0;
           const unreadMessages = recentMessages.filter(
-            (message) => message.originServerTs > lastSeenTs && message.sender !== identity.userId,
+            (message) => message.originServerTs > lastSeenTs && message.sender !== identity.userId && !blockedUserIdSet.has(message.sender) && !blockedUserIdSet.has(message.sender),
           );
 
           const isActiveChannel = channel.id === activeChannelId;
@@ -708,6 +749,20 @@ export function WorkspaceShell({ identity, onLogout }: WorkspaceShellProps) {
     setFriendStatusByUserId(statuses);
   }
 
+  async function handleBlockUser(userId: string) {
+    const result = await blockKodiakUser(identity, userId);
+    setBlockedUserIds(result.blockedUserIds);
+    setBlockedByUserIds(result.blockedByUserIds);
+    setFriendStatusByUserId(result.statuses);
+  }
+
+  async function handleUnblockUser(userId: string) {
+    const result = await unblockKodiakUser(identity, userId);
+    setBlockedUserIds(result.blockedUserIds);
+    setBlockedByUserIds(result.blockedByUserIds);
+    setFriendStatusByUserId(result.statuses);
+  }
+
   function handleAcknowledgeOfficialSpace() {
     saveOfficialSpaceAcknowledgement(identity.userId);
     setHasAcknowledgedOfficialSpace(true);
@@ -736,6 +791,9 @@ export function WorkspaceShell({ identity, onLogout }: WorkspaceShellProps) {
           activeSpace={activeSpace}
           activeChannel={activeChannel}
           identity={identity}
+          blockedByUserIds={blockedByUserIds}
+          blockedUserIds={blockedUserIds}
+          restrictedUserIds={restrictedBlockUserIds}
           friendStatusByUserId={friendStatusByUserId}
           isFriendCenterOpen={isFriendCenterOpen}
           onCloseFriendCenter={() => setIsFriendCenterOpen(false)}
@@ -744,6 +802,8 @@ export function WorkspaceShell({ identity, onLogout }: WorkspaceShellProps) {
           onAcceptFriendRequest={handleAcceptFriendRequest}
           onDeclineFriendRequest={handleDeclineFriendRequest}
           onCancelFriendRequest={handleCancelFriendRequest}
+          onBlockUser={handleBlockUser}
+          onUnblockUser={handleUnblockUser}
           onUnfriendUser={handleUnfriendUser}
         />
       ) : (

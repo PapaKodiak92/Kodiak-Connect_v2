@@ -8,6 +8,7 @@ const DATA_DIR = join(__dirname, "data");
 const PRESENCE_FILE = join(DATA_DIR, "presence.json");
 const FRIENDS_FILE = join(DATA_DIR, "friends.json");
 const PROFILES_FILE = join(DATA_DIR, "profiles.json");
+const BLOCKS_FILE = join(DATA_DIR, "blocks.json");
 
 const PORT = Number(process.env.KODIAK_BACKEND_PORT ?? 8787);
 const ALLOWED_ORIGINS = new Set([
@@ -164,6 +165,105 @@ function getFriendStatuses(friendStore, userId) {
   return statuses;
 }
 
+
+
+function getBlockedUserIds(blockStore, userId) {
+  return Object.keys(blockStore[userId] ?? {});
+}
+
+function getBlockedByUserIds(blockStore, userId) {
+  return Object.entries(blockStore)
+    .filter(([, blockedTargets]) => Boolean(blockedTargets?.[userId]))
+    .map(([blockerUserId]) => blockerUserId);
+}
+
+function getBlockStatePayload(blockStore, userId) {
+  const blockedUserIds = getBlockedUserIds(blockStore, userId);
+  const blockedByUserIds = getBlockedByUserIds(blockStore, userId);
+
+  return {
+    blockedByUserIds,
+    blockedUserIds,
+    restrictedUserIds: [...new Set([...blockedUserIds, ...blockedByUserIds])],
+  };
+}
+
+function hasEitherUserBlocked(blockStore, userA, userB) {
+  return Boolean(blockStore[userA]?.[userB] || blockStore[userB]?.[userA]);
+}
+
+async function handleBlockState(request, response, corsHeaders, url) {
+  const userId = url.searchParams.get("userId") || request.headers["x-kodiak-user-id"];
+
+  if (!isValidMatrixUserId(userId)) {
+    sendJson(response, 400, { error: "Invalid Matrix userId." }, corsHeaders);
+    return;
+  }
+
+  const blockStore = await readJsonFile(BLOCKS_FILE, {});
+  sendJson(response, 200, getBlockStatePayload(blockStore, userId), corsHeaders);
+}
+
+async function handleBlockUser(request, response, corsHeaders) {
+  const body = await readRequestBody(request);
+  const userId = getCurrentUserId(request, body);
+  const targetUserId = body.targetUserId;
+
+  if (!isValidMatrixUserId(userId) || !isValidMatrixUserId(targetUserId) || userId === targetUserId) {
+    sendJson(response, 400, { error: "Invalid block request." }, corsHeaders);
+    return;
+  }
+
+  const blockStore = await readJsonFile(BLOCKS_FILE, {});
+  const friendStore = await readJsonFile(FRIENDS_FILE, {});
+
+  blockStore[userId] = blockStore[userId] ?? {};
+  blockStore[userId][targetUserId] = {
+    blockedAt: now(),
+    targetUserId,
+  };
+
+  delete friendStore[getFriendKey(userId, targetUserId)];
+
+  await writeJsonFile(BLOCKS_FILE, blockStore);
+  await writeJsonFile(FRIENDS_FILE, friendStore);
+
+  sendJson(response, 200, {
+    ok: true,
+    ...getBlockStatePayload(blockStore, userId),
+    statuses: getFriendStatuses(friendStore, userId),
+  }, corsHeaders);
+}
+
+async function handleUnblockUser(request, response, corsHeaders) {
+  const body = await readRequestBody(request);
+  const userId = getCurrentUserId(request, body);
+  const targetUserId = body.targetUserId;
+
+  if (!isValidMatrixUserId(userId) || !isValidMatrixUserId(targetUserId) || userId === targetUserId) {
+    sendJson(response, 400, { error: "Invalid unblock request." }, corsHeaders);
+    return;
+  }
+
+  const blockStore = await readJsonFile(BLOCKS_FILE, {});
+  const friendStore = await readJsonFile(FRIENDS_FILE, {});
+
+  if (blockStore[userId]) {
+    delete blockStore[userId][targetUserId];
+
+    if (!Object.keys(blockStore[userId]).length) {
+      delete blockStore[userId];
+    }
+  }
+
+  await writeJsonFile(BLOCKS_FILE, blockStore);
+
+  sendJson(response, 200, {
+    ok: true,
+    ...getBlockStatePayload(blockStore, userId),
+    statuses: getFriendStatuses(friendStore, userId),
+  }, corsHeaders);
+}
 
 async function handleProfileSearch(response, corsHeaders, url) {
   const query = String(url.searchParams.get("q") ?? "").trim().toLowerCase();
@@ -389,6 +489,13 @@ async function handleFriendRequest(request, response, corsHeaders) {
   }
 
   const friendStore = await readJsonFile(FRIENDS_FILE, {});
+  const blockStore = await readJsonFile(BLOCKS_FILE, {});
+
+  if (hasEitherUserBlocked(blockStore, userId, targetUserId)) {
+    sendJson(response, 409, { error: "Cannot send a friend request while block is active." }, corsHeaders);
+    return;
+  }
+
   const key = getFriendKey(userId, targetUserId);
   const existingEdge = friendStore[key];
 
@@ -438,6 +545,13 @@ async function handleFriendAccept(request, response, corsHeaders) {
   }
 
   const friendStore = await readJsonFile(FRIENDS_FILE, {});
+  const blockStore = await readJsonFile(BLOCKS_FILE, {});
+
+  if (hasEitherUserBlocked(blockStore, userId, requesterUserId)) {
+    sendJson(response, 409, { error: "Cannot accept a friend request while block is active." }, corsHeaders);
+    return;
+  }
+
   const key = getFriendKey(userId, requesterUserId);
   const existingEdge = friendStore[key];
 
@@ -465,6 +579,13 @@ async function handleFriendClear(request, response, corsHeaders, action) {
   }
 
   const friendStore = await readJsonFile(FRIENDS_FILE, {});
+  const blockStore = await readJsonFile(BLOCKS_FILE, {});
+
+  if (hasEitherUserBlocked(blockStore, userId, targetUserId)) {
+    sendJson(response, 409, { error: "Cannot send a friend request while a block is active." }, corsHeaders);
+    return;
+  }
+
   const key = getFriendKey(userId, targetUserId);
   delete friendStore[key];
 
@@ -487,6 +608,21 @@ const server = createServer(async (request, response) => {
   try {
     if (request.method === "GET" && url.pathname === "/api/health") {
       sendJson(response, 200, { ok: true, service: "kodiak-connect-backend", time: new Date().toISOString() }, corsHeaders);
+      return;
+    }
+
+    if (request.method === "GET" && url.pathname === "/api/blocks/state") {
+      await handleBlockState(request, response, corsHeaders, url);
+      return;
+    }
+
+    if (request.method === "POST" && url.pathname === "/api/blocks/block") {
+      await handleBlockUser(request, response, corsHeaders);
+      return;
+    }
+
+    if (request.method === "POST" && url.pathname === "/api/blocks/unblock") {
+      await handleUnblockUser(request, response, corsHeaders);
       return;
     }
 
