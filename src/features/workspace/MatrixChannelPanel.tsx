@@ -55,13 +55,17 @@ function canPostInChannel(channel: WorkspaceChannel, userId: string) {
   return channel.allowedPosterIds?.includes(userId) ?? false;
 }
 
-function getComposerPlaceholder(channel: WorkspaceChannel, canPost: boolean, roomId: string | null) {
+function getComposerPlaceholder(channel: WorkspaceChannel, canPost: boolean, roomId: string | null, replyTarget: MatrixTextMessage | null) {
   if (!roomId) {
     return 'Room unavailable';
   }
 
   if (!canPost) {
     return 'Read-only official channel';
+  }
+
+  if (replyTarget) {
+    return `Reply to ${getDisplayName(replyTarget.sender)}`;
   }
 
   if (channel.readOnly) {
@@ -85,10 +89,24 @@ function getEmptyState(channel: WorkspaceChannel, canPost: boolean) {
   return 'No messages yet. Send the first message in Official Space.';
 }
 
+function getShortMessagePreview(body: string) {
+  const compactBody = body.replace(/\s+/g, ' ').trim();
+  return compactBody.length > 96 ? `${compactBody.slice(0, 96)}...` : compactBody;
+}
+
+function buildReplyBody(replyTarget: MatrixTextMessage | null, body: string) {
+  if (!replyTarget) {
+    return body;
+  }
+
+  return `Replying to ${getDisplayName(replyTarget.sender)}: ${getShortMessagePreview(replyTarget.body)}\n\n${body}`;
+}
+
 export function MatrixChannelPanel({ activeChannel, activeSpace, identity }: MatrixChannelPanelProps) {
   const [roomId, setRoomId] = useState<string | null>(null);
   const [messages, setMessages] = useState<MatrixTextMessage[]>([]);
   const [draftMessage, setDraftMessage] = useState('');
+  const [replyTarget, setReplyTarget] = useState<MatrixTextMessage | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isSending, setIsSending] = useState(false);
   const [errorText, setErrorText] = useState<string | null>(null);
@@ -118,6 +136,7 @@ export function MatrixChannelPanel({ activeChannel, activeSpace, identity }: Mat
 
       setIsLoading(true);
       setErrorText(null);
+      setReplyTarget(null);
 
       try {
         const joinedRoomId = await joinRoomByAlias(identity, activeChannel.matrixAlias);
@@ -182,8 +201,9 @@ export function MatrixChannelPanel({ activeChannel, activeSpace, identity }: Mat
     setErrorText(null);
 
     try {
-      await sendTextMessage(identity, roomId, trimmedMessage);
+      await sendTextMessage(identity, roomId, buildReplyBody(replyTarget, trimmedMessage));
       setDraftMessage('');
+      setReplyTarget(null);
       await refreshMessages(roomId);
     } catch (error) {
       console.error('[Kodiak Connect] Failed to send Matrix message', error);
@@ -227,6 +247,13 @@ export function MatrixChannelPanel({ activeChannel, activeSpace, identity }: Mat
                   <time>{formatMessageTime(message.originServerTs)}</time>
                 </header>
                 <p>{message.body}</p>
+                {canPost ? (
+                  <div className="matrix-message-actions">
+                    <button type="button" onClick={() => setReplyTarget(message)}>
+                      Reply
+                    </button>
+                  </div>
+                ) : null}
               </article>
             ))}
           </div>
@@ -236,9 +263,21 @@ export function MatrixChannelPanel({ activeChannel, activeSpace, identity }: Mat
       </div>
 
       <form className="message-composer-placeholder" onSubmit={handleSendMessage}>
+        {replyTarget ? (
+          <div className="message-reply-preview">
+            <div>
+              <strong>Replying to {getDisplayName(replyTarget.sender)}</strong>
+              <span>{getShortMessagePreview(replyTarget.body)}</span>
+            </div>
+            <button type="button" onClick={() => setReplyTarget(null)} aria-label="Cancel reply">
+              Cancel
+            </button>
+          </div>
+        ) : null}
+
         <input
           type="text"
-          placeholder={getComposerPlaceholder(activeChannel, canPost, roomId)}
+          placeholder={getComposerPlaceholder(activeChannel, canPost, roomId, replyTarget)}
           value={draftMessage}
           onChange={(event) => setDraftMessage(event.target.value)}
           disabled={!roomId || isSending || !canPost}
