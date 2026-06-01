@@ -1,4 +1,4 @@
-﻿import { createServer } from "node:http";
+import { createServer } from "node:http";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -12,10 +12,26 @@ const BLOCKS_FILE = join(DATA_DIR, "blocks.json");
 const REPORTS_FILE = join(DATA_DIR, "reports.json");
 
 const PORT = Number(process.env.KODIAK_BACKEND_PORT ?? 8787);
-const ALLOWED_ORIGINS = new Set([
+const DEFAULT_ALLOWED_ORIGINS = [
   "http://localhost:5173",
   "http://127.0.0.1:5173",
   "https://localhost:5173",
+  "https://kodiak-connect.com",
+  "https://www.kodiak-connect.com",
+];
+const ALLOWED_ORIGINS = new Set([
+  ...DEFAULT_ALLOWED_ORIGINS,
+  ...String(process.env.KODIAK_ALLOWED_ORIGINS ?? "")
+    .split(",")
+    .map((origin) => origin.trim())
+    .filter(Boolean),
+]);
+const PLATFORM_MODERATOR_IDS = new Set([
+  "@papakodiak:v2.kodiak-connect.com",
+  ...String(process.env.KODIAK_PLATFORM_MODERATOR_IDS ?? "")
+    .split(",")
+    .map((userId) => userId.trim())
+    .filter(Boolean),
 ]);
 
 const RESERVED_DISPLAY_NAMES = new Set([
@@ -93,8 +109,13 @@ function isValidMatrixUserId(userId) {
   return typeof userId === "string" && /^@[a-zA-Z0-9._=-]+:[a-zA-Z0-9.-]+$/.test(userId);
 }
 
+function getHeaderValue(request, headerName) {
+  const value = request.headers[headerName];
+  return Array.isArray(value) ? value[0] : value;
+}
+
 function getCurrentUserId(request, body = {}) {
-  return body.userId || request.headers["x-kodiak-user-id"];
+  return body.userId || getHeaderValue(request, "x-kodiak-user-id");
 }
 
 function normalizeDisplayName(displayName) {
@@ -166,8 +187,6 @@ function getFriendStatuses(friendStore, userId) {
   return statuses;
 }
 
-
-
 function getBlockedUserIds(blockStore, userId) {
   return Object.keys(blockStore[userId] ?? {});
 }
@@ -193,8 +212,12 @@ function hasEitherUserBlocked(blockStore, userA, userB) {
   return Boolean(blockStore[userA]?.[userB] || blockStore[userB]?.[userA]);
 }
 
+function isPlatformModerator(userId) {
+  return PLATFORM_MODERATOR_IDS.has(userId);
+}
+
 async function handleBlockState(request, response, corsHeaders, url) {
-  const userId = url.searchParams.get("userId") || request.headers["x-kodiak-user-id"];
+  const userId = url.searchParams.get("userId") || getHeaderValue(request, "x-kodiak-user-id");
 
   if (!isValidMatrixUserId(userId)) {
     sendJson(response, 400, { error: "Invalid Matrix userId." }, corsHeaders);
@@ -266,7 +289,6 @@ async function handleUnblockUser(request, response, corsHeaders) {
   }, corsHeaders);
 }
 
-
 function createReportId() {
   return `report_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
 }
@@ -336,7 +358,7 @@ async function handleCreateReport(request, response, corsHeaders) {
 }
 
 async function handleListReports(request, response, corsHeaders, url) {
-  const userId = url.searchParams.get("userId") || request.headers["x-kodiak-user-id"];
+  const userId = url.searchParams.get("userId") || getHeaderValue(request, "x-kodiak-user-id");
 
   if (!isValidMatrixUserId(userId)) {
     sendJson(response, 400, { error: "Invalid Matrix userId." }, corsHeaders);
@@ -344,12 +366,13 @@ async function handleListReports(request, response, corsHeaders, url) {
   }
 
   const reportsStore = await readJsonFile(REPORTS_FILE, {});
+  const canViewAllReports = isPlatformModerator(userId);
   const reports = Object.values(reportsStore)
-    .filter((report) => report.reporterUserId === userId)
+    .filter((report) => canViewAllReports || report.reporterUserId === userId)
     .sort((a, b) => Number(b.createdAt ?? 0) - Number(a.createdAt ?? 0))
-    .slice(0, 50);
+    .slice(0, 100);
 
-  sendJson(response, 200, { reports }, corsHeaders);
+  sendJson(response, 200, { canViewAllReports, reports }, corsHeaders);
 }
 
 async function handleProfileSearch(response, corsHeaders, url) {
@@ -426,7 +449,7 @@ async function handleProfileUsers(response, corsHeaders, url) {
 }
 
 async function handleProfileMe(request, response, corsHeaders) {
-  const userId = request.headers["x-kodiak-user-id"];
+  const userId = getHeaderValue(request, "x-kodiak-user-id");
 
   if (!isValidMatrixUserId(userId)) {
     sendJson(response, 400, { error: "Invalid Matrix userId." }, corsHeaders);
@@ -554,7 +577,7 @@ async function handlePresenceUsers(response, corsHeaders, url) {
 }
 
 async function handleFriendState(request, response, corsHeaders, url) {
-  const userId = url.searchParams.get("userId") || request.headers["x-kodiak-user-id"];
+  const userId = url.searchParams.get("userId") || getHeaderValue(request, "x-kodiak-user-id");
 
   if (!isValidMatrixUserId(userId)) {
     sendJson(response, 400, { error: "Invalid Matrix userId." }, corsHeaders);
