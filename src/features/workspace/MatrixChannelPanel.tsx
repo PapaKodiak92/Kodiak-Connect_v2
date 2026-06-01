@@ -290,6 +290,8 @@ export function MatrixChannelPanel({ activeChannel, activeSpace, identity }: Mat
   const [draftMessage, setDraftMessage] = useState('');
   const [replyTarget, setReplyTarget] = useState<MatrixTextMessage | null>(null);
   const [editingMessage, setEditingMessage] = useState<MatrixTextMessage | null>(null);
+  const [openActionMenuMessageId, setOpenActionMenuMessageId] = useState<string | null>(null);
+  const [pendingDeleteMessage, setPendingDeleteMessage] = useState<MatrixTextMessage | null>(null);
   const [reactionPickerMessageId, setReactionPickerMessageId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isSending, setIsSending] = useState(false);
@@ -333,6 +335,8 @@ export function MatrixChannelPanel({ activeChannel, activeSpace, identity }: Mat
       setErrorText(null);
       setReplyTarget(null);
       setEditingMessage(null);
+      setOpenActionMenuMessageId(null);
+      setPendingDeleteMessage(null);
 
       try {
         const joinedRoomId = await joinRoomByAlias(identity, activeChannel.matrixAlias);
@@ -443,6 +447,7 @@ export function MatrixChannelPanel({ activeChannel, activeSpace, identity }: Mat
     setEditingMessage({ ...message, body: parsedMessage.body });
     setReplyTarget(null);
     setReactionPickerMessageId(null);
+    setOpenActionMenuMessageId(null);
     setDraftMessage(parsedMessage.body);
   }
 
@@ -451,22 +456,39 @@ export function MatrixChannelPanel({ activeChannel, activeSpace, identity }: Mat
     setDraftMessage('');
   }
 
-  async function handleDeleteMessage(message: MatrixTextMessage) {
+  function requestDeleteMessage(message: MatrixTextMessage) {
     if (!roomId || (!canModerate && message.sender !== identity.userId)) {
       return;
     }
 
-    const confirmed = window.confirm('Delete this message?');
+    setPendingDeleteMessage(message);
+    setOpenActionMenuMessageId(null);
+    setReactionPickerMessageId(null);
+  }
 
-    if (!confirmed) {
+  function closeDeleteConfirmation() {
+    setPendingDeleteMessage(null);
+  }
+
+  async function confirmDeleteMessage() {
+    const message = pendingDeleteMessage;
+
+    if (!roomId || !message || (!canModerate && message.sender !== identity.userId)) {
       return;
     }
 
     setErrorText(null);
 
     try {
-      await redactMessage(identity, roomId, message.eventId, message.sender === identity.userId ? 'User deleted message' : 'Moderator deleted message');
+      await redactMessage(
+        identity,
+        roomId,
+        message.eventId,
+        message.sender === identity.userId ? 'User deleted message' : 'Moderator deleted message',
+      );
+      setPendingDeleteMessage(null);
       setReactionPickerMessageId(null);
+      setOpenActionMenuMessageId(null);
       await refreshMessages(roomId);
     } catch (error) {
       console.error('[Kodiak Connect] Failed to delete Matrix message', error);
@@ -614,24 +636,48 @@ export function MatrixChannelPanel({ activeChannel, activeSpace, identity }: Mat
                       <div className="matrix-message-actions">
                         <button
                           type="button"
+                          className="matrix-message-action-trigger"
+                          aria-label="Open message actions"
+                          aria-expanded={openActionMenuMessageId === message.eventId}
                           onClick={() =>
-                            setReactionPickerMessageId((currentMessageId) => (currentMessageId === message.eventId ? null : message.eventId))
+                            setOpenActionMenuMessageId((currentMessageId) => (currentMessageId === message.eventId ? null : message.eventId))
                           }
                         >
-                          React
+                          ���
                         </button>
-                        <button type="button" onClick={() => setReplyTarget({ ...message, body: parsedMessage.body })}>
-                          Reply
-                        </button>
-                        {message.sender === identity.userId ? (
-                          <button type="button" onClick={() => startEditingMessage({ ...message, body: parsedMessage.body })}>
-                            Edit
-                          </button>
-                        ) : null}
-                        {message.sender === identity.userId || canModerate ? (
-                          <button type="button" className="matrix-message-action--danger" onClick={() => void handleDeleteMessage(message)}>
-                            Delete
-                          </button>
+
+                        {openActionMenuMessageId === message.eventId ? (
+                          <div className="matrix-message-action-menu">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setReactionPickerMessageId((currentMessageId) => (currentMessageId === message.eventId ? null : message.eventId));
+                                setOpenActionMenuMessageId(null);
+                              }}
+                            >
+                              React
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setReplyTarget({ ...message, body: parsedMessage.body });
+                                setEditingMessage(null);
+                                setOpenActionMenuMessageId(null);
+                              }}
+                            >
+                              Reply
+                            </button>
+                            {message.sender === identity.userId ? (
+                              <button type="button" onClick={() => startEditingMessage({ ...message, body: parsedMessage.body })}>
+                                Edit
+                              </button>
+                            ) : null}
+                            {message.sender === identity.userId || canModerate ? (
+                              <button type="button" className="matrix-message-action--danger" onClick={() => requestDeleteMessage(message)}>
+                                Delete
+                              </button>
+                            ) : null}
+                          </div>
                         ) : null}
                       </div>
                     ) : null}
@@ -693,6 +739,32 @@ export function MatrixChannelPanel({ activeChannel, activeSpace, identity }: Mat
           {isSending ? (editingMessage ? 'Saving...' : 'Sending...') : editingMessage ? 'Save' : activeChannel.readOnly ? 'Publish' : 'Send'}
         </button>
       </form>
+
+      {pendingDeleteMessage ? (
+        <div className="kodiak-modal-backdrop" role="presentation">
+          <div className="kodiak-confirm-modal" role="dialog" aria-modal="true" aria-labelledby="delete-message-title">
+            <div className="kodiak-confirm-modal__header">
+              <p className="eyebrow eyebrow--ember">Message action</p>
+              <h2 id="delete-message-title">Delete this message?</h2>
+              <p>This removes the message from the room history. This action cannot be undone.</p>
+            </div>
+
+            <div className="kodiak-confirm-modal__preview">
+              <strong>{getDisplayName(pendingDeleteMessage.sender)}</strong>
+              <span>{getShortMessagePreview(parseMessageBody(pendingDeleteMessage.body).body, 120)}</span>
+            </div>
+
+            <div className="kodiak-confirm-modal__actions">
+              <button type="button" onClick={closeDeleteConfirmation}>
+                Cancel
+              </button>
+              <button type="button" className="kodiak-confirm-modal__danger" onClick={() => void confirmDeleteMessage()}>
+                Delete message
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </section>
   );
 }
