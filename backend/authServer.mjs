@@ -1,4 +1,4 @@
-import { createHash, createCipheriv, createDecipheriv, randomBytes, timingSafeEqual } from 'node:crypto';
+import { createHash, createCipheriv, createDecipheriv, createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import { createServer } from 'node:http';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
@@ -14,6 +14,7 @@ const PORT = Number(process.env.KODIAK_AUTH_PORT ?? 8788);
 const MATRIX_HOMESERVER_URL = String(process.env.KODIAK_MATRIX_HOMESERVER_URL ?? process.env.VITE_MATRIX_BASE_URL ?? 'https://matrix-v2.kodiak-connect.com').replace(/\/+$/, '');
 const MATRIX_SERVER_NAME = String(process.env.KODIAK_MATRIX_SERVER_NAME ?? process.env.VITE_MATRIX_SERVER_NAME ?? 'v2.kodiak-connect.com');
 const MATRIX_ADMIN_TOKEN = String(process.env.KODIAK_MATRIX_ADMIN_TOKEN ?? '').trim();
+const MATRIX_REGISTRATION_SHARED_SECRET = String(process.env.KODIAK_MATRIX_REGISTRATION_SHARED_SECRET ?? '').trim();
 const RESEND_API_KEY = String(process.env.RESEND_API_KEY ?? '').trim();
 const AUTH_EMAIL_FROM = String(process.env.AUTH_EMAIL_FROM ?? '').trim();
 const TURNSTILE_SECRET_KEY = String(process.env.TURNSTILE_SECRET_KEY ?? '').trim();
@@ -268,7 +269,64 @@ async function sendVerificationEmail(email, username, code) {
   return { sent: true };
 }
 
+function createRegistrationMac(nonce, username, password, admin) {
+  const adminFlag = admin ? 'admin' : 'notadmin';
+  const hmac = createHmac('sha1', Buffer.from(MATRIX_REGISTRATION_SHARED_SECRET, 'utf8'));
+
+  for (const part of [nonce, username, password, adminFlag]) {
+    if (part !== nonce) {
+      hmac.update(Buffer.from([0]));
+    }
+
+    hmac.update(Buffer.from(String(part), 'utf8'));
+  }
+
+  return hmac.digest('hex');
+}
+
+async function createMatrixAccountWithSharedSecret(username, password) {
+  const registerEndpoint = `${MATRIX_HOMESERVER_URL}/_synapse/admin/v1/register`;
+  const nonceResponse = await fetch(registerEndpoint);
+
+  if (!nonceResponse.ok) {
+    const body = await nonceResponse.json().catch(() => ({}));
+    throw Object.assign(new Error(body.error || 'Could not get Matrix registration nonce.'), { statusCode: nonceResponse.status });
+  }
+
+  const nonceBody = await nonceResponse.json();
+  const nonce = nonceBody.nonce;
+
+  if (!nonce) {
+    throw Object.assign(new Error('Matrix registration nonce was missing.'), { statusCode: 502 });
+  }
+
+  const response = await fetch(registerEndpoint, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      admin: false,
+      mac: createRegistrationMac(nonce, username, password, false),
+      nonce,
+      password,
+      username,
+    }),
+  });
+
+  if (!response.ok) {
+    const body = await response.json().catch(() => ({}));
+    throw Object.assign(new Error(body.error || 'Could not create Matrix account.'), { statusCode: response.status });
+  }
+
+  return getMatrixUserId(username);
+}
+
 async function createMatrixAccount(username, password) {
+  if (MATRIX_REGISTRATION_SHARED_SECRET) {
+    return createMatrixAccountWithSharedSecret(username, password);
+  }
+
   if (!MATRIX_ADMIN_TOKEN) {
     throw Object.assign(new Error('KODIAK_MATRIX_ADMIN_TOKEN is missing. Cannot create Matrix users.'), { statusCode: 500 });
   }
