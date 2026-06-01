@@ -142,3 +142,12 @@
   color: #a5f3fc;
   box-shadow: 0 0 16px rgba(34, 211, 238, 0.1);
 }
+
+
+.channel-sidebar__sections {
+  scrollbar-width: none;
+}
+
+.channel-sidebar__sections::-webkit-scrollbar {
+  display: none;
+}

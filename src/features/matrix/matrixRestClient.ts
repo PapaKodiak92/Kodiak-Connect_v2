@@ -21,6 +21,8 @@ export interface MatrixTypingState {
   userIds?: string[];
 }
 
+export type MatrixDirectRoomsByUserId = Record<string, string[]>;
+
 interface MatrixErrorResponse {
   errcode?: string;
   error?: string;
@@ -31,6 +33,10 @@ interface MatrixResolveAliasResponse {
 }
 
 interface MatrixJoinRoomResponse {
+  room_id: string;
+}
+
+interface MatrixCreateRoomResponse {
   room_id: string;
 }
 
@@ -206,6 +212,34 @@ export async function joinRoomByAlias(identity: MatrixLoginIdentity, alias: stri
   return data.room_id;
 }
 
+export async function joinRoomById(identity: MatrixLoginIdentity, roomId: string) {
+  const data = await matrixRequest<MatrixJoinRoomResponse>(
+    identity,
+    `/_matrix/client/v3/join/${encodePathValue(roomId)}`,
+    {
+      method: 'POST',
+      body: JSON.stringify({}),
+    },
+  );
+
+  return data.room_id;
+}
+
+export async function createDirectMessageRoom(identity: MatrixLoginIdentity, targetUserId: string, displayName: string) {
+  const data = await matrixRequest<MatrixCreateRoomResponse>(identity, '/_matrix/client/v3/createRoom', {
+    method: 'POST',
+    body: JSON.stringify({
+      invite: [targetUserId],
+      is_direct: true,
+      name: displayName,
+      preset: 'trusted_private_chat',
+      visibility: 'private',
+    }),
+  });
+
+  return data.room_id;
+}
+
 export async function loadRecentMessages(identity: MatrixLoginIdentity, roomId: string, limit = 80) {
   const data = await matrixRequest<MatrixMessagesResponse>(
     identity,
@@ -281,6 +315,96 @@ export async function loadTypingUsers(identity: MatrixLoginIdentity, roomId: str
     nextBatch: data.next_batch,
     userIds: typingEvent?.content?.user_ids,
   };
+}
+
+export async function loadDirectMessageRooms(identity: MatrixLoginIdentity) {
+  try {
+    return await matrixRequest<MatrixDirectRoomsByUserId>(
+      identity,
+      `/_matrix/client/v3/user/${encodePathValue(identity.userId)}/account_data/m.direct`,
+    );
+  } catch (error) {
+    if (error instanceof MatrixRestError && error.status === 404) {
+      return {};
+    }
+
+    throw error;
+  }
+}
+
+export async function saveDirectMessageRoom(identity: MatrixLoginIdentity, targetUserId: string, roomId: string) {
+  const currentDirectRooms = await loadDirectMessageRooms(identity);
+  const existingRooms = currentDirectRooms[targetUserId] ?? [];
+  const nextRooms = existingRooms.includes(roomId) ? existingRooms : [roomId, ...existingRooms];
+
+  await matrixRequest<Record<string, never>>(
+    identity,
+    `/_matrix/client/v3/user/${encodePathValue(identity.userId)}/account_data/m.direct`,
+    {
+      method: 'PUT',
+      body: JSON.stringify({
+        ...currentDirectRooms,
+        [targetUserId]: nextRooms,
+      }),
+    },
+  );
+}
+
+export async function findDirectMessageRoom(identity: MatrixLoginIdentity, targetUserId: string) {
+  const directRooms = await loadDirectMessageRooms(identity);
+  return directRooms[targetUserId]?.[0] ?? null;
+}
+
+export async function findDirectMessageRooms(identity: MatrixLoginIdentity, targetUserId: string) {
+  const directRooms = await loadDirectMessageRooms(identity);
+  return directRooms[targetUserId] ?? [];
+}
+
+export async function loadDirectMessageInviteRooms(identity: MatrixLoginIdentity, targetUserId: string) {
+  const data = await matrixRequest<MatrixSyncResponse>(identity, '/_matrix/client/v3/sync?timeout=0');
+  const inviteRooms = ((data.rooms as { invite?: Record<string, { invite_state?: { events?: Array<{ sender?: string; state_key?: string; type?: string }> } }> } | undefined)
+    ?.invite ?? {});
+
+  return Object.entries(inviteRooms)
+    .filter(([, room]) =>
+      room.invite_state?.events?.some((event) => event.sender === targetUserId || event.state_key === targetUserId),
+    )
+    .map(([roomId]) => roomId);
+}
+
+export async function resolveDirectMessageRoom(identity: MatrixLoginIdentity, targetUserId: string, cachedRoomId?: string | null) {
+  const directRoomIds = await findDirectMessageRooms(identity, targetUserId);
+  const inviteRoomIds = await loadDirectMessageInviteRooms(identity, targetUserId);
+  const candidateRoomIds = [...new Set([...inviteRoomIds, ...directRoomIds, ...(cachedRoomId ? [cachedRoomId] : [])])];
+
+  let bestRoom: { latestTargetTs: number; latestTs: number; roomId: string } | null = null;
+
+  for (const candidateRoomId of candidateRoomIds) {
+    try {
+      const joinedRoomId = await joinRoomById(identity, candidateRoomId);
+      const recentMessages = await loadRecentMessages(identity, joinedRoomId, 25);
+      const latestMessage = recentMessages.at(-1);
+      const latestTargetMessage = [...recentMessages].reverse().find((message) => message.sender === targetUserId);
+
+      const candidate = {
+        latestTargetTs: latestTargetMessage?.originServerTs ?? 0,
+        latestTs: latestMessage?.originServerTs ?? 0,
+        roomId: joinedRoomId,
+      };
+
+      if (
+        !bestRoom ||
+        candidate.latestTargetTs > bestRoom.latestTargetTs ||
+        (candidate.latestTargetTs === bestRoom.latestTargetTs && candidate.latestTs > bestRoom.latestTs)
+      ) {
+        bestRoom = candidate;
+      }
+    } catch {
+      // Ignore stale/forbidden candidate rooms and keep trying.
+    }
+  }
+
+  return bestRoom?.roomId ?? null;
 }
 
 export async function sendTextMessage(identity: MatrixLoginIdentity, roomId: string, body: string, replyToEventId?: string) {

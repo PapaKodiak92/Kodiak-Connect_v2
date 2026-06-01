@@ -1,8 +1,13 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent, type KeyboardEvent, type MouseEvent, type ReactNode } from 'react';
 import type { MatrixLoginIdentity } from '../auth/matrixLoginService';
 import {
+  createDirectMessageRoom,
+  findDirectMessageRoom,
+  resolveDirectMessageRoom,
   joinRoomByAlias,
+  joinRoomById,
   loadRecentMessages,
+  saveDirectMessageRoom,
   loadTypingUsers,
   MatrixRestError,
   redactMessage,
@@ -53,6 +58,27 @@ const MESSAGE_POLL_INTERVAL_MS = 5000;
 const TYPING_POLL_INTERVAL_MS = 2500;
 const TYPING_TIMEOUT_MS = 5000;
 const TYPING_IDLE_STOP_MS = 2500;
+
+function getDmRoomCacheKey(currentUserId: string, targetUserId: string) {
+  return `KC_DM_ROOM:${[currentUserId, targetUserId].sort().join('|')}`;
+}
+
+function getDirectMessageTargetUserId(channel: WorkspaceChannel, currentUserId: string) {
+  if (!channel.matrixDmUserId) {
+    return null;
+  }
+
+  if (channel.matrixDmUserId !== currentUserId) {
+    return channel.matrixDmUserId;
+  }
+
+  // Staging fallback: when logged in as kodiaktest, the fixed test DM should point back to papakodiak.
+  if (currentUserId.toLowerCase().startsWith('@kodiaktest:')) {
+    return '@papakodiak:v2.kodiak-connect.com';
+  }
+
+  return channel.matrixDmUserId;
+}
 
 function getDisplayName(userId: string) {
   const withoutPrefix = userId.startsWith('@') ? userId.slice(1) : userId;
@@ -119,10 +145,14 @@ function getComposerPlaceholder(channel: WorkspaceChannel, canPost: boolean, roo
     return `Post official update in #${channel.name}`;
   }
 
-  return `Message #${channel.name}`;
+  return `Message ${channel.kind === 'dm' ? '@' : '#'}${channel.name}`;
 }
 
 function getEmptyState(channel: WorkspaceChannel, canPost: boolean) {
+  if (channel.kind === 'dm') {
+    return 'No messages yet. Send the first direct message.';
+  }
+
   if (channel.id === 'dev-updates') {
     return canPost
       ? 'No development updates yet. Post the first curated changelog when ready.'
@@ -339,6 +369,8 @@ export function MatrixChannelPanel({ activeChannel, activeSpace, identity }: Mat
   const openActionMenuMessage = openActionMenu ? messages.find((message) => message.eventId === openActionMenu.messageId) ?? null : null;
   const openActionMenuParsedMessage = openActionMenuMessage ? parseMessageBody(openActionMenuMessage.body) : null;
   const typingIndicatorText = getTypingIndicatorText(typingUserIds);
+  const channelHeadingPrefix = activeChannel.kind === 'dm' ? '@' : '#';
+  const channelEyebrowLabel = activeChannel.kind === 'dm' ? 'Direct Message' : activeSpace.name;
 
   const refreshMessages = useCallback(
     async (targetRoomId: string) => {
@@ -370,7 +402,7 @@ export function MatrixChannelPanel({ activeChannel, activeSpace, identity }: Mat
     let isActive = true;
 
     async function connectRoom() {
-      if (!activeChannel.matrixAlias) {
+      if (!activeChannel.matrixAlias && !activeChannel.matrixDmUserId) {
         setIsLoading(false);
         setRoomId(null);
         setErrorText('This channel is not connected to Matrix yet.');
@@ -388,7 +420,29 @@ export function MatrixChannelPanel({ activeChannel, activeSpace, identity }: Mat
       isTypingSentRef.current = false;
 
       try {
-        const joinedRoomId = await joinRoomByAlias(identity, activeChannel.matrixAlias);
+        let joinedRoomId = '';
+
+        const directMessageTargetUserId = getDirectMessageTargetUserId(activeChannel, identity.userId);
+
+        if (directMessageTargetUserId) {
+          const dmCacheKey = getDmRoomCacheKey(identity.userId, directMessageTargetUserId);
+          const cachedRoomId = window.localStorage.getItem(dmCacheKey);
+
+          joinedRoomId = (await resolveDirectMessageRoom(identity, directMessageTargetUserId, cachedRoomId)) ?? '';
+
+          if (!joinedRoomId) {
+            joinedRoomId = await createDirectMessageRoom(
+              identity,
+              directMessageTargetUserId,
+              activeChannel.dmDisplayName ?? getDisplayName(directMessageTargetUserId),
+            );
+          }
+
+          window.localStorage.setItem(dmCacheKey, joinedRoomId);
+          await saveDirectMessageRoom(identity, directMessageTargetUserId, joinedRoomId);
+        } else {
+          joinedRoomId = await joinRoomByAlias(identity, activeChannel.matrixAlias ?? '');
+        }
 
         if (!isActive) {
           return;
@@ -729,8 +783,8 @@ export function MatrixChannelPanel({ activeChannel, activeSpace, identity }: Mat
     <section className="chat-placeholder" aria-label={`${activeChannel.name} channel`}>
       <header className="chat-placeholder__header">
         <div>
-          <p className="eyebrow eyebrow--ember">{activeSpace.name}</p>
-          <h1>#{activeChannel.name}</h1>
+          <p className="eyebrow eyebrow--ember">{channelEyebrowLabel}</p>
+          <h1>{channelHeadingPrefix}{activeChannel.name}</h1>
           <p>{activeChannel.description}</p>
         </div>
 

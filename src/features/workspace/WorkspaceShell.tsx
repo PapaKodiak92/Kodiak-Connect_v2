@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { MatrixLoginIdentity } from '../auth/matrixLoginService';
-import { joinRoomByAlias, loadRecentMessages } from '../matrix/matrixRestClient';
+import { joinRoomByAlias, loadRecentMessages, resolveDirectMessageRoom, saveDirectMessageRoom } from '../matrix/matrixRestClient';
 import { OfficialSpaceAcknowledgementModal } from '../policy/OfficialSpaceAcknowledgementModal';
 import {
   hasCurrentOfficialSpaceAcknowledgement,
@@ -56,6 +56,26 @@ function getUserLocalpart(userId: string) {
   return withoutPrefix.split(':')[0]?.toLowerCase() ?? userId.toLowerCase();
 }
 
+function getDmRoomCacheKey(currentUserId: string, targetUserId: string) {
+  return `KC_DM_ROOM:${[currentUserId, targetUserId].sort().join('|')}`;
+}
+
+function getDirectMessageTargetUserId(channel: WorkspaceChannel, currentUserId: string) {
+  if (!channel.matrixDmUserId) {
+    return null;
+  }
+
+  if (channel.matrixDmUserId !== currentUserId) {
+    return channel.matrixDmUserId;
+  }
+
+  if (currentUserId.toLowerCase().startsWith('@kodiaktest:')) {
+    return '@papakodiak:v2.kodiak-connect.com';
+  }
+
+  return channel.matrixDmUserId;
+}
+
 export function WorkspaceShell({ identity, onLogout }: WorkspaceShellProps) {
   const [activeSpaceId, setActiveSpaceId] = useState(officialSpace.id);
   const [activeChannelId, setActiveChannelId] = useState('general');
@@ -107,12 +127,32 @@ export function WorkspaceShell({ identity, onLogout }: WorkspaceShellProps) {
 
   const refreshChannelActivity = useCallback(async () => {
     const currentUserMention = `@${getUserLocalpart(identity.userId)}`;
-    const channels = getChannels(activeSpace).filter((channel) => !channel.disabled && channel.matrixAlias);
+    const channels = getChannels(activeSpace).filter(
+      (channel) => !channel.disabled && (channel.matrixAlias || channel.matrixDmUserId),
+    );
 
     const activityEntries = await Promise.all(
       channels.map(async (channel) => {
         try {
-          const roomId = await joinRoomByAlias(identity, channel.matrixAlias ?? '');
+          let roomId = '';
+          const directMessageTargetUserId = getDirectMessageTargetUserId(channel, identity.userId);
+
+          if (directMessageTargetUserId) {
+            const dmCacheKey = getDmRoomCacheKey(identity.userId, directMessageTargetUserId);
+            const cachedDmRoomId = window.localStorage.getItem(dmCacheKey);
+            const resolvedDmRoomId = await resolveDirectMessageRoom(identity, directMessageTargetUserId, cachedDmRoomId);
+
+            if (!resolvedDmRoomId) {
+              return [channel.id, channelActivity[channel.id] ?? { hasMention: false, latestTs: 0, unreadCount: 0 }] as const;
+            }
+
+            roomId = resolvedDmRoomId;
+            window.localStorage.setItem(dmCacheKey, roomId);
+            await saveDirectMessageRoom(identity, directMessageTargetUserId, roomId);
+          } else {
+            roomId = await joinRoomByAlias(identity, channel.matrixAlias ?? '');
+          }
+
           const recentMessages = await loadRecentMessages(identity, roomId, 25);
           const latestMessage = recentMessages.at(-1);
 
@@ -217,7 +257,7 @@ export function WorkspaceShell({ identity, onLogout }: WorkspaceShellProps) {
         onSelectChannel={handleSelectChannel}
         onLogout={onLogout}
       />
-      {activeChannel.matrixAlias ? (
+      {activeChannel.matrixAlias || activeChannel.matrixDmUserId ? (
         <MatrixChannelPanel activeSpace={activeSpace} activeChannel={activeChannel} identity={identity} />
       ) : (
         <ChatPlaceholder activeSpace={activeSpace} activeChannel={activeChannel} identity={identity} />

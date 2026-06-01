@@ -21,6 +21,7 @@ function getChannelPrefix(kind: WorkspaceChannel['kind']) {
   if (kind === 'safety') return '◆';
   if (kind === 'family') return '⌂';
   if (kind === 'business') return '◈';
+  if (kind === 'dm') return '@';
   return '#';
 }
 

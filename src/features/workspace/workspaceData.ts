@@ -38,6 +38,20 @@ export const officialSpace: WorkspaceSpace = {
       ],
     },
     {
+      id: 'direct-messages',
+      title: 'Direct Messages',
+      channels: [
+        {
+          id: 'dm-kodiaktest',
+          name: 'kodiaktest',
+          kind: 'dm',
+          description: 'Private direct message with kodiaktest.',
+          matrixDmUserId: '@kodiaktest:v2.kodiak-connect.com',
+          dmDisplayName: 'kodiaktest',
+        },
+      ],
+    },
+    {
       id: 'safety',
       title: 'Safety',
       channels: [
