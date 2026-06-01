@@ -40,6 +40,14 @@ interface MatrixDisplayNameResponse {
   displayname?: string;
 }
 
+interface MatrixAvatarUrlResponse {
+  avatar_url?: string;
+}
+
+interface MatrixUploadResponse {
+  content_uri: string;
+}
+
 interface MatrixCreateRoomResponse {
   room_id: string;
 }
@@ -192,6 +200,177 @@ function collectEdits(events: MatrixEvent[]) {
   }
 
   return editsByEventId;
+}
+
+function getMatrixMediaParts(mxcUrl?: string | null) {
+  if (!mxcUrl) {
+    return null;
+  }
+
+  if (!mxcUrl.startsWith('mxc://')) {
+    return null;
+  }
+
+  const [serverName, mediaId] = mxcUrl.slice('mxc://'.length).split('/');
+
+  if (!serverName || !mediaId) {
+    return null;
+  }
+
+  return {
+    mediaId,
+    serverName,
+  };
+}
+
+export function getMatrixMediaUrl(identity: MatrixLoginIdentity, mxcUrl?: string | null, width = 96, height = 96) {
+  if (!mxcUrl) {
+    return null;
+  }
+
+  if (!mxcUrl.startsWith('mxc://')) {
+    return mxcUrl;
+  }
+
+  const parts = getMatrixMediaParts(mxcUrl);
+
+  if (!parts) {
+    return null;
+  }
+
+  return `${identity.baseUrl}/_matrix/client/v1/media/thumbnail/${encodePathValue(parts.serverName)}/${encodePathValue(parts.mediaId)}?width=${width}&height=${height}&method=crop`;
+}
+
+function getMatrixMediaCandidateUrls(identity: MatrixLoginIdentity, mxcUrl?: string | null, width = 96, height = 96) {
+  if (!mxcUrl) {
+    return [];
+  }
+
+  if (!mxcUrl.startsWith('mxc://')) {
+    return [mxcUrl];
+  }
+
+  const parts = getMatrixMediaParts(mxcUrl);
+
+  if (!parts) {
+    return [];
+  }
+
+  const serverName = encodePathValue(parts.serverName);
+  const mediaId = encodePathValue(parts.mediaId);
+  const thumbnailQuery = `width=${width}&height=${height}&method=crop`;
+
+  return [
+    `${identity.baseUrl}/_matrix/client/v1/media/thumbnail/${serverName}/${mediaId}?${thumbnailQuery}`,
+    `${identity.baseUrl}/_matrix/media/v3/thumbnail/${serverName}/${mediaId}?${thumbnailQuery}`,
+    `${identity.baseUrl}/_matrix/media/r0/thumbnail/${serverName}/${mediaId}?${thumbnailQuery}`,
+    `${identity.baseUrl}/_matrix/client/v1/media/download/${serverName}/${mediaId}`,
+    `${identity.baseUrl}/_matrix/media/v3/download/${serverName}/${mediaId}`,
+    `${identity.baseUrl}/_matrix/media/r0/download/${serverName}/${mediaId}`,
+  ];
+}
+
+export async function getAuthenticatedMatrixMediaObjectUrl(identity: MatrixLoginIdentity, mxcUrl?: string | null, width = 96, height = 96) {
+  const mediaUrls = getMatrixMediaCandidateUrls(identity, mxcUrl, width, height);
+
+  if (!mediaUrls.length) {
+    return null;
+  }
+
+  let lastError: MatrixRestError | null = null;
+
+  for (const mediaUrl of mediaUrls) {
+    const response = await fetch(mediaUrl, {
+      headers: {
+        Authorization: `Bearer ${identity.accessToken}`,
+      },
+    });
+
+    if (response.ok) {
+      const avatarBlob = await response.blob();
+      return URL.createObjectURL(avatarBlob);
+    }
+
+    const matrixError = await readMatrixError(response);
+    lastError = new MatrixRestError(
+      matrixError.error || `Matrix media download failed at ${mediaUrl}.`,
+      response.status,
+      matrixError.errcode,
+    );
+
+    if (![400, 404, 405].includes(response.status)) {
+      break;
+    }
+  }
+
+  throw lastError ?? new MatrixRestError('Matrix media download failed.');
+}
+
+export async function loadProfileAvatarUrl(identity: MatrixLoginIdentity, userId: string) {
+  try {
+    const data = await matrixRequest<MatrixAvatarUrlResponse>(
+      identity,
+      `/_matrix/client/v3/profile/${encodePathValue(userId)}/avatar_url`,
+    );
+
+    return data.avatar_url?.trim() || null;
+  } catch (error) {
+    if (error instanceof MatrixRestError && error.status === 404) {
+      return null;
+    }
+
+    throw error;
+  }
+}
+
+export async function saveOwnAvatarUrl(identity: MatrixLoginIdentity, avatarUrl: string) {
+  await matrixRequest<Record<string, never>>(
+    identity,
+    `/_matrix/client/v3/profile/${encodePathValue(identity.userId)}/avatar_url`,
+    {
+      method: 'PUT',
+      body: JSON.stringify({ avatar_url: avatarUrl }),
+    },
+  );
+}
+
+export async function uploadProfileAvatar(identity: MatrixLoginIdentity, file: File) {
+  const uploadPaths = [
+    `/_matrix/media/v3/upload?filename=${encodeURIComponent(file.name)}`,
+    `/_matrix/media/r0/upload?filename=${encodeURIComponent(file.name)}`,
+    `/_matrix/client/v1/media/upload?filename=${encodeURIComponent(file.name)}`,
+  ];
+
+  let lastError: MatrixRestError | null = null;
+
+  for (const uploadPath of uploadPaths) {
+    const response = await fetch(`${identity.baseUrl}${uploadPath}`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${identity.accessToken}`,
+        'Content-Type': file.type || 'application/octet-stream',
+      },
+      body: file,
+    });
+
+    if (response.ok) {
+      const data = (await response.json()) as MatrixUploadResponse;
+      return data.content_uri;
+    }
+
+    const matrixError = await readMatrixError(response);
+    lastError = new MatrixRestError(
+      matrixError.error || `Matrix avatar upload failed at ${uploadPath}.`,
+      response.status,
+      matrixError.errcode,
+    );
+
+    if (![400, 404, 405].includes(response.status)) {
+      break;
+    }
+  }
+
+  throw lastError ?? new MatrixRestError('Matrix avatar upload failed.');
 }
 
 export async function loadProfileDisplayName(identity: MatrixLoginIdentity, userId: string) {

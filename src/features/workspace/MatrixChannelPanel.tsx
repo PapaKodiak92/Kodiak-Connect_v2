@@ -4,8 +4,11 @@ import {
   createDirectMessageRoom,
   findDirectMessageRoom,
   resolveDirectMessageRoom,
+  getAuthenticatedMatrixMediaObjectUrl,
+  getMatrixMediaUrl,
   joinRoomByAlias,
   joinRoomById,
+  loadProfileAvatarUrl,
   loadProfileDisplayName,
   loadRecentMessages,
   saveDirectMessageRoom,
@@ -13,8 +16,10 @@ import {
   MatrixRestError,
   redactMessage,
   sendReaction,
+  saveOwnAvatarUrl,
   saveOwnDisplayName,
   sendReplacementMessage,
+  uploadProfileAvatar,
   sendTextMessage,
   sendTypingState,
   type MatrixTextMessage,
@@ -386,6 +391,9 @@ export function MatrixChannelPanel({
   const [reactionPickerMessageId, setReactionPickerMessageId] = useState<string | null>(null);
   const [typingUserIds, setTypingUserIds] = useState<string[]>([]);
   const [displayNamesByUserId, setDisplayNamesByUserId] = useState<Record<string, string>>({});
+  const [avatarUrlsByUserId, setAvatarUrlsByUserId] = useState<Record<string, string>>({});
+  const [avatarFile, setAvatarFile] = useState<File | null>(null);
+  const [avatarPreviewUrl, setAvatarPreviewUrl] = useState<string | null>(null);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [displayNameDraft, setDisplayNameDraft] = useState('');
   const [isSavingSettings, setIsSavingSettings] = useState(false);
@@ -412,6 +420,37 @@ export function MatrixChannelPanel({
   const openActionMenuParsedMessage = openActionMenuMessage ? parseMessageBody(openActionMenuMessage.body) : null;
   function getKnownDisplayName(userId: string) {
     return displayNamesByUserId[userId] || getDisplayName(userId);
+  }
+
+  function getKnownAvatarUrl(userId: string) {
+    return avatarUrlsByUserId[userId] || null;
+  }
+
+  function getAvatarInitials(displayName: string) {
+    const compactName = displayName.trim();
+
+    if (!compactName) {
+      return '?';
+    }
+
+    const parts = compactName.split(/\s+/).filter(Boolean);
+
+    if (parts.length >= 2) {
+      return `${parts[0][0]}${parts[1][0]}`.toUpperCase();
+    }
+
+    return compactName.slice(0, 2).toUpperCase();
+  }
+
+  function renderUserAvatar(userId: string, className = '') {
+    const avatarUrl = getKnownAvatarUrl(userId);
+    const displayName = getKnownDisplayName(userId);
+
+    return (
+      <span className={`matrix-avatar ${className}`} aria-hidden="true">
+        {avatarUrl ? <img src={avatarUrl} alt="" /> : <span>{getAvatarInitials(displayName)}</span>}
+      </span>
+    );
   }
 
   const displayNamesByLocalpart = Object.fromEntries(
@@ -510,6 +549,60 @@ export function MatrixChannelPanel({
       isActive = false;
     };
   }, [displayNamesByUserId, identity, messages, typingUserIds]);
+
+  useEffect(() => {
+    let isActive = true;
+    const userIdsToLoad = new Set<string>([identity.userId]);
+
+    for (const message of messages) {
+      userIdsToLoad.add(message.sender);
+
+      for (const reaction of message.reactions ?? []) {
+        for (const sender of reaction.senders) {
+          userIdsToLoad.add(sender);
+        }
+      }
+    }
+
+    for (const userId of typingUserIds) {
+      userIdsToLoad.add(userId);
+    }
+
+    const userIdsToRefresh = [...userIdsToLoad];
+
+    void Promise.all(
+      userIdsToRefresh.map(async (userId) => {
+        try {
+          const avatarMxcUrl = await loadProfileAvatarUrl(identity, userId);
+          return [userId, (await getAuthenticatedMatrixMediaObjectUrl(identity, avatarMxcUrl, 96, 96)) ?? ''] as const;
+        } catch {
+          return [userId, ''] as const;
+        }
+      }),
+    ).then((entries) => {
+      if (!isActive) {
+        return;
+      }
+
+      setAvatarUrlsByUserId((currentAvatars) => {
+        let hasChanged = false;
+        const nextAvatars = { ...currentAvatars };
+
+        for (const [userId, avatarUrl] of entries) {
+          if (nextAvatars[userId] !== avatarUrl) {
+            nextAvatars[userId] = avatarUrl;
+            hasChanged = true;
+          }
+        }
+
+        return hasChanged ? nextAvatars : currentAvatars;
+      });
+    });
+
+    return () => {
+      isActive = false;
+    };
+  }, [avatarUrlsByUserId, identity, messages, typingUserIds]);
 
   useEffect(() => {
     setDisplayNameDraft(getKnownDisplayName(identity.userId));
@@ -863,6 +956,32 @@ export function MatrixChannelPanel({
     }
   }
 
+  function handleAvatarFileChange(file: File | null) {
+    setSettingsErrorText(null);
+
+    if (!file) {
+      setAvatarFile(null);
+      setAvatarPreviewUrl(null);
+      return;
+    }
+
+    const allowedTypes = new Set(['image/png', 'image/jpeg', 'image/jpg', 'image/webp']);
+    const maxSizeBytes = 2 * 1024 * 1024;
+
+    if (!allowedTypes.has(file.type)) {
+      setSettingsErrorText('Profile picture must be a PNG, JPG, JPEG, or WEBP image.');
+      return;
+    }
+
+    if (file.size > maxSizeBytes) {
+      setSettingsErrorText('Profile picture must be 2 MB or smaller.');
+      return;
+    }
+
+    setAvatarFile(file);
+    setAvatarPreviewUrl(URL.createObjectURL(file));
+  }
+
   async function handleSaveAccountSettings(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
@@ -898,15 +1017,51 @@ export function MatrixChannelPanel({
     setSettingsErrorText(null);
 
     try {
-      await saveOwnDisplayName(identity, nextDisplayName);
-      setDisplayNamesByUserId((currentNames) => ({
-        ...currentNames,
-        [identity.userId]: nextDisplayName,
-      }));
+      const currentDisplayName = getKnownDisplayName(identity.userId);
+
+      if (normalizeDisplayName(currentDisplayName) !== normalizedNextDisplayName) {
+        await saveOwnDisplayName(identity, nextDisplayName);
+
+        setDisplayNamesByUserId((currentNames) => ({
+          ...currentNames,
+          [identity.userId]: nextDisplayName,
+        }));
+      }
+
+      let savedAvatarUrl = avatarUrlsByUserId[identity.userId] ?? '';
+
+      if (avatarFile) {
+        try {
+          const avatarMxcUrl = await uploadProfileAvatar(identity, avatarFile);
+          await saveOwnAvatarUrl(identity, avatarMxcUrl);
+
+          const authenticatedAvatarUrl = await getAuthenticatedMatrixMediaObjectUrl(identity, avatarMxcUrl, 96, 96).catch(() => null);
+          savedAvatarUrl = authenticatedAvatarUrl ?? avatarPreviewUrl ?? savedAvatarUrl;
+
+          setAvatarUrlsByUserId((currentAvatars) => ({
+            ...currentAvatars,
+            [identity.userId]: savedAvatarUrl,
+          }));
+        } catch (avatarError) {
+          console.error('[Kodiak Connect] Failed to save profile picture', avatarError);
+          const isRateLimited = avatarError instanceof MatrixRestError && avatarError.status === 429;
+          const avatarErrorMessage = avatarError instanceof Error ? avatarError.message : 'Unknown avatar upload error.';
+
+          setSettingsErrorText(
+            isRateLimited
+              ? 'Matrix is rate-limiting profile picture uploads. Wait about a minute, then press Save again.'
+              : `Display name saved, but profile picture could not be saved. ${avatarErrorMessage}`,
+          );
+          return;
+        }
+      }
+
+      setAvatarFile(null);
+      setAvatarPreviewUrl(null);
       setIsSettingsOpen(false);
     } catch (error) {
-      console.error('[Kodiak Connect] Failed to save display name', error);
-      setSettingsErrorText('Could not save display name. Try again.');
+      console.error('[Kodiak Connect] Failed to save profile settings', error);
+      setSettingsErrorText('Could not save profile settings. Try again.');
     } finally {
       setIsSavingSettings(false);
     }
@@ -954,7 +1109,18 @@ export function MatrixChannelPanel({
           <p>{activeChannel.description}</p>
         </div>
 
-        <button type="button" className="chat-placeholder__user chat-placeholder__user--button" onClick={() => setIsSettingsOpen(true)}>
+        <button
+          type="button"
+          className="chat-placeholder__user chat-placeholder__user--button"
+          onClick={() => {
+            setDisplayNameDraft(getKnownDisplayName(identity.userId));
+            setAvatarFile(null);
+            setAvatarPreviewUrl(null);
+            setSettingsErrorText(null);
+            setIsSettingsOpen(true);
+          }}
+        >
+          {renderUserAvatar(identity.userId, 'matrix-avatar--pill')}
           <span className="status-light status-light--online" aria-hidden="true" />
           <span>{headerDisplayName}</span>
         </button>
@@ -1006,11 +1172,16 @@ export function MatrixChannelPanel({
                     className={`matrix-message ${isOwnMessage ? 'matrix-message--own' : ''}`}
                     data-message-event-id={message.eventId}
                   >
-                    <header>
-                      <strong>{getKnownDisplayName(message.sender)}</strong>
-                      <time>{formatMessageTime(message.originServerTs)}</time>
-                    </header>
-                    <p>{renderMessageTextWithMentions(parsedMessage.body, currentUserLocalpart, displayNamesByLocalpart)}</p>
+                    <div className="matrix-message__avatar-slot">
+                      {renderUserAvatar(message.sender, 'matrix-avatar--message')}
+                    </div>
+
+                    <div className="matrix-message__content">
+                      <header className="matrix-message__meta">
+                        <strong>{getKnownDisplayName(message.sender)}</strong>
+                        <time>{formatMessageTime(message.originServerTs)}</time>
+                      </header>
+                      <p>{renderMessageTextWithMentions(parsedMessage.body, currentUserLocalpart, displayNamesByLocalpart)}</p>
                     {message.editedAt ? <span className="matrix-message__edited">edited</span> : null}
 
                     {message.reactions?.length ? (
@@ -1039,6 +1210,7 @@ export function MatrixChannelPanel({
                         ))}
                       </div>
                     ) : null}
+                    </div>
                   </article>
                 </div>
               );
@@ -1087,6 +1259,7 @@ export function MatrixChannelPanel({
           <div className="message-mention-suggestions" role="listbox" aria-label="Mention suggestions">
             {mentionSuggestions.map((suggestion) => (
               <button key={suggestion.userId} type="button" onClick={() => insertMentionSuggestion(suggestion)}>
+                {renderUserAvatar(suggestion.userId, 'matrix-avatar--suggestion')}
                 <span>{suggestion.displayName}</span>
                 <small>Press Tab to mention</small>
               </button>
@@ -1194,8 +1367,28 @@ export function MatrixChannelPanel({
           <form className="kodiak-confirm-modal kodiak-settings-modal" role="dialog" aria-modal="true" aria-labelledby="account-settings-title" onSubmit={handleSaveAccountSettings}>
             <div className="kodiak-confirm-modal__header">
               <p className="eyebrow eyebrow--ember">Account settings</p>
-              <h2 id="account-settings-title">Display name</h2>
-              <p>This is the name people see in chats, DMs, replies, and mentions.</p>
+              <h2 id="account-settings-title">Profile settings</h2>
+              <p>This is how people see you in chats, DMs, replies, and mentions.</p>
+            </div>
+
+            <div className="kodiak-avatar-setting">
+              <div className="kodiak-avatar-setting__preview">
+                {avatarPreviewUrl ? (
+                  <img src={avatarPreviewUrl} alt="" />
+                ) : getKnownAvatarUrl(identity.userId) ? (
+                  <img src={getKnownAvatarUrl(identity.userId) ?? ''} alt="" />
+                ) : (
+                  <span>{getAvatarInitials(headerDisplayName)}</span>
+                )}
+              </div>
+              <label>
+                <span>Profile picture</span>
+                <input
+                  type="file"
+                  accept="image/png,image/jpeg,image/jpg,image/webp"
+                  onChange={(event) => handleAvatarFileChange(event.target.files?.[0] ?? null)}
+                />
+              </label>
             </div>
 
             <label className="kodiak-settings-field">
@@ -1217,7 +1410,7 @@ export function MatrixChannelPanel({
                 Cancel
               </button>
               <button type="submit" disabled={isSavingSettings}>
-                {isSavingSettings ? 'Saving...' : 'Save display name'}
+                {isSavingSettings ? 'Saving...' : 'Save'}
               </button>
             </div>
           </form>

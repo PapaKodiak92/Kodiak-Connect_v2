@@ -691,3 +691,284 @@
   color: #fecaca;
   padding: 0.72rem 0.85rem;
 }
+
+
+.matrix-avatar {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  width: 1.75rem;
+  height: 1.75rem;
+  overflow: hidden;
+  border: 1px solid rgba(251, 146, 60, 0.24);
+  border-radius: 999px;
+  background:
+    radial-gradient(circle at 35% 25%, rgba(251, 146, 60, 0.24), transparent 42%),
+    rgba(15, 23, 42, 0.86);
+  color: #fed7aa;
+  font-size: 0.72rem;
+  font-weight: 900;
+  letter-spacing: 0.02em;
+}
+
+.matrix-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.matrix-avatar--pill {
+  width: 1.45rem;
+  height: 1.45rem;
+  margin-right: 0.1rem;
+  font-size: 0.62rem;
+}
+
+.matrix-avatar--message {
+  width: 1.55rem;
+  height: 1.55rem;
+}
+
+.matrix-avatar--suggestion {
+  width: 1.7rem;
+  height: 1.7rem;
+}
+
+.matrix-message header {
+  align-items: center;
+  gap: 0.45rem;
+}
+
+.message-mention-suggestions button {
+  grid-template-columns: auto 1fr;
+  align-items: center;
+  column-gap: 0.55rem;
+}
+
+.message-mention-suggestions button small {
+  grid-column: 2;
+}
+
+.kodiak-avatar-setting {
+  display: flex;
+  align-items: center;
+  gap: 0.9rem;
+  border: 1px solid rgba(148, 163, 184, 0.14);
+  border-radius: 18px;
+  background: rgba(2, 6, 23, 0.36);
+  padding: 0.85rem;
+}
+
+.kodiak-avatar-setting__preview {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 4.25rem;
+  height: 4.25rem;
+  overflow: hidden;
+  border: 1px solid rgba(251, 146, 60, 0.28);
+  border-radius: 999px;
+  background:
+    radial-gradient(circle at 35% 25%, rgba(251, 146, 60, 0.25), transparent 42%),
+    rgba(15, 23, 42, 0.88);
+  color: #fed7aa;
+  font-size: 1rem;
+  font-weight: 900;
+}
+
+.kodiak-avatar-setting__preview img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.kodiak-avatar-setting label {
+  display: grid;
+  gap: 0.4rem;
+  min-width: 0;
+}
+
+.kodiak-avatar-setting label span {
+  color: #fed7aa;
+  font-size: 0.82rem;
+  font-weight: 800;
+}
+
+.kodiak-avatar-setting input {
+  max-width: 100%;
+  color: #cbd5e1;
+  font-size: 0.82rem;
+}
+
+
+/* Discord-style message identity layout */
+.matrix-message {
+  display: grid !important;
+  grid-template-columns: 2.65rem minmax(0, 1fr);
+  column-gap: 0.75rem;
+  align-items: start;
+  padding: 1rem 1.05rem;
+}
+
+.matrix-message--own {
+  grid-template-columns: minmax(0, 1fr) 2.65rem;
+}
+
+.matrix-message__avatar-slot {
+  grid-column: 1;
+  grid-row: 1;
+  display: flex;
+  justify-content: center;
+  padding-top: 0.1rem;
+}
+
+.matrix-message--own .matrix-message__avatar-slot {
+  grid-column: 2;
+}
+
+.matrix-message__content {
+  grid-column: 2;
+  min-width: 0;
+}
+
+.matrix-message--own .matrix-message__content {
+  grid-column: 1;
+}
+
+.matrix-message__meta {
+  display: flex !important;
+  align-items: baseline !important;
+  justify-content: flex-start !important;
+  gap: 0.5rem !important;
+  margin: 0 0 0.28rem !important;
+}
+
+.matrix-message--own .matrix-message__meta {
+  justify-content: flex-end !important;
+}
+
+.matrix-message__meta strong {
+  color: #fff7ed;
+  font-size: 0.95rem;
+  font-weight: 900;
+  line-height: 1.1;
+}
+
+.matrix-message__meta time {
+  margin-left: 0 !important;
+  color: #7fa2d1;
+  font-size: 0.74rem;
+  white-space: nowrap;
+}
+
+.matrix-message--own .matrix-message__meta time {
+  order: -1;
+}
+
+.matrix-message p {
+  margin: 0;
+  line-height: 1.45;
+}
+
+.matrix-message--own p {
+  text-align: right;
+}
+
+.matrix-avatar--message {
+  width: 2.2rem !important;
+  height: 2.2rem !important;
+  border-color: rgba(251, 146, 60, 0.36);
+  box-shadow: 0 0 0 2px rgba(2, 6, 23, 0.75), 0 0 16px rgba(251, 146, 60, 0.12);
+}
+
+.matrix-avatar--pill {
+  width: 1.85rem !important;
+  height: 1.85rem !important;
+}
+
+.matrix-avatar--suggestion {
+  width: 2rem !important;
+  height: 2rem !important;
+}
+
+.matrix-reactions,
+.matrix-reaction-picker,
+.matrix-message__edited {
+  margin-top: 0.55rem;
+}
+
+.matrix-message--own .matrix-reactions,
+.matrix-message--own .matrix-reaction-picker {
+  justify-content: flex-end;
+}
+
+
+/* Premium top-right profile pill */
+.chat-placeholder__user.chat-placeholder__user--button {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.62rem;
+  min-height: 2.8rem;
+  border: 1px solid rgba(34, 197, 94, 0.22);
+  border-radius: 999px;
+  background:
+    radial-gradient(circle at 12% 18%, rgba(34, 197, 94, 0.13), transparent 38%),
+    rgba(2, 6, 23, 0.56);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.04),
+    0 12px 28px rgba(0, 0, 0, 0.16);
+  color: #dcfce7;
+  cursor: pointer;
+  padding: 0.28rem 0.9rem 0.28rem 0.34rem;
+  transition:
+    border-color 160ms ease,
+    background 160ms ease,
+    box-shadow 160ms ease,
+    transform 160ms ease;
+}
+
+.chat-placeholder__user.chat-placeholder__user--button:hover,
+.chat-placeholder__user.chat-placeholder__user--button:focus-visible {
+  border-color: rgba(34, 197, 94, 0.5);
+  background:
+    radial-gradient(circle at 12% 18%, rgba(34, 197, 94, 0.2), transparent 42%),
+    rgba(2, 6, 23, 0.72);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.06),
+    0 16px 36px rgba(0, 0, 0, 0.22),
+    0 0 22px rgba(34, 197, 94, 0.08);
+  transform: translateY(-1px);
+}
+
+.chat-placeholder__user.chat-placeholder__user--button .matrix-avatar--pill {
+  width: 2.15rem !important;
+  height: 2.15rem !important;
+  margin: 0 !important;
+  border-color: rgba(251, 146, 60, 0.36);
+  box-shadow:
+    0 0 0 2px rgba(2, 6, 23, 0.95),
+    0 0 16px rgba(251, 146, 60, 0.12);
+}
+
+.chat-placeholder__user.chat-placeholder__user--button .status-light {
+  position: absolute;
+  left: 2.02rem;
+  bottom: 0.44rem;
+  width: 0.72rem;
+  height: 0.72rem;
+  border: 2px solid rgba(2, 6, 23, 0.98);
+  box-shadow: 0 0 12px rgba(34, 197, 94, 0.45);
+}
+
+.chat-placeholder__user.chat-placeholder__user--button > span:last-child {
+  max-width: 11rem;
+  overflow: hidden;
+  color: #dcfce7;
+  font-size: 0.94rem;
+  font-weight: 900;
+  letter-spacing: -0.01em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
