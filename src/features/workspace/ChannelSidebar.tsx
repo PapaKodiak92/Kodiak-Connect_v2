@@ -15,7 +15,9 @@ interface ChannelSidebarProps {
   channelActivity: ChannelActivityById;
   onSelectChannel: (channel: WorkspaceChannel) => void;
   onStartDirectMessage?: () => void;
+  onOpenFriendCenter?: () => void;
   onCloseDirectMessage?: (channelId: string) => void;
+  friendCenterCount?: number;
   onLogout: () => void;
 }
 
@@ -34,7 +36,9 @@ export function ChannelSidebar({
   channelActivity,
   onSelectChannel,
   onStartDirectMessage,
+  onOpenFriendCenter,
   onCloseDirectMessage,
+  friendCenterCount = 0,
   onLogout,
 }: ChannelSidebarProps) {
   const [openChannelMenu, setOpenChannelMenu] = useState<{ channelId: string; x: number; y: number } | null>(null);
@@ -212,6 +216,13 @@ export function ChannelSidebar({
       ) : null}
 
       <div className="channel-sidebar__footer">
+        {onOpenFriendCenter ? (
+          <button type="button" className="channel-sidebar__friend-center" onClick={onOpenFriendCenter}>
+            <span>Friend Center</span>
+            {friendCenterCount > 0 ? <strong>{Math.min(friendCenterCount, 99)}</strong> : null}
+          </button>
+        ) : null}
+
         <button type="button" disabled>
           Owner Tools Soon
         </button>

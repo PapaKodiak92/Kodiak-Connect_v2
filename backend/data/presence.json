@@ -1,0 +1,16 @@
+{
+  "@papakodiak:v2.kodiak-connect.com": {
+    "avatarUrl": "blob:http://localhost:5173/71d4536f-5ef1-47a0-95bf-710fbcf7e54b",
+    "displayName": "PapaKodiak",
+    "lastSeenAt": 1780300072731,
+    "status": "online",
+    "userId": "@papakodiak:v2.kodiak-connect.com"
+  },
+  "@kodiaktest:v2.kodiak-connect.com": {
+    "avatarUrl": "blob:http://localhost:5173/9aaa60f7-8994-4a23-b562-51c57aaf4a29",
+    "displayName": "KCTest",
+    "lastSeenAt": 1780300072683,
+    "status": "online",
+    "userId": "@kodiaktest:v2.kodiak-connect.com"
+  }
+}

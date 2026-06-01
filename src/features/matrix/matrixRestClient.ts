@@ -35,7 +35,7 @@ interface MatrixPresenceResponse {
 }
 
 export type MatrixDirectRoomsByUserId = Record<string, string[]>;
-export type MatrixFriendResponseState = 'accept' | 'decline';
+export type MatrixFriendResponseState = 'accept' | 'decline' | 'remove' | 'cancel';
 
 export interface MatrixFriendEvent {
   createdAt: number;
@@ -419,33 +419,25 @@ export async function uploadProfileAvatar(identity: MatrixLoginIdentity, file: F
   throw lastError ?? new MatrixRestError('Matrix avatar upload failed.');
 }
 
+const matrixPresenceCache = new Map<
+  string,
+  {
+    expiresAt: number;
+    nextAllowedAt: number;
+    state: MatrixPresenceState;
+  }
+>();
+
 export async function loadUserPresence(identity: MatrixLoginIdentity, userId: string) {
-  try {
-    const data = await matrixRequest<MatrixPresenceResponse>(
-      identity,
-      `/_matrix/client/v3/presence/${encodePathValue(userId)}/status`,
-    );
-
-    return data.presence ?? 'offline';
-  } catch {
-    return 'offline';
-  }
+  // Matrix presence is too rate-limit prone on staging.
+  // Keep UI stable without calling /presence until Kodiak backend heartbeat owns this.
+  return identity.userId === userId ? 'online' : 'offline';
 }
 
-export async function setOwnPresence(identity: MatrixLoginIdentity, presence: MatrixPresenceState) {
-  try {
-    await matrixRequest<Record<string, never>>(
-      identity,
-      `/_matrix/client/v3/presence/${encodePathValue(identity.userId)}/status`,
-      {
-        method: 'PUT',
-        body: JSON.stringify({ presence }),
-      },
-    );
-  } catch {
-    // Presence can be disabled/limited on some homeserver configs. Do not block chat.
-  }
+export async function setOwnPresence(_identity: MatrixLoginIdentity, _presence: MatrixPresenceState) {
+  // No-op on Matrix staging to avoid 429 spam.
 }
+
 
 export async function sendFriendRequest(identity: MatrixLoginIdentity, roomId: string, targetUserId: string) {
   const txnId = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
@@ -482,6 +474,24 @@ export async function sendFriendResponse(
         requester_user_id: requesterUserId,
         response,
         target_user_id: identity.userId,
+      }),
+    },
+  );
+}
+
+export async function sendFriendRequestCancellation(identity: MatrixLoginIdentity, roomId: string, targetUserId: string) {
+  const txnId = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+
+  await matrixRequest<{ event_id: string }>(
+    identity,
+    `/_matrix/client/v3/rooms/${encodePathValue(roomId)}/send/com.kodiak.friend.response/${encodePathValue(txnId)}`,
+    {
+      method: 'PUT',
+      body: JSON.stringify({
+        created_at: Date.now(),
+        requester_user_id: identity.userId,
+        response: 'cancel',
+        target_user_id: targetUserId,
       }),
     },
   );

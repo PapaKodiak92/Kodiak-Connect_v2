@@ -9,6 +9,7 @@ import {
   resolveDirectMessageRoom,
   saveDirectMessageRoom,
   sendFriendRequest,
+  sendFriendRequestCancellation,
   sendFriendResponse,
 } from '../matrix/matrixRestClient';
 import { OfficialSpaceAcknowledgementModal } from '../policy/OfficialSpaceAcknowledgementModal';
@@ -29,7 +30,7 @@ interface WorkspaceShellProps {
   onLogout: () => void;
 }
 
-const ACTIVITY_POLL_INTERVAL_MS = 12_000;
+const ACTIVITY_POLL_INTERVAL_MS = 30_000;
 const MATRIX_SERVER_NAME = 'v2.kodiak-connect.com';
 const STAGING_USER_LOCALPARTS = ['papakodiak', 'kodiaktest'];
 const spaces: WorkspaceSpace[] = [officialSpace];
@@ -223,15 +224,22 @@ export function WorkspaceShell({ identity, onLogout }: WorkspaceShellProps) {
     readStoredDirectMessageChannels(identity.userId),
   );
   const [isStartDmOpen, setIsStartDmOpen] = useState(false);
+  const [isFriendCenterOpen, setIsFriendCenterOpen] = useState(false);
   const [dmSearchQuery, setDmSearchQuery] = useState('');
   const [dmDisplayNamesByUserId, setDmDisplayNamesByUserId] = useState<Record<string, string>>({});
   const [friendStatusByUserId, setFriendStatusByUserId] = useState<FriendStatusByUserId>({});
+  const friendStatusByUserIdRef = useRef<FriendStatusByUserId>({});
   const [channelActivity, setChannelActivity] = useState<ChannelActivityById>({});
   const [lastSeenByChannel, setLastSeenByChannel] = useState<Record<string, number>>(() => readLastSeenByChannel(identity.userId));
   const [hasAcknowledgedOfficialSpace, setHasAcknowledgedOfficialSpace] = useState(() =>
     hasCurrentOfficialSpaceAcknowledgement(identity.userId),
   );
   const notifiedLatestTsByChannelRef = useRef<Record<string, number>>({});
+  const channelActivityBackoffUntilRef = useRef<Record<string, number>>({});
+
+  useEffect(() => {
+    friendStatusByUserIdRef.current = friendStatusByUserId;
+  }, [friendStatusByUserId]);
 
   const activeSpace = useMemo(() => {
     const selectedSpace = spaces.find((space) => space.id === activeSpaceId) ?? officialSpace;
@@ -289,6 +297,7 @@ export function WorkspaceShell({ identity, onLogout }: WorkspaceShellProps) {
       : null;
 
   const totalUnreadCount = Object.values(channelActivity).reduce((count, activity) => count + (activity.unreadCount ?? 0), 0);
+  const incomingFriendRequestCount = Object.values(friendStatusByUserId).filter((status) => status === 'incoming').length;
 
   useEffect(() => {
     document.title = totalUnreadCount > 0 ? `(${totalUnreadCount}) Kodiak Connect` : 'Kodiak Connect';
@@ -396,6 +405,8 @@ export function WorkspaceShell({ identity, onLogout }: WorkspaceShellProps) {
 
             const friendEvents = await loadRecentFriendEvents(identity, roomId);
             let status: FriendStatus = 'none';
+            let currentUserRequestAt = 0;
+            let otherUserRequestAt = 0;
 
             for (const event of friendEvents) {
               const currentUserRequested = event.requesterUserId === identity.userId && event.targetUserId === userId;
@@ -406,19 +417,44 @@ export function WorkspaceShell({ identity, onLogout }: WorkspaceShellProps) {
               }
 
               if (event.type === 'request') {
-                status = currentUserRequested ? 'outgoing' : 'incoming';
+                if (currentUserRequested) {
+                  currentUserRequestAt = event.createdAt;
+                }
+
+                if (otherUserRequested) {
+                  otherUserRequestAt = event.createdAt;
+                }
+
                 continue;
               }
 
               if (event.type === 'response') {
-                status = event.response === 'accept' ? 'friends' : 'none';
+                if (event.response === 'accept') {
+                  status = 'friends';
+                } else {
+                  status = 'none';
+                  currentUserRequestAt = 0;
+                  otherUserRequestAt = 0;
+                }
+              }
+            }
+
+            if (status !== 'friends') {
+              if (currentUserRequestAt && otherUserRequestAt) {
+                status = 'incoming';
+              } else if (otherUserRequestAt) {
+                status = 'incoming';
+              } else if (currentUserRequestAt) {
+                status = 'outgoing';
+              } else {
+                status = 'none';
               }
             }
 
             return [userId, status] as const;
           } catch (error) {
             console.warn('[Kodiak Connect] Friend state refresh failed', userId, error);
-            return [userId, friendStatusByUserId[userId] ?? 'none'] as const;
+            return [userId, friendStatusByUserIdRef.current[userId] ?? 'none'] as const;
           }
         }),
       );
@@ -437,13 +473,13 @@ export function WorkspaceShell({ identity, onLogout }: WorkspaceShellProps) {
 
     const intervalId = window.setInterval(() => {
       void refreshFriendState();
-    }, 8000);
+    }, 15000);
 
     return () => {
       isActive = false;
       window.clearInterval(intervalId);
     };
-  }, [directMessageChannels, dmDisplayNamesByUserId, friendStatusByUserId, identity]);
+  }, [directMessageChannels, dmDisplayNamesByUserId, identity]);
 
   const markChannelSeen = useCallback(
     (channelId: string, latestTs: number) => {
@@ -486,6 +522,12 @@ export function WorkspaceShell({ identity, onLogout }: WorkspaceShellProps) {
 
     const activityResults = await Promise.all(
       channels.map(async (channel) => {
+        const backoffUntil = channelActivityBackoffUntilRef.current[channel.id] ?? 0;
+
+        if (Date.now() < backoffUntil) {
+          return [channel.id, channelActivity[channel.id] ?? { hasMention: false, latestTs: 0, unreadCount: 0 }, null] as const;
+        }
+
         try {
           let roomId = '';
           const directMessageTargetUserId = getDirectMessageTargetUserId(channel, identity.userId);
@@ -706,6 +748,36 @@ export function WorkspaceShell({ identity, onLogout }: WorkspaceShellProps) {
     }));
   }
 
+  async function handleUnfriendUser(userId: string) {
+    const roomId = await resolveSilentDirectMessageRoom(userId, dmDisplayNamesByUserId[userId] || getDisplayNameFromUserId(userId), false);
+
+    if (!roomId) {
+      throw new Error('Could not find friend room.');
+    }
+
+    await sendFriendResponse(identity, roomId, userId, 'remove');
+
+    setFriendStatusByUserId((currentStatuses) => ({
+      ...currentStatuses,
+      [userId]: 'none',
+    }));
+  }
+
+  async function handleCancelFriendRequest(userId: string) {
+    const roomId = await resolveSilentDirectMessageRoom(userId, dmDisplayNamesByUserId[userId] || getDisplayNameFromUserId(userId), false);
+
+    if (!roomId) {
+      throw new Error('Could not find outgoing friend request room.');
+    }
+
+    await sendFriendRequestCancellation(identity, roomId, userId);
+
+    setFriendStatusByUserId((currentStatuses) => ({
+      ...currentStatuses,
+      [userId]: 'none',
+    }));
+  }
+
   function handleAcknowledgeOfficialSpace() {
     saveOfficialSpaceAcknowledgement(identity.userId);
     setHasAcknowledgedOfficialSpace(true);
@@ -724,7 +796,9 @@ export function WorkspaceShell({ identity, onLogout }: WorkspaceShellProps) {
         channelActivity={channelActivity}
         onSelectChannel={handleSelectChannel}
         onStartDirectMessage={() => setIsStartDmOpen(true)}
+        onOpenFriendCenter={() => setIsFriendCenterOpen(true)}
         onCloseDirectMessage={handleCloseDirectMessage}
+        friendCenterCount={incomingFriendRequestCount}
         onLogout={onLogout}
       />
       {activeChannel.matrixAlias || activeChannel.matrixDmUserId ? (
@@ -733,10 +807,14 @@ export function WorkspaceShell({ identity, onLogout }: WorkspaceShellProps) {
           activeChannel={activeChannel}
           identity={identity}
           friendStatusByUserId={friendStatusByUserId}
+          isFriendCenterOpen={isFriendCenterOpen}
+          onCloseFriendCenter={() => setIsFriendCenterOpen(false)}
           onOpenDirectMessage={handleOpenDirectMessage}
           onSendFriendRequest={handleSendFriendRequest}
           onAcceptFriendRequest={handleAcceptFriendRequest}
           onDeclineFriendRequest={handleDeclineFriendRequest}
+          onCancelFriendRequest={handleCancelFriendRequest}
+          onUnfriendUser={handleUnfriendUser}
         />
       ) : (
         <ChatPlaceholder activeSpace={activeSpace} activeChannel={activeChannel} identity={identity} />

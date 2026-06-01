@@ -343,3 +343,25 @@
   font-weight: 900;
   padding: 0.65rem 0.95rem;
 }
+
+
+.channel-sidebar__friend-center {
+  display: flex !important;
+  align-items: center;
+  justify-content: center;
+  gap: 0.55rem;
+}
+
+.channel-sidebar__friend-center strong {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.35rem;
+  height: 1.35rem;
+  border: 1px solid rgba(251, 146, 60, 0.35);
+  border-radius: 999px;
+  background: rgba(67, 20, 7, 0.5);
+  color: #fed7aa;
+  font-size: 0.72rem;
+  font-weight: 900;
+}
