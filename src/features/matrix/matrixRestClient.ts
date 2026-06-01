@@ -16,6 +16,11 @@ export interface MatrixTextMessage {
   sender: string;
 }
 
+export interface MatrixTypingState {
+  nextBatch?: string;
+  userIds?: string[];
+}
+
 interface MatrixErrorResponse {
   errcode?: string;
   error?: string;
@@ -31,6 +36,27 @@ interface MatrixJoinRoomResponse {
 
 interface MatrixMessagesResponse {
   chunk?: MatrixEvent[];
+}
+
+interface MatrixSyncResponse {
+  next_batch?: string;
+  rooms?: {
+    join?: Record<
+      string,
+      {
+        ephemeral?: {
+          events?: MatrixEphemeralEvent[];
+        };
+      }
+    >;
+  };
+}
+
+interface MatrixEphemeralEvent {
+  content?: {
+    user_ids?: string[];
+  };
+  type?: string;
 }
 
 interface MatrixEvent {
@@ -243,6 +269,20 @@ export async function loadRecentMessages(identity: MatrixLoginIdentity, roomId: 
     .reverse();
 }
 
+export async function loadTypingUsers(identity: MatrixLoginIdentity, roomId: string, since?: string): Promise<MatrixTypingState> {
+  const syncPath = since
+    ? `/_matrix/client/v3/sync?timeout=0&since=${encodePathValue(since)}`
+    : '/_matrix/client/v3/sync?timeout=0';
+  const data = await matrixRequest<MatrixSyncResponse>(identity, syncPath);
+  const roomEvents = data.rooms?.join?.[roomId]?.ephemeral?.events ?? [];
+  const typingEvent = [...roomEvents].reverse().find((event) => event.type === 'm.typing');
+
+  return {
+    nextBatch: data.next_batch,
+    userIds: typingEvent?.content?.user_ids,
+  };
+}
+
 export async function sendTextMessage(identity: MatrixLoginIdentity, roomId: string, body: string, replyToEventId?: string) {
   const txnId = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 
@@ -307,6 +347,17 @@ export async function sendReaction(identity: MatrixLoginIdentity, roomId: string
           key,
         },
       }),
+    },
+  );
+}
+
+export async function sendTypingState(identity: MatrixLoginIdentity, roomId: string, isTyping: boolean, timeout = 5000) {
+  await matrixRequest<Record<string, never>>(
+    identity,
+    `/_matrix/client/v3/rooms/${encodePathValue(roomId)}/typing/${encodePathValue(identity.userId)}`,
+    {
+      method: 'PUT',
+      body: JSON.stringify(isTyping ? { typing: true, timeout } : { typing: false }),
     },
   );
 }
