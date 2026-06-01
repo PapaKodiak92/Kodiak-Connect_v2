@@ -1,0 +1,171 @@
+.kodiak-attachment-bridge {
+  position: fixed;
+  right: 1.05rem;
+  bottom: 5.75rem;
+  z-index: 75;
+  display: grid;
+  justify-items: end;
+  gap: 0.65rem;
+  pointer-events: none;
+}
+
+.kodiak-attachment-bridge > * {
+  pointer-events: auto;
+}
+
+.kodiak-attachment-bridge__toggle {
+  display: grid;
+  width: 3rem;
+  height: 3rem;
+  place-items: center;
+  border: 1px solid rgba(251, 146, 60, 0.34);
+  border-radius: 999px;
+  background:
+    radial-gradient(circle at 35% 20%, rgba(251, 146, 60, 0.18), transparent 46%),
+    rgba(15, 23, 42, 0.96);
+  color: #fed7aa;
+  box-shadow: 0 18px 45px rgba(0, 0, 0, 0.32);
+  font-size: 1.05rem;
+  padding: 0;
+}
+
+.kodiak-attachment-bridge__panel {
+  display: grid;
+  gap: 0.75rem;
+  width: min(440px, calc(100vw - 2rem));
+  max-height: min(560px, calc(100vh - 8rem));
+  overflow: hidden;
+  border: 1px solid rgba(251, 146, 60, 0.22);
+  border-radius: 24px;
+  background:
+    radial-gradient(circle at 18% 12%, rgba(251, 146, 60, 0.12), transparent 18rem),
+    linear-gradient(180deg, rgba(15, 23, 42, 0.985), rgba(2, 6, 23, 0.985));
+  box-shadow: 0 30px 90px rgba(0, 0, 0, 0.46);
+  padding: 1rem;
+}
+
+.kodiak-attachment-bridge__panel header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.85rem;
+}
+
+.kodiak-attachment-bridge__panel h2 {
+  margin: 0;
+  color: #fff7ed;
+  font-size: 1.15rem;
+}
+
+.kodiak-attachment-bridge__panel header button,
+.kodiak-attachment-actions button,
+.kodiak-attachment-card button {
+  border-color: rgba(251, 146, 60, 0.24);
+  background: rgba(2, 6, 23, 0.48);
+  color: #fed7aa;
+  font-size: 0.78rem;
+  padding: 0.55rem 0.78rem;
+}
+
+.kodiak-attachment-actions {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.5rem;
+}
+
+.kodiak-attachment-actions button {
+  justify-content: center;
+  white-space: nowrap;
+}
+
+.kodiak-attachment-status,
+.kodiak-attachment-error,
+.kodiak-attachment-empty {
+  margin: 0;
+  border: 1px solid rgba(148, 163, 184, 0.14);
+  border-radius: 14px;
+  background: rgba(2, 6, 23, 0.42);
+  color: #cbd5e1;
+  font-size: 0.84rem;
+  line-height: 1.45;
+  padding: 0.65rem 0.75rem;
+}
+
+.kodiak-attachment-error {
+  border-color: rgba(248, 113, 113, 0.24);
+  background: rgba(127, 29, 29, 0.2);
+  color: #fecaca;
+}
+
+.kodiak-attachment-list {
+  display: grid;
+  gap: 0.58rem;
+  min-height: 0;
+  overflow: auto;
+  padding-right: 0.2rem;
+  scrollbar-width: none;
+}
+
+.kodiak-attachment-list::-webkit-scrollbar {
+  display: none;
+}
+
+.kodiak-attachment-card {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.65rem;
+  align-items: center;
+  border: 1px solid rgba(148, 163, 184, 0.14);
+  border-radius: 18px;
+  background: rgba(15, 23, 42, 0.62);
+  padding: 0.7rem;
+}
+
+.kodiak-attachment-card img,
+.kodiak-attachment-card video {
+  grid-column: 1 / -1;
+  width: 100%;
+  max-height: 220px;
+  border-radius: 14px;
+  background: rgba(2, 6, 23, 0.74);
+  object-fit: contain;
+}
+
+.kodiak-attachment-card audio {
+  grid-column: 1 / -1;
+  width: 100%;
+}
+
+.kodiak-attachment-card div {
+  display: grid;
+  gap: 0.18rem;
+  min-width: 0;
+}
+
+.kodiak-attachment-card strong {
+  overflow: hidden;
+  color: #fff7ed;
+  font-size: 0.9rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.kodiak-attachment-card span {
+  overflow: hidden;
+  color: #94a3b8;
+  font-size: 0.76rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@media (max-width: 760px) {
+  .kodiak-attachment-bridge {
+    right: 0.75rem;
+    bottom: 5rem;
+  }
+
+  .kodiak-attachment-actions,
+  .kodiak-attachment-card {
+    grid-template-columns: 1fr;
+  }
+}
