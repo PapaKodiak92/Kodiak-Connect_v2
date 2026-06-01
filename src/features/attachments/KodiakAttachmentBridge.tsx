@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { MatrixLoginIdentity } from '../auth/matrixLoginService';
+import { kodiakEnv } from '../../config/env';
 import { officialSpace } from '../workspace/workspaceData';
 
 interface KodiakAttachmentBridgeProps {
@@ -52,6 +53,25 @@ interface SharedAttachment {
   sender: string;
   size: number;
   url: string;
+}
+
+interface GiphySearchResult {
+  id: string;
+  title?: string;
+  images?: {
+    fixed_width?: {
+      url?: string;
+      width?: string;
+      height?: string;
+    };
+    original?: {
+      url?: string;
+    };
+  };
+}
+
+interface GiphySearchResponse {
+  data?: GiphySearchResult[];
 }
 
 const MATRIX_SERVER_NAME = 'v2.kodiak-connect.com';
@@ -107,19 +127,17 @@ function formatTime(timestamp: number) {
 }
 
 function getAttachmentKind(file: File) {
-  if (file.type.startsWith('image/')) {
-    return 'm.image';
-  }
-
-  if (file.type.startsWith('audio/')) {
-    return 'm.audio';
-  }
-
-  if (file.type.startsWith('video/')) {
-    return 'm.video';
-  }
-
+  if (file.type.startsWith('image/')) return 'm.image';
+  if (file.type.startsWith('audio/')) return 'm.audio';
+  if (file.type.startsWith('video/')) return 'm.video';
   return 'm.file';
+}
+
+function getAttachmentLabel(msgtype: string) {
+  if (msgtype === 'm.image') return 'image/GIF';
+  if (msgtype === 'm.audio') return 'music/audio';
+  if (msgtype === 'm.video') return 'video';
+  return 'file';
 }
 
 function getSafeFileBody(file: File) {
@@ -338,6 +356,22 @@ async function sendAttachmentEvent(identity: MatrixLoginIdentity, roomId: string
   );
 }
 
+async function sendTextNotice(identity: MatrixLoginIdentity, roomId: string, body: string) {
+  const txnId = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+
+  await matrixJsonRequest<{ event_id: string }>(
+    identity,
+    `/_matrix/client/v3/rooms/${encodeURIComponent(roomId)}/send/m.room.message/${encodeURIComponent(txnId)}`,
+    {
+      method: 'PUT',
+      body: JSON.stringify({
+        body,
+        msgtype: 'm.text',
+      }),
+    },
+  );
+}
+
 async function loadRecentAttachments(identity: MatrixLoginIdentity, roomId: string) {
   const response = await matrixJsonRequest<MatrixMessagesResponse>(
     identity,
@@ -354,7 +388,7 @@ async function loadRecentAttachments(identity: MatrixLoginIdentity, roomId: stri
         ['m.image', 'm.audio', 'm.video', 'm.file'].includes(event.content.msgtype ?? '')
       );
     })
-    .slice(0, 12)
+    .slice(0, 8)
     .map<SharedAttachment>((event) => ({
       body: event.content?.body || 'shared-file',
       eventId: event.event_id ?? '',
@@ -368,19 +402,30 @@ async function loadRecentAttachments(identity: MatrixLoginIdentity, roomId: stri
     .reverse();
 }
 
+async function getGifBlob(gifUrl: string) {
+  const response = await fetch(gifUrl);
+
+  if (!response.ok) {
+    throw new Error('Could not load GIF from Giphy.');
+  }
+
+  return response.blob();
+}
+
 export function KodiakAttachmentBridge({ identity }: KodiakAttachmentBridgeProps) {
   const imageInputRef = useRef<HTMLInputElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const folderInputRef = useRef<HTMLInputElement | null>(null);
   const objectUrlsRef = useRef<string[]>([]);
-  const [activeRoomId, setActiveRoomId] = useState<string | null>(null);
   const [attachments, setAttachments] = useState<SharedAttachment[]>([]);
   const [errorText, setErrorText] = useState<string | null>(null);
   const [statusText, setStatusText] = useState<string | null>(null);
   const [isSharing, setIsSharing] = useState(false);
   const [isExpanded, setIsExpanded] = useState(false);
-
-  const activeTitle = useMemo(() => getActiveChannelTitle(), [isExpanded, activeRoomId, attachments.length]);
+  const [activeTab, setActiveTab] = useState<'files' | 'gifs' | 'recent'>('files');
+  const [gifQuery, setGifQuery] = useState('');
+  const [gifResults, setGifResults] = useState<GiphySearchResult[]>([]);
+  const [isSearchingGifs, setIsSearchingGifs] = useState(false);
 
   const clearPreviewUrls = useCallback(() => {
     objectUrlsRef.current.forEach((url) => URL.revokeObjectURL(url));
@@ -421,11 +466,9 @@ export function KodiakAttachmentBridge({ identity }: KodiakAttachmentBridgeProps
         }),
       );
 
-      setActiveRoomId(roomId);
       setAttachments(attachmentsWithObjects);
       setErrorText(null);
     } catch (error) {
-      setActiveRoomId(null);
       setAttachments([]);
       setErrorText(error instanceof Error ? error.message : 'Could not load shared files for this channel.');
     }
@@ -438,7 +481,6 @@ export function KodiakAttachmentBridge({ identity }: KodiakAttachmentBridgeProps
 
     void refreshAttachments();
     const intervalId = window.setInterval(() => void refreshAttachments(), ATTACHMENT_POLL_INTERVAL_MS);
-
     return () => window.clearInterval(intervalId);
   }, [isExpanded, refreshAttachments]);
 
@@ -452,6 +494,39 @@ export function KodiakAttachmentBridge({ identity }: KodiakAttachmentBridgeProps
   }, []);
 
   useEffect(() => clearPreviewUrls, [clearPreviewUrls]);
+
+  useEffect(() => {
+    if (!isExpanded || activeTab !== 'gifs' || !kodiakEnv.giphyApiKey) {
+      return undefined;
+    }
+
+    const query = gifQuery.trim() || 'hello';
+    const timerId = window.setTimeout(async () => {
+      setIsSearchingGifs(true);
+      setErrorText(null);
+
+      try {
+        const endpoint = gifQuery.trim()
+          ? `https://api.giphy.com/v1/gifs/search?api_key=${encodeURIComponent(kodiakEnv.giphyApiKey ?? '')}&q=${encodeURIComponent(query)}&limit=12&rating=pg-13`
+          : `https://api.giphy.com/v1/gifs/trending?api_key=${encodeURIComponent(kodiakEnv.giphyApiKey ?? '')}&limit=12&rating=pg-13`;
+        const response = await fetch(endpoint);
+
+        if (!response.ok) {
+          throw new Error('Giphy search failed.');
+        }
+
+        const body = (await response.json()) as GiphySearchResponse;
+        setGifResults(body.data ?? []);
+      } catch (error) {
+        setGifResults([]);
+        setErrorText(error instanceof Error ? error.message : 'Could not search GIFs.');
+      } finally {
+        setIsSearchingGifs(false);
+      }
+    }, 300);
+
+    return () => window.clearTimeout(timerId);
+  }, [activeTab, gifQuery, isExpanded]);
 
   async function shareFiles(fileList: FileList | null) {
     const files = [...(fileList ?? [])];
@@ -473,15 +548,24 @@ export function KodiakAttachmentBridge({ identity }: KodiakAttachmentBridgeProps
 
     try {
       const roomId = await getActiveRoomId(identity);
+      const uploadedLabels: string[] = [];
 
       for (const file of files) {
-        setStatusText(`Uploading ${getSafeFileBody(file)}...`);
+        const fileBody = getSafeFileBody(file);
+        const msgtype = getAttachmentKind(file);
+        setStatusText(`Uploading ${fileBody}...`);
         const contentUri = await uploadFile(identity, file);
         await sendAttachmentEvent(identity, roomId, file, contentUri);
+        uploadedLabels.push(`${getAttachmentLabel(msgtype)}: ${fileBody}`);
       }
 
-      setStatusText(`Shared ${files.length} file${files.length === 1 ? '' : 's'}.`);
-      setIsExpanded(true);
+      const noticeBody = files.length === 1
+        ? `📎 Shared ${uploadedLabels[0]}. Open Transfers to preview/download.`
+        : `📁 Shared ${files.length} files. Open Transfers to preview/download.`;
+      await sendTextNotice(identity, roomId, noticeBody);
+
+      setStatusText(`Shared ${files.length} file${files.length === 1 ? '' : 's'} to chat.`);
+      setActiveTab('recent');
       await refreshAttachments();
     } catch (error) {
       setErrorText(error instanceof Error ? error.message : 'Could not share file.');
@@ -490,6 +574,44 @@ export function KodiakAttachmentBridge({ identity }: KodiakAttachmentBridgeProps
       if (imageInputRef.current) imageInputRef.current.value = '';
       if (fileInputRef.current) fileInputRef.current.value = '';
       if (folderInputRef.current) folderInputRef.current.value = '';
+    }
+  }
+
+  async function shareGiphyResult(gif: GiphySearchResult) {
+    const gifUrl = gif.images?.original?.url ?? gif.images?.fixed_width?.url;
+
+    if (!gifUrl) {
+      setErrorText('That GIF is missing a usable URL.');
+      return;
+    }
+
+    setIsSharing(true);
+    setErrorText(null);
+    setStatusText('Sharing GIF...');
+
+    try {
+      const roomId = await getActiveRoomId(identity);
+      const title = gif.title?.trim() || 'giphy-gif';
+
+      try {
+        const blob = await getGifBlob(gifUrl);
+        const file = new File([blob], `${title.replace(/[^a-z0-9._-]+/gi, '-').replace(/^-|-$/g, '') || 'giphy'}.gif`, {
+          type: 'image/gif',
+        });
+        const contentUri = await uploadFile(identity, file);
+        await sendAttachmentEvent(identity, roomId, file, contentUri);
+        await sendTextNotice(identity, roomId, `🎞️ Shared GIF: ${title}. Open Transfers to preview/download.`);
+      } catch {
+        await sendTextNotice(identity, roomId, `🎞️ ${title}: ${gifUrl}`);
+      }
+
+      setStatusText('GIF shared to chat.');
+      setActiveTab('recent');
+      await refreshAttachments();
+    } catch (error) {
+      setErrorText(error instanceof Error ? error.message : 'Could not share GIF.');
+    } finally {
+      setIsSharing(false);
     }
   }
 
@@ -538,39 +660,82 @@ export function KodiakAttachmentBridge({ identity }: KodiakAttachmentBridgeProps
         <div className="kodiak-attachment-bridge__panel">
           <header>
             <div>
-              <p className="eyebrow eyebrow--ember">Transfers</p>
-              <h2>{activeTitle || 'Shared files'}</h2>
+              <p className="eyebrow eyebrow--ember">Composer Tools</p>
+              <h2>Share to chat</h2>
             </div>
             <button type="button" onClick={() => void refreshAttachments()} disabled={isSharing}>Refresh</button>
           </header>
 
-          <div className="kodiak-attachment-actions">
-            <button type="button" onClick={() => imageInputRef.current?.click()} disabled={isSharing}>GIF / Image</button>
-            <button type="button" onClick={() => fileInputRef.current?.click()} disabled={isSharing}>File / Music</button>
-            <button type="button" onClick={() => folderInputRef.current?.click()} disabled={isSharing}>Folder</button>
+          <div className="kodiak-attachment-tabs" role="tablist" aria-label="Transfer tools">
+            <button type="button" className={activeTab === 'files' ? 'is-active' : undefined} onClick={() => setActiveTab('files')}>Files</button>
+            <button type="button" className={activeTab === 'gifs' ? 'is-active' : undefined} onClick={() => setActiveTab('gifs')}>Giphy</button>
+            <button type="button" className={activeTab === 'recent' ? 'is-active' : undefined} onClick={() => setActiveTab('recent')}>Recent</button>
           </div>
+
+          {activeTab === 'files' ? (
+            <div className="kodiak-attachment-actions">
+              <button type="button" onClick={() => imageInputRef.current?.click()} disabled={isSharing}>Image / GIF</button>
+              <button type="button" onClick={() => fileInputRef.current?.click()} disabled={isSharing}>File / Music</button>
+              <button type="button" onClick={() => folderInputRef.current?.click()} disabled={isSharing}>Folder</button>
+            </div>
+          ) : null}
+
+          {activeTab === 'gifs' ? (
+            <div className="kodiak-giphy-panel">
+              {kodiakEnv.giphyApiKey ? (
+                <>
+                  <input
+                    type="search"
+                    value={gifQuery}
+                    onChange={(event) => setGifQuery(event.target.value)}
+                    placeholder="Search Giphy"
+                  />
+                  {isSearchingGifs ? <p className="kodiak-attachment-status">Searching Giphy...</p> : null}
+                  <div className="kodiak-giphy-grid">
+                    {gifResults.map((gif) => {
+                      const previewUrl = gif.images?.fixed_width?.url;
+
+                      if (!previewUrl) {
+                        return null;
+                      }
+
+                      return (
+                        <button key={gif.id} type="button" onClick={() => void shareGiphyResult(gif)} disabled={isSharing}>
+                          <img src={previewUrl} alt={gif.title || 'Giphy result'} />
+                        </button>
+                      );
+                    })}
+                  </div>
+                </>
+              ) : (
+                <p className="kodiak-attachment-error">Add VITE_GIPHY_API_KEY to enable Giphy search.</p>
+              )}
+            </div>
+          ) : null}
 
           {statusText ? <p className="kodiak-attachment-status">{statusText}</p> : null}
           {errorText ? <p className="kodiak-attachment-error">{errorText}</p> : null}
 
-          <div className="kodiak-attachment-list">
-            {attachments.length ? (
-              attachments.map((attachment) => (
-                <article className="kodiak-attachment-card" key={attachment.eventId}>
-                  {attachment.objectUrl && IMAGE_MSGTYPES.has(attachment.msgtype) ? <img src={attachment.objectUrl} alt="" /> : null}
-                  {attachment.objectUrl && AUDIO_MSGTYPES.has(attachment.msgtype) ? <audio controls src={attachment.objectUrl} /> : null}
-                  {attachment.objectUrl && VIDEO_MSGTYPES.has(attachment.msgtype) ? <video controls src={attachment.objectUrl} /> : null}
-                  <div>
-                    <strong>{attachment.body}</strong>
-                    <span>{getDisplayName(attachment.sender)} · {formatBytes(attachment.size)} · {formatTime(attachment.originServerTs)}</span>
-                  </div>
-                  <button type="button" onClick={() => void downloadAttachment(attachment)}>Download</button>
-                </article>
-              ))
-            ) : (
-              <p className="kodiak-attachment-empty">No shared files in this channel yet.</p>
-            )}
-          </div>
+          {activeTab === 'recent' ? (
+            <div className="kodiak-attachment-list">
+              {attachments.length ? (
+                attachments.map((attachment) => (
+                  <article className="kodiak-attachment-card" key={attachment.eventId}>
+                    {attachment.objectUrl && IMAGE_MSGTYPES.has(attachment.msgtype) ? <img src={attachment.objectUrl} alt="" /> : null}
+                    {attachment.objectUrl && AUDIO_MSGTYPES.has(attachment.msgtype) ? <audio controls src={attachment.objectUrl} /> : null}
+                    {attachment.objectUrl && VIDEO_MSGTYPES.has(attachment.msgtype) ? <video controls src={attachment.objectUrl} /> : null}
+                    <div>
+                      <strong>{attachment.body}</strong>
+                      <span>{getDisplayName(attachment.sender)} · {formatBytes(attachment.size)} · {formatTime(attachment.originServerTs)}</span>
+                    </div>
+                    <button type="button" onClick={() => void downloadAttachment(attachment)}>Download</button>
+                  </article>
+                ))
+              ) : (
+                <p className="kodiak-attachment-empty">No shared files in this channel yet.</p>
+              )}
+            </div>
+          ) : null}
         </div>
       ) : null}
     </aside>
