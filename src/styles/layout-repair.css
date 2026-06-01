@@ -5,29 +5,64 @@
   --workspace-top-offset: 0px;
 }
 
-body:has(.window-titlebar) {
-  --workspace-top-offset: 42px;
-}
-
 .workspace-app-shell {
-  padding-top: var(--workspace-top-offset) !important;
+  padding-top: 0 !important;
 }
 
 .workspace-app-shell::before {
-  inset: var(--workspace-top-offset) 0 0 0 !important;
+  inset: 0 0 0 0 !important;
 }
 
 .workspace-app-shell::after {
-  top: calc(var(--workspace-top-offset) + var(--workspace-header-height)) !important;
+  top: var(--workspace-header-height) !important;
+}
+
+.window-titlebar:empty {
+  display: none !important;
 }
 
 .channel-sidebar,
 .chat-placeholder {
-  height: calc(100vh - var(--workspace-top-offset)) !important;
+  height: 100vh !important;
 }
 
 .chat-placeholder {
   min-height: 0 !important;
+}
+
+.kodiak-safety-center-trigger {
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  gap: 0.45rem !important;
+  min-height: auto !important;
+  border-color: rgba(34, 197, 94, 0.24) !important;
+  background: rgba(2, 6, 23, 0.55) !important;
+  color: #dcfce7 !important;
+  padding: 0.62rem 0.95rem !important;
+}
+
+.kodiak-safety-center-trigger .status-light {
+  position: static !important;
+  left: auto !important;
+  bottom: auto !important;
+  width: 0.55rem !important;
+  height: 0.55rem !important;
+  border: 0 !important;
+  box-shadow: 0 0 12px rgba(34, 197, 94, 0.38) !important;
+}
+
+.kodiak-safety-center-trigger > span:last-child {
+  color: #dcfce7 !important;
+  font-size: 0.88rem !important;
+  font-weight: 900 !important;
+  max-width: none !important;
+}
+
+.kodiak-safety-center-trigger:hover,
+.kodiak-safety-center-trigger:focus-visible {
+  border-color: rgba(34, 197, 94, 0.5) !important;
+  background: rgba(20, 83, 45, 0.22) !important;
 }
 
 .policy-modal-backdrop {
@@ -35,12 +70,12 @@ body:has(.window-titlebar) {
   justify-items: center !important;
   z-index: 1400 !important;
   overflow: auto !important;
-  padding: calc(var(--workspace-top-offset) + 0.9rem) 1rem 1rem !important;
+  padding: 0.9rem 1rem 1rem !important;
 }
 
 .policy-modal {
   width: min(760px, calc(100vw - 2rem)) !important;
-  max-height: calc(100dvh - var(--workspace-top-offset) - 2rem) !important;
+  max-height: calc(100dvh - 2rem) !important;
   gap: 0.95rem !important;
   overscroll-behavior: contain !important;
   padding: clamp(1rem, 2.4vw, 1.5rem) !important;
@@ -93,7 +128,7 @@ body:has(.window-titlebar) {
   overflow: auto !important;
   background: rgba(2, 6, 23, 0.78) !important;
   backdrop-filter: blur(12px) !important;
-  padding: calc(var(--workspace-top-offset) + 1rem) 1rem 1rem !important;
+  padding: 1rem !important;
 }
 
 .kodiak-modal-backdrop--stacked {
@@ -106,7 +141,7 @@ body:has(.window-titlebar) {
 .kodiak-start-dm-modal {
   position: relative !important;
   width: min(31rem, calc(100vw - 2rem)) !important;
-  max-height: calc(100dvh - var(--workspace-top-offset) - 2rem) !important;
+  max-height: calc(100dvh - 2rem) !important;
   overflow: auto !important;
   transform: none !important;
 }
@@ -179,7 +214,7 @@ body:has(.window-titlebar) {
   .policy-modal-backdrop,
   .kodiak-modal-backdrop {
     align-items: start !important;
-    padding: calc(var(--workspace-top-offset) + 0.75rem) 0.75rem 0.75rem !important;
+    padding: 0.75rem !important;
   }
 
   .policy-modal__brand,
