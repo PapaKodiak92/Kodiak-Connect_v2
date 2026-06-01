@@ -100,6 +100,26 @@
   white-space: pre-wrap;
 }
 
+.matrix-mention {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid rgba(251, 146, 60, 0.2);
+  border-radius: 999px;
+  background: rgba(251, 146, 60, 0.1);
+  color: #fed7aa;
+  font-weight: 800;
+  line-height: 1.15;
+  padding: 0.08rem 0.38rem;
+  white-space: nowrap;
+}
+
+.matrix-mention--self {
+  border-color: rgba(34, 211, 238, 0.28);
+  background: rgba(34, 211, 238, 0.14);
+  color: #a5f3fc;
+  box-shadow: 0 0 18px rgba(34, 211, 238, 0.08);
+}
+
 .matrix-reply-thread-link {
   display: inline-flex;
   align-items: center;
