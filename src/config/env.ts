@@ -10,8 +10,7 @@ function optionalEnv(value: unknown) {
 }
 
 export const kodiakEnv = {
-  tenorApiKey: optionalEnv(import.meta.env.VITE_TENOR_API_KEY),
-  tenorClientKey: optionalEnv(import.meta.env.VITE_TENOR_CLIENT_KEY) ?? 'kodiak_connect',
+  giphyApiKey: optionalEnv(import.meta.env.VITE_GIPHY_API_KEY),
   matrixBaseUrl: normalizeBaseUrl(optionalEnv(import.meta.env.VITE_MATRIX_BASE_URL) ?? DEFAULT_MATRIX_BASE_URL),
   matrixServerName: optionalEnv(import.meta.env.VITE_MATRIX_SERVER_NAME) ?? DEFAULT_MATRIX_SERVER_NAME,
   turnstileSiteKey: optionalEnv(import.meta.env.VITE_TURNSTILE_SITE_KEY),
