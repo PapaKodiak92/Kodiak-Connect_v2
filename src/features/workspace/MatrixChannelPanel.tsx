@@ -29,6 +29,7 @@ import {
   setOwnPresence,
   type MatrixTextMessage,
 } from '../matrix/matrixRestClient';
+import { playKodiakSound } from '../audio/kodiakSounds';
 import type { WorkspaceChannel, WorkspaceSpace } from './workspaceTypes';
 
 interface MatrixChannelPanelProps {
@@ -409,6 +410,9 @@ export function MatrixChannelPanel({
   const [displayNameDraft, setDisplayNameDraft] = useState('');
   const [isSavingSettings, setIsSavingSettings] = useState(false);
   const [settingsErrorText, setSettingsErrorText] = useState<string | null>(null);
+  const [areMessageSoundsEnabled, setAreMessageSoundsEnabled] = useState(() => window.localStorage.getItem('KC_SOUND_MESSAGES') !== 'false');
+  const [isSentSoundEnabled, setIsSentSoundEnabled] = useState(() => window.localStorage.getItem('KC_SOUND_SENT') !== 'false');
+  const [isReceivedSoundEnabled, setIsReceivedSoundEnabled] = useState(() => window.localStorage.getItem('KC_SOUND_RECEIVED') !== 'false');
   const [isLoading, setIsLoading] = useState(true);
   const [isSending, setIsSending] = useState(false);
   const [errorText, setErrorText] = useState<string | null>(null);
@@ -420,6 +424,8 @@ export function MatrixChannelPanel({
   const typingStopTimer = useRef<number | null>(null);
   const typingSinceBatchRef = useRef<string | undefined>(undefined);
   const isTypingSentRef = useRef(false);
+  const hasLoadedSoundBaselineRef = useRef(false);
+  const latestSoundMessageTsRef = useRef(0);
 
   const displayName = getDisplayName(identity.userId);
   const currentUserLocalpart = getUserLocalpart(identity.userId);
@@ -533,13 +539,31 @@ export function MatrixChannelPanel({
   const refreshMessages = useCallback(
     async (targetRoomId: string) => {
       const recentMessages = await loadRecentMessages(identity, targetRoomId);
+
+      const latestMessageTs = recentMessages.reduce((latestTs, message) => Math.max(latestTs, message.originServerTs), 0);
+
+      if (!hasLoadedSoundBaselineRef.current) {
+        hasLoadedSoundBaselineRef.current = true;
+        latestSoundMessageTsRef.current = latestMessageTs;
+      } else if (areMessageSoundsEnabled && isReceivedSoundEnabled) {
+        const hasNewIncomingMessage = recentMessages.some((message) => {
+          return message.sender !== identity.userId && message.originServerTs > latestSoundMessageTsRef.current;
+        });
+
+        if (hasNewIncomingMessage) {
+          playKodiakSound('messageReceived', 0.62);
+        }
+
+        latestSoundMessageTsRef.current = Math.max(latestSoundMessageTsRef.current, latestMessageTs);
+      }
+
       setMessages(recentMessages);
 
       void refreshProfileBios(targetRoomId).catch((error) => {
         console.warn('[Kodiak Connect] Failed to refresh profile bios', error);
       });
     },
-    [identity, refreshProfileBios],
+    [areMessageSoundsEnabled, identity, isReceivedSoundEnabled, refreshProfileBios],
   );
 
   const stopTyping = useCallback(async () => {
@@ -557,7 +581,15 @@ export function MatrixChannelPanel({
   }, [identity, roomId]);
 
   useEffect(() => {
+    window.localStorage.setItem('KC_SOUND_MESSAGES', String(areMessageSoundsEnabled));
+    window.localStorage.setItem('KC_SOUND_SENT', String(isSentSoundEnabled));
+    window.localStorage.setItem('KC_SOUND_RECEIVED', String(isReceivedSoundEnabled));
+  }, [areMessageSoundsEnabled, isReceivedSoundEnabled, isSentSoundEnabled]);
+
+  useEffect(() => {
     shouldStickToBottomRef.current = true;
+    hasLoadedSoundBaselineRef.current = false;
+    latestSoundMessageTsRef.current = 0;
   }, [activeChannel.id]);
 
   useEffect(() => {
@@ -1366,6 +1398,10 @@ export function MatrixChannelPanel({
         setEditingMessage(null);
       } else {
         await sendTextMessage(identity, roomId, buildReplyBody(replyTarget, trimmedMessage));
+
+        if (areMessageSoundsEnabled && isSentSoundEnabled) {
+          playKodiakSound('messageSent', 0.55);
+        }
       }
 
       setDraftMessage('');
@@ -1794,6 +1830,36 @@ export function MatrixChannelPanel({
               />
               <small>{bioDraft.length}/180</small>
             </label>
+
+            <div className="kodiak-sound-settings">
+              <strong>Sounds</strong>
+              <label>
+                <input
+                  type="checkbox"
+                  checked={areMessageSoundsEnabled}
+                  onChange={(event) => setAreMessageSoundsEnabled(event.target.checked)}
+                />
+                <span>Message sounds</span>
+              </label>
+              <label>
+                <input
+                  type="checkbox"
+                  checked={isSentSoundEnabled}
+                  onChange={(event) => setIsSentSoundEnabled(event.target.checked)}
+                  disabled={!areMessageSoundsEnabled}
+                />
+                <span>Sent sound</span>
+              </label>
+              <label>
+                <input
+                  type="checkbox"
+                  checked={isReceivedSoundEnabled}
+                  onChange={(event) => setIsReceivedSoundEnabled(event.target.checked)}
+                  disabled={!areMessageSoundsEnabled}
+                />
+                <span>Received sound</span>
+              </label>
+            </div>
 
             {settingsErrorText ? <p className="kodiak-settings-error">{settingsErrorText}</p> : null}
 

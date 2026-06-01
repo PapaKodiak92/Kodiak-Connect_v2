@@ -1412,3 +1412,36 @@
   height: 0.42rem;
   border-radius: 999px;
 }
+
+
+.kodiak-sound-settings {
+  display: grid;
+  gap: 0.55rem;
+  border: 1px solid rgba(148, 163, 184, 0.14);
+  border-radius: 18px;
+  background: rgba(2, 6, 23, 0.36);
+  padding: 0.85rem;
+}
+
+.kodiak-sound-settings > strong {
+  color: #fed7aa;
+  font-size: 0.86rem;
+  font-weight: 900;
+}
+
+.kodiak-sound-settings label {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  color: #cbd5e1;
+  font-size: 0.86rem;
+  font-weight: 750;
+}
+
+.kodiak-sound-settings input {
+  accent-color: #f97316;
+}
+
+.kodiak-sound-settings label:has(input:disabled) {
+  opacity: 0.45;
+}
