@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { LoginScreen } from '../features/auth/LoginScreen';
 import type { MatrixLoginIdentity } from '../features/auth/matrixLoginService';
 import { KodiakAttachmentBridge } from '../features/attachments/KodiakAttachmentBridge';
+import { MatrixMediaDomEnhancer } from '../features/attachments/MatrixMediaDomEnhancer';
 import { AndroidUpdatePanel } from '../features/updater/AndroidUpdatePanel';
 import { UpdaterPanel } from '../features/updater/UpdaterPanel';
 import { WorkspaceShell } from '../features/workspace/WorkspaceShell';
@@ -135,6 +136,7 @@ export function AppShell() {
         <WindowTitleBar platformKind={platform.kind} />
         <WorkspaceShell identity={matrixIdentity} onLogout={handleLogout} />
         <KodiakAttachmentBridge identity={matrixIdentity} />
+        <MatrixMediaDomEnhancer identity={matrixIdentity} />
       </>
     );
   }
