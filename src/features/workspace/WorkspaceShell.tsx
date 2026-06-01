@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { MatrixLoginIdentity } from '../auth/matrixLoginService';
-import { joinRoomByAlias, loadRecentMessages, resolveDirectMessageRoom, saveDirectMessageRoom } from '../matrix/matrixRestClient';
+import { joinRoomByAlias, loadProfileDisplayName, loadRecentMessages, resolveDirectMessageRoom, saveDirectMessageRoom } from '../matrix/matrixRestClient';
 import { OfficialSpaceAcknowledgementModal } from '../policy/OfficialSpaceAcknowledgementModal';
 import {
   hasCurrentOfficialSpaceAcknowledgement,
@@ -19,6 +19,8 @@ interface WorkspaceShellProps {
 }
 
 const ACTIVITY_POLL_INTERVAL_MS = 12_000;
+const MATRIX_SERVER_NAME = 'v2.kodiak-connect.com';
+const STAGING_USER_LOCALPARTS = ['papakodiak', 'kodiaktest'];
 const spaces: WorkspaceSpace[] = [officialSpace];
 
 function findInitialChannel(space: WorkspaceSpace) {
@@ -69,6 +71,19 @@ function getDirectMessageChannelId(userId: string) {
   return `dm-${getUserLocalpart(userId)}`;
 }
 
+function getMatrixUserIdFromLocalpart(localpart: string) {
+  return `@${localpart}:${MATRIX_SERVER_NAME}`;
+}
+
+function normalizeDmSearchQuery(query: string) {
+  return query
+    .trim()
+    .replace(/^@/, '')
+    .split(':')[0]
+    ?.toLowerCase()
+    .replace(/[^a-z0-9._-]/g, '') ?? '';
+}
+
 function createDirectMessageChannel(userId: string, displayName = getDisplayNameFromUserId(userId)): WorkspaceChannel {
   return {
     id: getDirectMessageChannelId(userId),
@@ -107,11 +122,6 @@ function mergeDirectMessagesIntoSpace(space: WorkspaceSpace, directMessageChanne
   }
 
   const mergedDmChannels = [...channelsById.values()];
-
-  if (!mergedDmChannels.length) {
-    return space;
-  }
-
   const hasDirectMessageSection = space.sections.some((section) => section.id === 'direct-messages');
 
   return {
@@ -163,6 +173,9 @@ export function WorkspaceShell({ identity, onLogout }: WorkspaceShellProps) {
   const [directMessageChannels, setDirectMessageChannels] = useState<WorkspaceChannel[]>(() =>
     readStoredDirectMessageChannels(identity.userId),
   );
+  const [isStartDmOpen, setIsStartDmOpen] = useState(false);
+  const [dmSearchQuery, setDmSearchQuery] = useState('');
+  const [dmDisplayNamesByUserId, setDmDisplayNamesByUserId] = useState<Record<string, string>>({});
   const [channelActivity, setChannelActivity] = useState<ChannelActivityById>({});
   const [lastSeenByChannel, setLastSeenByChannel] = useState<Record<string, number>>(() => readLastSeenByChannel(identity.userId));
   const [hasAcknowledgedOfficialSpace, setHasAcknowledgedOfficialSpace] = useState(() =>
@@ -178,6 +191,101 @@ export function WorkspaceShell({ identity, onLogout }: WorkspaceShellProps) {
   }, [activeChannelId, activeSpace]);
 
   const activeChannelLatestTs = activeChannel ? channelActivity[activeChannel.id]?.latestTs ?? 0 : 0;
+  const normalizedDmSearchQuery = normalizeDmSearchQuery(dmSearchQuery);
+  const directMessageSearchResults = useMemo(() => {
+    const usersById = new Map<string, { displayName: string; localpart: string; userId: string }>();
+
+    for (const localpart of STAGING_USER_LOCALPARTS) {
+      const userId = getMatrixUserIdFromLocalpart(localpart);
+
+      if (userId !== identity.userId) {
+        usersById.set(userId, {
+          displayName: dmDisplayNamesByUserId[userId] || getDisplayNameFromUserId(userId),
+          localpart,
+          userId,
+        });
+      }
+    }
+
+    for (const channel of directMessageChannels) {
+      if (!channel.matrixDmUserId || channel.matrixDmUserId === identity.userId) {
+        continue;
+      }
+
+      usersById.set(channel.matrixDmUserId, {
+        displayName: dmDisplayNamesByUserId[channel.matrixDmUserId] || channel.dmDisplayName || channel.name || getDisplayNameFromUserId(channel.matrixDmUserId),
+        localpart: getUserLocalpart(channel.matrixDmUserId),
+        userId: channel.matrixDmUserId,
+      });
+    }
+
+    const users = [...usersById.values()];
+
+    if (!normalizedDmSearchQuery) {
+      return users.slice(0, 8);
+    }
+
+    return users
+      .filter((user) => {
+        return user.localpart.includes(normalizedDmSearchQuery) || user.displayName.toLowerCase().includes(normalizedDmSearchQuery);
+      })
+      .slice(0, 8);
+  }, [directMessageChannels, dmDisplayNamesByUserId, identity.userId, normalizedDmSearchQuery]);
+
+  const manualDirectMessageUserId =
+    normalizedDmSearchQuery && !directMessageSearchResults.some((user) => user.localpart === normalizedDmSearchQuery)
+      ? getMatrixUserIdFromLocalpart(normalizedDmSearchQuery)
+      : null;
+
+  useEffect(() => {
+    const userIdsToLoad = new Set<string>();
+
+    for (const localpart of STAGING_USER_LOCALPARTS) {
+      const userId = getMatrixUserIdFromLocalpart(localpart);
+
+      if (userId !== identity.userId) {
+        userIdsToLoad.add(userId);
+      }
+    }
+
+    for (const channel of directMessageChannels) {
+      if (channel.matrixDmUserId && channel.matrixDmUserId !== identity.userId) {
+        userIdsToLoad.add(channel.matrixDmUserId);
+      }
+    }
+
+    const missingUserIds = [...userIdsToLoad].filter((userId) => !dmDisplayNamesByUserId[userId]);
+
+    if (!missingUserIds.length) {
+      return;
+    }
+
+    let isActive = true;
+
+    void Promise.all(
+      missingUserIds.map(async (userId) => {
+        try {
+          const displayName = await loadProfileDisplayName(identity, userId);
+          return [userId, displayName || getDisplayNameFromUserId(userId)] as const;
+        } catch {
+          return [userId, getDisplayNameFromUserId(userId)] as const;
+        }
+      }),
+    ).then((entries) => {
+      if (!isActive) {
+        return;
+      }
+
+      setDmDisplayNamesByUserId((currentNames) => ({
+        ...currentNames,
+        ...Object.fromEntries(entries),
+      }));
+    });
+
+    return () => {
+      isActive = false;
+    };
+  }, [directMessageChannels, dmDisplayNamesByUserId, identity]);
 
   const markChannelSeen = useCallback(
     (channelId: string, latestTs: number) => {
@@ -338,7 +446,7 @@ export function WorkspaceShell({ identity, onLogout }: WorkspaceShellProps) {
   }
 
   function handleOpenDirectMessage(userId: string, displayName = getDisplayNameFromUserId(userId)) {
-    const directMessageChannel = createDirectMessageChannel(userId, displayName);
+    const directMessageChannel = createDirectMessageChannel(userId, dmDisplayNamesByUserId[userId] || displayName);
 
     setDirectMessageChannels((currentChannels) => {
       const withoutDuplicate = currentChannels.filter((channel) => channel.id !== directMessageChannel.id);
@@ -350,6 +458,12 @@ export function WorkspaceShell({ identity, onLogout }: WorkspaceShellProps) {
 
     setActiveSpaceId(officialSpace.id);
     setActiveChannelId(directMessageChannel.id);
+  }
+
+  function handleStartDirectMessage(userId: string, displayName = getDisplayNameFromUserId(userId)) {
+    handleOpenDirectMessage(userId, dmDisplayNamesByUserId[userId] || displayName);
+    setDmSearchQuery('');
+    setIsStartDmOpen(false);
   }
 
   function handleAcknowledgeOfficialSpace() {
@@ -369,6 +483,7 @@ export function WorkspaceShell({ identity, onLogout }: WorkspaceShellProps) {
         activeChannelId={activeChannel.id}
         channelActivity={channelActivity}
         onSelectChannel={handleSelectChannel}
+        onStartDirectMessage={() => setIsStartDmOpen(true)}
         onCloseDirectMessage={handleCloseDirectMessage}
         onLogout={onLogout}
       />
@@ -382,6 +497,65 @@ export function WorkspaceShell({ identity, onLogout }: WorkspaceShellProps) {
       ) : (
         <ChatPlaceholder activeSpace={activeSpace} activeChannel={activeChannel} identity={identity} />
       )}
+
+      {isStartDmOpen ? (
+        <div className="kodiak-modal-backdrop" role="presentation" onClick={() => setIsStartDmOpen(false)}>
+          <div
+            className="kodiak-start-dm-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="start-dm-title"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="kodiak-start-dm-modal__header">
+              <p className="eyebrow eyebrow--ember">Direct Messages</p>
+              <h2 id="start-dm-title">Start a DM</h2>
+              <p>Search known users or enter a username to open a private conversation.</p>
+            </div>
+
+            <label className="kodiak-start-dm-modal__search">
+              <span>Search user</span>
+              <input
+                type="text"
+                value={dmSearchQuery}
+                onChange={(event) => setDmSearchQuery(event.target.value)}
+                placeholder="Search display name or username"
+                autoFocus
+              />
+            </label>
+
+            <div className="kodiak-start-dm-results">
+              {directMessageSearchResults.map((user) => (
+                <button key={user.userId} type="button" onClick={() => handleStartDirectMessage(user.userId, user.displayName)}>
+                  <strong>{user.displayName}</strong>
+                  <span>Known user</span>
+                </button>
+              ))}
+
+              {manualDirectMessageUserId && manualDirectMessageUserId !== identity.userId ? (
+                <button
+                  type="button"
+                  className="kodiak-start-dm-results__manual"
+                  onClick={() => handleStartDirectMessage(manualDirectMessageUserId, getDisplayNameFromUserId(manualDirectMessageUserId))}
+                >
+                  <strong>Start DM with {getDisplayNameFromUserId(manualDirectMessageUserId)}</strong>
+                  <span>Username lookup</span>
+                </button>
+              ) : null}
+
+              {!directMessageSearchResults.length && !manualDirectMessageUserId ? (
+                <p className="kodiak-start-dm-results__empty">Type a username like kodiaktest to start a DM.</p>
+              ) : null}
+            </div>
+
+            <div className="kodiak-start-dm-modal__actions">
+              <button type="button" onClick={() => setIsStartDmOpen(false)}>
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       {!hasAcknowledgedOfficialSpace ? <OfficialSpaceAcknowledgementModal onAcknowledge={handleAcknowledgeOfficialSpace} /> : null}
     </main>
