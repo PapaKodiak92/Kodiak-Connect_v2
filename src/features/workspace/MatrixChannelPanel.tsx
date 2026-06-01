@@ -78,6 +78,10 @@ function getEmptyState(channel: WorkspaceChannel, canPost: boolean) {
       : 'No development updates yet. Official Kodiak updates will appear here.';
   }
 
+  if (channel.id === 'announcements') {
+    return canPost ? 'No announcements yet. Publish the first official announcement when ready.' : 'No announcements yet.';
+  }
+
   return 'No messages yet. Send the first message in Official Space.';
 }
 
@@ -209,13 +213,6 @@ export function MatrixChannelPanel({ activeChannel, activeSpace, identity }: Mat
           <div className="matrix-chat-status matrix-chat-status--error">
             <span className="status-light status-light--offline" aria-hidden="true" />
             <span>{errorText}</span>
-          </div>
-        ) : null}
-
-        {activeChannel.readOnly ? (
-          <div className="matrix-channel-note">
-            <strong>Official read-only channel</strong>
-            <span>{canPost ? 'You can publish curated Kodiak updates here.' : 'Only approved Kodiak staff can post here.'}</span>
           </div>
         ) : null}
 
