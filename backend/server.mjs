@@ -216,6 +216,60 @@ function isPlatformModerator(userId) {
   return PLATFORM_MODERATOR_IDS.has(userId);
 }
 
+function createReportId() {
+  return `report_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
+}
+
+function createReportActionId() {
+  return `action_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
+}
+
+function sanitizeReportCategory(category) {
+  const allowedCategories = new Set([
+    "harassment",
+    "spam",
+    "scam",
+    "threats",
+    "impersonation",
+    "other",
+  ]);
+
+  return allowedCategories.has(category) ? category : "other";
+}
+
+function sanitizeReportStatus(status) {
+  const allowedStatuses = new Set(["open", "reviewed", "dismissed"]);
+  return allowedStatuses.has(status) ? status : null;
+}
+
+function sanitizeReportForViewer(report, viewerUserId) {
+  if (isPlatformModerator(viewerUserId)) {
+    return {
+      ...report,
+      actions: report.actions ?? [],
+    };
+  }
+
+  return {
+    ...report,
+    actions: (report.actions ?? []).filter((action) => action.visibleToReporter),
+  };
+}
+
+function getReportForModeration(reportsStore, reportId, actorUserId) {
+  if (!isPlatformModerator(actorUserId)) {
+    return { error: "Only platform moderators can handle reports.", statusCode: 403 };
+  }
+
+  const report = reportsStore[reportId];
+
+  if (!report) {
+    return { error: "Report not found.", statusCode: 404 };
+  }
+
+  return { report };
+}
+
 async function handleBlockState(request, response, corsHeaders, url) {
   const userId = url.searchParams.get("userId") || getHeaderValue(request, "x-kodiak-user-id");
 
@@ -289,23 +343,6 @@ async function handleUnblockUser(request, response, corsHeaders) {
   }, corsHeaders);
 }
 
-function createReportId() {
-  return `report_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
-}
-
-function sanitizeReportCategory(category) {
-  const allowedCategories = new Set([
-    "harassment",
-    "spam",
-    "scam",
-    "threats",
-    "impersonation",
-    "other",
-  ]);
-
-  return allowedCategories.has(category) ? category : "other";
-}
-
 async function handleCreateReport(request, response, corsHeaders) {
   const body = await readRequestBody(request);
   const reporterUserId = getCurrentUserId(request, body);
@@ -336,6 +373,7 @@ async function handleCreateReport(request, response, corsHeaders) {
   const reportId = createReportId();
 
   const report = {
+    actions: [],
     category: sanitizeReportCategory(body.category),
     context: String(body.context ?? "").slice(0, 500),
     createdAt,
@@ -354,7 +392,7 @@ async function handleCreateReport(request, response, corsHeaders) {
   reportsStore[reportId] = report;
   await writeJsonFile(REPORTS_FILE, reportsStore);
 
-  sendJson(response, 200, { ok: true, report }, corsHeaders);
+  sendJson(response, 200, { ok: true, report: sanitizeReportForViewer(report, reporterUserId) }, corsHeaders);
 }
 
 async function handleListReports(request, response, corsHeaders, url) {
@@ -369,10 +407,166 @@ async function handleListReports(request, response, corsHeaders, url) {
   const canViewAllReports = isPlatformModerator(userId);
   const reports = Object.values(reportsStore)
     .filter((report) => canViewAllReports || report.reporterUserId === userId)
+    .map((report) => sanitizeReportForViewer(report, userId))
     .sort((a, b) => Number(b.createdAt ?? 0) - Number(a.createdAt ?? 0))
     .slice(0, 100);
 
   sendJson(response, 200, { canViewAllReports, reports }, corsHeaders);
+}
+
+async function handleReportReply(request, response, corsHeaders) {
+  const body = await readRequestBody(request);
+  const actorUserId = getCurrentUserId(request, body);
+  const reportId = String(body.reportId ?? "").trim();
+  const message = String(body.message ?? "").trim();
+
+  if (!isValidMatrixUserId(actorUserId) || !reportId) {
+    sendJson(response, 400, { error: "Invalid report reply request." }, corsHeaders);
+    return;
+  }
+
+  if (message.length < 2) {
+    sendJson(response, 400, { error: "Reply must include a message." }, corsHeaders);
+    return;
+  }
+
+  if (message.length > 1200) {
+    sendJson(response, 400, { error: "Reply must be 1200 characters or less." }, corsHeaders);
+    return;
+  }
+
+  const reportsStore = await readJsonFile(REPORTS_FILE, {});
+  const result = getReportForModeration(reportsStore, reportId, actorUserId);
+
+  if (result.error) {
+    sendJson(response, result.statusCode, { error: result.error }, corsHeaders);
+    return;
+  }
+
+  const updatedAt = now();
+  const report = {
+    ...result.report,
+    actions: [
+      ...(result.report.actions ?? []),
+      {
+        actorUserId,
+        body: message,
+        createdAt: updatedAt,
+        id: createReportActionId(),
+        type: "reply",
+        visibleToReporter: true,
+      },
+    ],
+    updatedAt,
+  };
+
+  reportsStore[reportId] = report;
+  await writeJsonFile(REPORTS_FILE, reportsStore);
+
+  sendJson(response, 200, { ok: true, report: sanitizeReportForViewer(report, actorUserId) }, corsHeaders);
+}
+
+async function handleReportNote(request, response, corsHeaders) {
+  const body = await readRequestBody(request);
+  const actorUserId = getCurrentUserId(request, body);
+  const reportId = String(body.reportId ?? "").trim();
+  const note = String(body.note ?? "").trim();
+
+  if (!isValidMatrixUserId(actorUserId) || !reportId) {
+    sendJson(response, 400, { error: "Invalid report note request." }, corsHeaders);
+    return;
+  }
+
+  if (note.length < 2) {
+    sendJson(response, 400, { error: "Private note must include text." }, corsHeaders);
+    return;
+  }
+
+  if (note.length > 1200) {
+    sendJson(response, 400, { error: "Private note must be 1200 characters or less." }, corsHeaders);
+    return;
+  }
+
+  const reportsStore = await readJsonFile(REPORTS_FILE, {});
+  const result = getReportForModeration(reportsStore, reportId, actorUserId);
+
+  if (result.error) {
+    sendJson(response, result.statusCode, { error: result.error }, corsHeaders);
+    return;
+  }
+
+  const updatedAt = now();
+  const report = {
+    ...result.report,
+    actions: [
+      ...(result.report.actions ?? []),
+      {
+        actorUserId,
+        body: note,
+        createdAt: updatedAt,
+        id: createReportActionId(),
+        type: "note",
+        visibleToReporter: false,
+      },
+    ],
+    updatedAt,
+  };
+
+  reportsStore[reportId] = report;
+  await writeJsonFile(REPORTS_FILE, reportsStore);
+
+  sendJson(response, 200, { ok: true, report: sanitizeReportForViewer(report, actorUserId) }, corsHeaders);
+}
+
+async function handleReportStatus(request, response, corsHeaders) {
+  const body = await readRequestBody(request);
+  const actorUserId = getCurrentUserId(request, body);
+  const reportId = String(body.reportId ?? "").trim();
+  const nextStatus = sanitizeReportStatus(body.status);
+  const note = String(body.note ?? "").trim();
+
+  if (!isValidMatrixUserId(actorUserId) || !reportId || !nextStatus) {
+    sendJson(response, 400, { error: "Invalid report status request." }, corsHeaders);
+    return;
+  }
+
+  if (note.length > 1200) {
+    sendJson(response, 400, { error: "Status note must be 1200 characters or less." }, corsHeaders);
+    return;
+  }
+
+  const reportsStore = await readJsonFile(REPORTS_FILE, {});
+  const result = getReportForModeration(reportsStore, reportId, actorUserId);
+
+  if (result.error) {
+    sendJson(response, result.statusCode, { error: result.error }, corsHeaders);
+    return;
+  }
+
+  const updatedAt = now();
+  const report = {
+    ...result.report,
+    actions: [
+      ...(result.report.actions ?? []),
+      {
+        actorUserId,
+        body: note || `Status changed to ${nextStatus}.`,
+        createdAt: updatedAt,
+        fromStatus: result.report.status,
+        id: createReportActionId(),
+        toStatus: nextStatus,
+        type: "status",
+        visibleToReporter: true,
+      },
+    ],
+    status: nextStatus,
+    updatedAt,
+  };
+
+  reportsStore[reportId] = report;
+  await writeJsonFile(REPORTS_FILE, reportsStore);
+
+  sendJson(response, 200, { ok: true, report: sanitizeReportForViewer(report, actorUserId) }, corsHeaders);
 }
 
 async function handleProfileSearch(response, corsHeaders, url) {
@@ -728,6 +922,21 @@ const server = createServer(async (request, response) => {
 
     if (request.method === "GET" && url.pathname === "/api/reports/list") {
       await handleListReports(request, response, corsHeaders, url);
+      return;
+    }
+
+    if (request.method === "POST" && url.pathname === "/api/reports/reply") {
+      await handleReportReply(request, response, corsHeaders);
+      return;
+    }
+
+    if (request.method === "POST" && url.pathname === "/api/reports/note") {
+      await handleReportNote(request, response, corsHeaders);
+      return;
+    }
+
+    if (request.method === "POST" && url.pathname === "/api/reports/status") {
+      await handleReportStatus(request, response, corsHeaders);
       return;
     }
 
