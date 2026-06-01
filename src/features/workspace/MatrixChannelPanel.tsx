@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
+import { useCallback, useEffect, useRef, useState, type FormEvent, type KeyboardEvent, type ReactNode } from 'react';
 import type { MatrixLoginIdentity } from '../auth/matrixLoginService';
 import {
   joinRoomByAlias,
@@ -7,6 +7,14 @@ import {
   sendTextMessage,
   type MatrixTextMessage,
 } from '../matrix/matrixRestClient';
+import { MentionSuggestions } from './MentionSuggestions';
+import {
+  applyMentionSuggestion,
+  getActiveMentionSearch,
+  getMentionSuggestions,
+  getUserLocalpart,
+  type MentionSuggestion,
+} from './mentionSuggestions';
 import type { WorkspaceChannel, WorkspaceSpace } from './workspaceTypes';
 
 interface MatrixChannelPanelProps {
@@ -34,10 +42,6 @@ const MENTION_PATTERN = /(^|\s)(@[a-zA-Z0-9._-]{2,32})/g;
 function getDisplayName(userId: string) {
   const withoutPrefix = userId.startsWith('@') ? userId.slice(1) : userId;
   return withoutPrefix.split(':')[0] || userId;
-}
-
-function getUserLocalpart(userId: string) {
-  return getDisplayName(userId).toLowerCase();
 }
 
 function formatMessageTime(timestamp: number) {
@@ -225,6 +229,8 @@ export function MatrixChannelPanel({ activeChannel, activeSpace, identity }: Mat
 
   const displayName = getDisplayName(identity.userId);
   const currentUserLocalpart = getUserLocalpart(identity.userId);
+  const activeMentionSearch = getActiveMentionSearch(draftMessage);
+  const mentionSuggestions = getMentionSuggestions(messages, currentUserLocalpart, activeMentionSearch);
   const canPost = canPostInChannel(activeChannel, identity.userId);
 
   const refreshMessages = useCallback(
@@ -317,6 +323,19 @@ export function MatrixChannelPanel({ activeChannel, activeSpace, identity }: Mat
     window.setTimeout(() => {
       targetElement.classList.remove('matrix-message--focused');
     }, 1600);
+  }
+
+  function insertMentionSuggestion(suggestion: MentionSuggestion) {
+    setDraftMessage((currentDraft) => applyMentionSuggestion(currentDraft, getActiveMentionSearch(currentDraft), suggestion));
+  }
+
+  function handleComposerKeyDown(event: KeyboardEvent<HTMLInputElement>) {
+    if (event.key !== 'Tab' || mentionSuggestions.length === 0) {
+      return;
+    }
+
+    event.preventDefault();
+    insertMentionSuggestion(mentionSuggestions[0]);
   }
 
   async function handleSendMessage(event: FormEvent<HTMLFormElement>) {
@@ -433,11 +452,14 @@ export function MatrixChannelPanel({ activeChannel, activeSpace, identity }: Mat
           </div>
         ) : null}
 
+        <MentionSuggestions suggestions={mentionSuggestions} onSelect={insertMentionSuggestion} />
+
         <input
           type="text"
           placeholder={getComposerPlaceholder(activeChannel, canPost, roomId, replyTarget)}
           value={draftMessage}
           onChange={(event) => setDraftMessage(event.target.value)}
+          onKeyDown={handleComposerKeyDown}
           disabled={!roomId || isSending || !canPost}
         />
         <button type="submit" disabled={!roomId || isSending || !canPost || !draftMessage.trim()}>
