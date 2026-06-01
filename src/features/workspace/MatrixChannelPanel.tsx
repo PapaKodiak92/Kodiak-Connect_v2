@@ -11,10 +11,12 @@ import {
   loadProfileAvatarUrl,
   loadProfileDisplayName,
   loadRecentMessages,
+  loadRecentProfileBios,
   saveDirectMessageRoom,
   loadTypingUsers,
   MatrixRestError,
   redactMessage,
+  sendProfileBio,
   sendReaction,
   saveOwnAvatarUrl,
   saveOwnDisplayName,
@@ -394,6 +396,9 @@ export function MatrixChannelPanel({
   const [avatarUrlsByUserId, setAvatarUrlsByUserId] = useState<Record<string, string>>({});
   const [avatarFile, setAvatarFile] = useState<File | null>(null);
   const [avatarPreviewUrl, setAvatarPreviewUrl] = useState<string | null>(null);
+  const [profileBiosByUserId, setProfileBiosByUserId] = useState<Record<string, string>>({});
+  const [bioDraft, setBioDraft] = useState('');
+  const [openProfileUserId, setOpenProfileUserId] = useState<string | null>(null);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [displayNameDraft, setDisplayNameDraft] = useState('');
   const [isSavingSettings, setIsSavingSettings] = useState(false);
@@ -464,12 +469,37 @@ export function MatrixChannelPanel({
   const channelEyebrowLabel = activeChannel.kind === 'dm' ? 'Direct Message' : activeSpace.name;
   const headerDisplayName = getKnownDisplayName(identity.userId);
 
+  const refreshProfileBios = useCallback(
+    async (targetRoomId: string) => {
+      const biosByUserId = await loadRecentProfileBios(identity, targetRoomId);
+
+      setProfileBiosByUserId((currentBios) => {
+        let hasChanged = false;
+        const nextBios = { ...currentBios };
+
+        for (const [userId, bio] of Object.entries(biosByUserId)) {
+          if (nextBios[userId] !== bio) {
+            nextBios[userId] = bio;
+            hasChanged = true;
+          }
+        }
+
+        return hasChanged ? nextBios : currentBios;
+      });
+    },
+    [identity],
+  );
+
   const refreshMessages = useCallback(
     async (targetRoomId: string) => {
       const recentMessages = await loadRecentMessages(identity, targetRoomId);
       setMessages(recentMessages);
+
+      void refreshProfileBios(targetRoomId).catch((error) => {
+        console.warn('[Kodiak Connect] Failed to refresh profile bios', error);
+      });
     },
-    [identity],
+    [identity, refreshProfileBios],
   );
 
   const stopTyping = useCallback(async () => {
@@ -605,8 +635,42 @@ export function MatrixChannelPanel({
   }, [avatarUrlsByUserId, identity, messages, typingUserIds]);
 
   useEffect(() => {
+    if (openProfileUserId && roomId) {
+      void refreshProfileBios(roomId).catch((error) => {
+        console.warn('[Kodiak Connect] Failed to refresh profile bio on profile open', error);
+      });
+    }
+  }, [openProfileUserId, refreshProfileBios, roomId]);
+
+  useEffect(() => {
+    if (!roomId) {
+      return undefined;
+    }
+
+    let isActive = true;
+
+    void loadRecentProfileBios(identity, roomId).then((biosByUserId) => {
+      if (!isActive) {
+        return;
+      }
+
+      setProfileBiosByUserId((currentBios) => ({
+        ...currentBios,
+        ...biosByUserId,
+      }));
+    }).catch((error) => {
+      console.warn('[Kodiak Connect] Failed to load profile bios', error);
+    });
+
+    return () => {
+      isActive = false;
+    };
+  }, [identity, messages.length, roomId]);
+
+  useEffect(() => {
     setDisplayNameDraft(getKnownDisplayName(identity.userId));
-  }, [displayNamesByUserId, identity.userId]);
+    setBioDraft(profileBiosByUserId[identity.userId] ?? '');
+  }, [displayNamesByUserId, identity.userId, profileBiosByUserId]);
 
   useEffect(() => {
     let isActive = true;
@@ -997,6 +1061,13 @@ export function MatrixChannelPanel({
       return;
     }
 
+    const nextBio = bioDraft.trim();
+
+    if (nextBio.length > 180) {
+      setSettingsErrorText('Bio must be 180 characters or less.');
+      return;
+    }
+
     const normalizedNextDisplayName = normalizeDisplayName(nextDisplayName);
 
     if (RESERVED_DISPLAY_NAMES.has(normalizedNextDisplayName)) {
@@ -1056,6 +1127,20 @@ export function MatrixChannelPanel({
         }
       }
 
+      if (roomId) {
+        try {
+          await sendProfileBio(identity, roomId, nextBio);
+        } catch (bioError) {
+          console.error('[Kodiak Connect] Failed to save profile bio', bioError);
+          setSettingsErrorText('Profile saved, but bio could not be published. Try again in a moment.');
+          return;
+        }
+      }
+
+      setProfileBiosByUserId((currentBios) => ({
+        ...currentBios,
+        [identity.userId]: nextBio,
+      }));
       setAvatarFile(null);
       setAvatarPreviewUrl(null);
       setIsSettingsOpen(false);
@@ -1116,6 +1201,7 @@ export function MatrixChannelPanel({
             setDisplayNameDraft(getKnownDisplayName(identity.userId));
             setAvatarFile(null);
             setAvatarPreviewUrl(null);
+            setBioDraft(profileBiosByUserId[identity.userId] ?? '');
             setSettingsErrorText(null);
             setIsSettingsOpen(true);
           }}
@@ -1172,13 +1258,23 @@ export function MatrixChannelPanel({
                     className={`matrix-message ${isOwnMessage ? 'matrix-message--own' : ''}`}
                     data-message-event-id={message.eventId}
                   >
-                    <div className="matrix-message__avatar-slot">
+                    <button
+                      type="button"
+                      className="matrix-profile-trigger matrix-message__avatar-slot"
+                      onClick={() => setOpenProfileUserId(message.sender)}
+                    >
                       {renderUserAvatar(message.sender, 'matrix-avatar--message')}
-                    </div>
+                    </button>
 
                     <div className="matrix-message__content">
                       <header className="matrix-message__meta">
-                        <strong>{getKnownDisplayName(message.sender)}</strong>
+                        <button
+                          type="button"
+                          className="matrix-profile-trigger matrix-profile-trigger--name"
+                          onClick={() => setOpenProfileUserId(message.sender)}
+                        >
+                          <strong>{getKnownDisplayName(message.sender)}</strong>
+                        </button>
                         <time>{formatMessageTime(message.originServerTs)}</time>
                       </header>
                       <p>{renderMessageTextWithMentions(parsedMessage.body, currentUserLocalpart, displayNamesByLocalpart)}</p>
@@ -1362,6 +1458,58 @@ export function MatrixChannelPanel({
         />
       ) : null}
 
+      {openProfileUserId ? (
+        <div className="kodiak-modal-backdrop" role="presentation" onClick={() => setOpenProfileUserId(null)}>
+          <div
+            className="kodiak-profile-card"
+            role="dialog"
+            aria-modal="true"
+            aria-label={`${getKnownDisplayName(openProfileUserId)} profile`}
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="kodiak-profile-card__hero">
+              {renderUserAvatar(openProfileUserId, 'matrix-avatar--profile-card')}
+              <div>
+                <h2>{getKnownDisplayName(openProfileUserId)}</h2>
+                <p>{profileBiosByUserId[openProfileUserId]?.trim() || 'No bio yet.'}</p>
+              </div>
+            </div>
+
+            <div className="kodiak-profile-card__actions">
+              {openProfileUserId === identity.userId ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setOpenProfileUserId(null);
+                    setDisplayNameDraft(getKnownDisplayName(identity.userId));
+                    setBioDraft(profileBiosByUserId[identity.userId] ?? '');
+                    setAvatarFile(null);
+                    setAvatarPreviewUrl(null);
+                    setSettingsErrorText(null);
+                    setIsSettingsOpen(true);
+                  }}
+                >
+                  Edit profile
+                </button>
+              ) : onOpenDirectMessage ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    onOpenDirectMessage(openProfileUserId, getKnownDisplayName(openProfileUserId));
+                    setOpenProfileUserId(null);
+                  }}
+                >
+                  Message
+                </button>
+              ) : null}
+              <button type="button" disabled>Add Friend Soon</button>
+              <button type="button" disabled>Block Soon</button>
+              <button type="button" className="kodiak-profile-card__danger" disabled>Report Soon</button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
       {isSettingsOpen ? (
         <div className="kodiak-modal-backdrop" role="presentation">
           <form className="kodiak-confirm-modal kodiak-settings-modal" role="dialog" aria-modal="true" aria-labelledby="account-settings-title" onSubmit={handleSaveAccountSettings}>
@@ -1401,6 +1549,17 @@ export function MatrixChannelPanel({
                 placeholder="PapaKodiak"
                 autoFocus
               />
+            </label>
+
+            <label className="kodiak-settings-field kodiak-settings-field--bio">
+              <span>Bio</span>
+              <textarea
+                value={bioDraft}
+                onChange={(event) => setBioDraft(event.target.value)}
+                maxLength={180}
+                placeholder="Tell people a little about yourself."
+              />
+              <small>{bioDraft.length}/180</small>
             </label>
 
             {settingsErrorText ? <p className="kodiak-settings-error">{settingsErrorText}</p> : null}
