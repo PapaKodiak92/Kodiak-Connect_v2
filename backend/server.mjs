@@ -256,6 +256,20 @@ function sanitizeReportForViewer(report, viewerUserId) {
   };
 }
 
+function getReportForViewerAction(reportsStore, reportId, actorUserId) {
+  const report = reportsStore[reportId];
+
+  if (!report) {
+    return { error: "Report not found.", statusCode: 404 };
+  }
+
+  if (!isPlatformModerator(actorUserId) && report.reporterUserId !== actorUserId) {
+    return { error: "You can only reply to reports you submitted.", statusCode: 403 };
+  }
+
+  return { report };
+}
+
 function getReportForModeration(reportsStore, reportId, actorUserId) {
   if (!isPlatformModerator(actorUserId)) {
     return { error: "Only platform moderators can handle reports.", statusCode: 403 };
@@ -374,6 +388,8 @@ async function handleCreateReport(request, response, corsHeaders) {
 
   const report = {
     actions: [],
+    archivedAt: 0,
+    archivedByUserId: "",
     category: sanitizeReportCategory(body.category),
     context: String(body.context ?? "").slice(0, 500),
     createdAt,
@@ -397,6 +413,7 @@ async function handleCreateReport(request, response, corsHeaders) {
 
 async function handleListReports(request, response, corsHeaders, url) {
   const userId = url.searchParams.get("userId") || getHeaderValue(request, "x-kodiak-user-id");
+  const includeArchived = url.searchParams.get("includeArchived") === "true";
 
   if (!isValidMatrixUserId(userId)) {
     sendJson(response, 400, { error: "Invalid Matrix userId." }, corsHeaders);
@@ -407,8 +424,9 @@ async function handleListReports(request, response, corsHeaders, url) {
   const canViewAllReports = isPlatformModerator(userId);
   const reports = Object.values(reportsStore)
     .filter((report) => canViewAllReports || report.reporterUserId === userId)
+    .filter((report) => includeArchived || !report.archivedAt)
     .map((report) => sanitizeReportForViewer(report, userId))
-    .sort((a, b) => Number(b.createdAt ?? 0) - Number(a.createdAt ?? 0))
+    .sort((a, b) => Number(b.updatedAt ?? b.createdAt ?? 0) - Number(a.updatedAt ?? a.createdAt ?? 0))
     .slice(0, 100);
 
   sendJson(response, 200, { canViewAllReports, reports }, corsHeaders);
@@ -436,7 +454,7 @@ async function handleReportReply(request, response, corsHeaders) {
   }
 
   const reportsStore = await readJsonFile(REPORTS_FILE, {});
-  const result = getReportForModeration(reportsStore, reportId, actorUserId);
+  const result = getReportForViewerAction(reportsStore, reportId, actorUserId);
 
   if (result.error) {
     sendJson(response, result.statusCode, { error: result.error }, corsHeaders);
@@ -457,6 +475,8 @@ async function handleReportReply(request, response, corsHeaders) {
         visibleToReporter: true,
       },
     ],
+    archivedAt: 0,
+    archivedByUserId: "",
     updatedAt,
   };
 
@@ -567,6 +587,74 @@ async function handleReportStatus(request, response, corsHeaders) {
   await writeJsonFile(REPORTS_FILE, reportsStore);
 
   sendJson(response, 200, { ok: true, report: sanitizeReportForViewer(report, actorUserId) }, corsHeaders);
+}
+
+async function handleReportArchive(request, response, corsHeaders) {
+  const body = await readRequestBody(request);
+  const actorUserId = getCurrentUserId(request, body);
+  const reportId = String(body.reportId ?? "").trim();
+  const note = String(body.note ?? "").trim();
+
+  if (!isValidMatrixUserId(actorUserId) || !reportId) {
+    sendJson(response, 400, { error: "Invalid report archive request." }, corsHeaders);
+    return;
+  }
+
+  const reportsStore = await readJsonFile(REPORTS_FILE, {});
+  const result = getReportForModeration(reportsStore, reportId, actorUserId);
+
+  if (result.error) {
+    sendJson(response, result.statusCode, { error: result.error }, corsHeaders);
+    return;
+  }
+
+  const updatedAt = now();
+  const report = {
+    ...result.report,
+    actions: [
+      ...(result.report.actions ?? []),
+      {
+        actorUserId,
+        body: note || "Report archived.",
+        createdAt: updatedAt,
+        id: createReportActionId(),
+        type: "archive",
+        visibleToReporter: false,
+      },
+    ],
+    archivedAt: updatedAt,
+    archivedByUserId: actorUserId,
+    updatedAt,
+  };
+
+  reportsStore[reportId] = report;
+  await writeJsonFile(REPORTS_FILE, reportsStore);
+
+  sendJson(response, 200, { ok: true, report: sanitizeReportForViewer(report, actorUserId) }, corsHeaders);
+}
+
+async function handleReportDelete(request, response, corsHeaders) {
+  const body = await readRequestBody(request);
+  const actorUserId = getCurrentUserId(request, body);
+  const reportId = String(body.reportId ?? "").trim();
+
+  if (!isValidMatrixUserId(actorUserId) || !reportId) {
+    sendJson(response, 400, { error: "Invalid report delete request." }, corsHeaders);
+    return;
+  }
+
+  const reportsStore = await readJsonFile(REPORTS_FILE, {});
+  const result = getReportForModeration(reportsStore, reportId, actorUserId);
+
+  if (result.error) {
+    sendJson(response, result.statusCode, { error: result.error }, corsHeaders);
+    return;
+  }
+
+  delete reportsStore[reportId];
+  await writeJsonFile(REPORTS_FILE, reportsStore);
+
+  sendJson(response, 200, { ok: true, deletedReportId: reportId }, corsHeaders);
 }
 
 async function handleProfileSearch(response, corsHeaders, url) {
@@ -937,6 +1025,16 @@ const server = createServer(async (request, response) => {
 
     if (request.method === "POST" && url.pathname === "/api/reports/status") {
       await handleReportStatus(request, response, corsHeaders);
+      return;
+    }
+
+    if (request.method === "POST" && url.pathname === "/api/reports/archive") {
+      await handleReportArchive(request, response, corsHeaders);
+      return;
+    }
+
+    if (request.method === "POST" && url.pathname === "/api/reports/delete") {
+      await handleReportDelete(request, response, corsHeaders);
       return;
     }
 
