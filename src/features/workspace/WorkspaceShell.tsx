@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { MatrixLoginIdentity } from '../auth/matrixLoginService';
 import { joinRoomByAlias, loadProfileDisplayName, loadRecentMessages, resolveDirectMessageRoom, saveDirectMessageRoom } from '../matrix/matrixRestClient';
 import { OfficialSpaceAcknowledgementModal } from '../policy/OfficialSpaceAcknowledgementModal';
@@ -11,6 +11,7 @@ import { ChatPlaceholder } from './ChatPlaceholder';
 import { MatrixChannelPanel } from './MatrixChannelPanel';
 import { ServerRail } from './ServerRail';
 import { officialSpace } from './workspaceData';
+import { playKodiakSound } from '../audio/kodiakSounds';
 import type { WorkspaceChannel, WorkspaceSpace } from './workspaceTypes';
 
 interface WorkspaceShellProps {
@@ -151,6 +152,41 @@ function getDmRoomCacheKey(currentUserId: string, targetUserId: string) {
   return `KC_DM_ROOM:${[currentUserId, targetUserId].sort().join('|')}`;
 }
 
+function areBrowserNotificationsEnabled() {
+  return window.localStorage.getItem('KC_BROWSER_NOTIFICATIONS') === 'true';
+}
+
+function isNotificationSoundEnabled() {
+  return window.localStorage.getItem('KC_NOTIFY_SOUND') !== 'false';
+}
+
+function canShowBrowserNotification() {
+  return 'Notification' in window && Notification.permission === 'granted' && areBrowserNotificationsEnabled();
+}
+
+function getChannelDisplayTitle(channel: WorkspaceChannel) {
+  return channel.kind === 'dm' ? channel.name : `#${channel.name}`;
+}
+
+function showKodiakBrowserNotification(channel: WorkspaceChannel, messageBody: string, onOpen?: () => void) {
+  if (!canShowBrowserNotification()) {
+    return;
+  }
+
+  const notification = new Notification(`Kodiak Connect — ${getChannelDisplayTitle(channel)}`, {
+    body: messageBody.length > 120 ? `${messageBody.slice(0, 117)}...` : messageBody,
+    icon: '/favicon.ico',
+    silent: true,
+    tag: `kodiak-connect-${channel.id}`,
+  });
+
+  notification.onclick = () => {
+    window.focus();
+    onOpen?.();
+    notification.close();
+  };
+}
+
 function getDirectMessageTargetUserId(channel: WorkspaceChannel, currentUserId: string) {
   if (!channel.matrixDmUserId) {
     return null;
@@ -181,6 +217,7 @@ export function WorkspaceShell({ identity, onLogout }: WorkspaceShellProps) {
   const [hasAcknowledgedOfficialSpace, setHasAcknowledgedOfficialSpace] = useState(() =>
     hasCurrentOfficialSpaceAcknowledgement(identity.userId),
   );
+  const notifiedLatestTsByChannelRef = useRef<Record<string, number>>({});
 
   const activeSpace = useMemo(() => {
     const selectedSpace = spaces.find((space) => space.id === activeSpaceId) ?? officialSpace;
@@ -236,6 +273,16 @@ export function WorkspaceShell({ identity, onLogout }: WorkspaceShellProps) {
     normalizedDmSearchQuery && !directMessageSearchResults.some((user) => user.localpart === normalizedDmSearchQuery)
       ? getMatrixUserIdFromLocalpart(normalizedDmSearchQuery)
       : null;
+
+  const totalUnreadCount = Object.values(channelActivity).reduce((count, activity) => count + (activity.unreadCount ?? 0), 0);
+
+  useEffect(() => {
+    document.title = totalUnreadCount > 0 ? `(${totalUnreadCount}) Kodiak Connect` : 'Kodiak Connect';
+
+    return () => {
+      document.title = 'Kodiak Connect';
+    };
+  }, [totalUnreadCount]);
 
   useEffect(() => {
     const userIdsToLoad = new Set<string>();
@@ -326,7 +373,7 @@ export function WorkspaceShell({ identity, onLogout }: WorkspaceShellProps) {
       (channel) => !channel.disabled && (channel.matrixAlias || channel.matrixDmUserId),
     );
 
-    const activityEntries = await Promise.all(
+    const activityResults = await Promise.all(
       channels.map(async (channel) => {
         try {
           let roomId = '';
@@ -338,7 +385,7 @@ export function WorkspaceShell({ identity, onLogout }: WorkspaceShellProps) {
             const resolvedDmRoomId = await resolveDirectMessageRoom(identity, directMessageTargetUserId, cachedDmRoomId);
 
             if (!resolvedDmRoomId) {
-              return [channel.id, channelActivity[channel.id] ?? { hasMention: false, latestTs: 0, unreadCount: 0 }] as const;
+              return [channel.id, channelActivity[channel.id] ?? { hasMention: false, latestTs: 0, unreadCount: 0 }, null] as const;
             }
 
             roomId = resolvedDmRoomId;
@@ -352,7 +399,7 @@ export function WorkspaceShell({ identity, onLogout }: WorkspaceShellProps) {
           const latestMessage = recentMessages.at(-1);
 
           if (!latestMessage) {
-            return [channel.id, channelActivity[channel.id] ?? { hasMention: false, latestTs: 0, unreadCount: 0 }] as const;
+            return [channel.id, channelActivity[channel.id] ?? { hasMention: false, latestTs: 0, unreadCount: 0 }, null] as const;
           }
 
           const lastSeenTs = lastSeenByChannel[channel.id] ?? 0;
@@ -363,6 +410,16 @@ export function WorkspaceShell({ identity, onLogout }: WorkspaceShellProps) {
           const isActiveChannel = channel.id === activeChannelId;
           const hasMention = unreadMessages.some((message) => message.body.toLowerCase().includes(currentUserMention));
 
+          const latestIncomingMessage = [...recentMessages]
+            .reverse()
+            .find((message) => message.sender !== identity.userId && message.originServerTs > (channelActivity[channel.id]?.latestTs ?? 0));
+
+          const shouldNotify =
+            !isActiveChannel &&
+            Boolean(latestIncomingMessage) &&
+            Boolean(channelActivity[channel.id]?.latestTs) &&
+            latestIncomingMessage!.originServerTs > (notifiedLatestTsByChannelRef.current[channel.id] ?? 0);
+
           return [
             channel.id,
             {
@@ -370,19 +427,46 @@ export function WorkspaceShell({ identity, onLogout }: WorkspaceShellProps) {
               latestTs: latestMessage.originServerTs,
               unreadCount: isActiveChannel ? 0 : Math.min(unreadMessages.length, 99),
             },
+            shouldNotify && latestIncomingMessage
+              ? {
+                  body: latestIncomingMessage.body,
+                  latestTs: latestIncomingMessage.originServerTs,
+                  channel,
+                }
+              : null,
           ] as const;
         } catch (error) {
           console.warn(`[Kodiak Connect] Channel activity check failed for ${channel.name}`, error);
-          return [channel.id, channelActivity[channel.id] ?? { hasMention: false, latestTs: 0, unreadCount: 0 }] as const;
+          return [channel.id, channelActivity[channel.id] ?? { hasMention: false, latestTs: 0, unreadCount: 0 }, null] as const;
         }
       }),
     );
+
+    const activityEntries = activityResults.map(([channelId, activity]) => [channelId, activity] as const);
+    const notificationEntries = activityResults.map(([, , notification]) => notification).filter(Boolean);
 
     setChannelActivity((currentActivity) => ({
       ...currentActivity,
       ...Object.fromEntries(activityEntries),
     }));
-  }, [activeChannelId, activeSpace, channelActivity, identity, lastSeenByChannel]);
+
+    for (const notification of notificationEntries) {
+      if (!notification) {
+        continue;
+      }
+
+      notifiedLatestTsByChannelRef.current[notification.channel.id] = notification.latestTs;
+      showKodiakBrowserNotification(notification.channel, notification.body, () => {
+        setActiveSpaceId(officialSpace.id);
+        setActiveChannelId(notification.channel.id);
+        markChannelSeen(notification.channel.id, notification.latestTs);
+      });
+
+      if (isNotificationSoundEnabled()) {
+        playKodiakSound('notify', 0.7);
+      }
+    }
+  }, [activeChannelId, activeSpace, channelActivity, identity, lastSeenByChannel, markChannelSeen]);
 
   useEffect(() => {
     void refreshChannelActivity();
