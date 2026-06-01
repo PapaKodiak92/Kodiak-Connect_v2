@@ -37,7 +37,7 @@ export const officialSpace: WorkspaceSpace = {
         },
       ],
     },
-    {
+   {
       id: 'direct-messages',
       title: 'Direct Messages',
       channels: [

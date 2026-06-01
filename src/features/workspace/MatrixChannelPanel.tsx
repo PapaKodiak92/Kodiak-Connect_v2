@@ -339,7 +339,12 @@ function renderMessageTextWithMentions(body: string, currentUserLocalpart: strin
   return renderedParts;
 }
 
-export function MatrixChannelPanel({ activeChannel, activeSpace, identity, onOpenDirectMessage }: MatrixChannelPanelProps) {
+export function MatrixChannelPanel({
+  activeChannel,
+  activeSpace,
+  identity,
+  onOpenDirectMessage,
+}: MatrixChannelPanelProps) {
   const [roomId, setRoomId] = useState<string | null>(null);
   const [messages, setMessages] = useState<MatrixTextMessage[]>([]);
   const [draftMessage, setDraftMessage] = useState('');
