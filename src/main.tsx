@@ -10,6 +10,7 @@ import './styles/workspace-polish.css';
 import './styles/typing-indicator.css';
 import './styles/safety-center.css';
 import './styles/workspace-surfaces.css';
+import './styles/attachment-bridge.css';
 
 function clearStaleAvatarObjectUrls() {
   const cacheKey = 'KC_BACKEND_PROFILE_CACHE';
