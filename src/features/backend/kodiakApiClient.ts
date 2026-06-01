@@ -3,6 +3,16 @@
 export type KodiakPresenceState = 'online' | 'idle' | 'offline';
 export type KodiakFriendStatus = 'none' | 'incoming' | 'outgoing' | 'friends';
 
+export interface KodiakProfile {
+  avatarUrl?: string;
+  bio?: string;
+  createdAt?: number;
+  displayName: string;
+  normalizedDisplayName?: string;
+  updatedAt?: number;
+  userId: string;
+}
+
 interface KodiakPresenceUser {
   avatarUrl?: string;
   displayName?: string;
@@ -17,6 +27,14 @@ interface KodiakPresenceUsersResponse {
 
 interface KodiakFriendStateResponse {
   statuses?: Record<string, KodiakFriendStatus>;
+}
+
+interface KodiakProfilesResponse {
+  profiles?: Record<string, KodiakProfile>;
+}
+
+interface KodiakProfileResponse {
+  profile?: KodiakProfile;
 }
 
 const KODIAK_API_BASE_URL =
@@ -40,7 +58,16 @@ async function postKodiak<T>(identity: MatrixLoginIdentity, path: string, body: 
   });
 
   if (!response.ok) {
-    throw new Error(`Kodiak backend request failed: ${path}`);
+    let errorMessage = `Kodiak backend request failed: ${path}`;
+
+    try {
+      const errorBody = (await response.json()) as { error?: string };
+      errorMessage = errorBody.error || errorMessage;
+    } catch {
+      // Keep fallback.
+    }
+
+    throw new Error(errorMessage);
   }
 
   return (await response.json()) as T;
@@ -122,4 +149,38 @@ export async function cancelKodiakFriendRequest(identity: MatrixLoginIdentity, t
 export async function removeKodiakFriend(identity: MatrixLoginIdentity, targetUserId: string) {
   const data = await postKodiak<KodiakFriendStateResponse>(identity, '/api/friends/remove', { targetUserId });
   return data.statuses ?? {};
+}
+
+export async function loadKodiakProfiles(identity: MatrixLoginIdentity, userIds: string[]) {
+  const uniqueUserIds = [...new Set(userIds)].filter(Boolean);
+
+  if (!uniqueUserIds.length) {
+    return {};
+  }
+
+  const response = await fetch(
+    `${KODIAK_API_BASE_URL}/api/profiles/users?ids=${encodeURIComponent(uniqueUserIds.join(','))}`,
+    {
+      headers: getHeaders(identity),
+    },
+  );
+
+  if (!response.ok) {
+    throw new Error('Kodiak profile lookup failed.');
+  }
+
+  const data = (await response.json()) as KodiakProfilesResponse;
+  return data.profiles ?? {};
+}
+
+export async function saveKodiakProfile(
+  identity: MatrixLoginIdentity,
+  profile: {
+    avatarUrl?: string;
+    bio: string;
+    displayName: string;
+  },
+) {
+  const data = await postKodiak<KodiakProfileResponse>(identity, '/api/profiles/me', profile);
+  return data.profile ?? null;
 }

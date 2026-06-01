@@ -7,12 +7,28 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const DATA_DIR = join(__dirname, "data");
 const PRESENCE_FILE = join(DATA_DIR, "presence.json");
 const FRIENDS_FILE = join(DATA_DIR, "friends.json");
+const PROFILES_FILE = join(DATA_DIR, "profiles.json");
 
 const PORT = Number(process.env.KODIAK_BACKEND_PORT ?? 8787);
 const ALLOWED_ORIGINS = new Set([
   "http://localhost:5173",
   "http://127.0.0.1:5173",
   "https://localhost:5173",
+]);
+
+const RESERVED_DISPLAY_NAMES = new Set([
+  "admin",
+  "administrator",
+  "moderator",
+  "mod",
+  "support",
+  "system",
+  "kodiak",
+  "kodiak connect",
+  "kodiakconnect",
+  "official",
+  "security",
+  "trustandsafety",
 ]);
 
 function now() {
@@ -79,6 +95,37 @@ function getCurrentUserId(request, body = {}) {
   return body.userId || request.headers["x-kodiak-user-id"];
 }
 
+function normalizeDisplayName(displayName) {
+  return String(displayName ?? "").trim().replace(/\s+/g, " ").toLowerCase();
+}
+
+function getDefaultDisplayName(userId) {
+  const withoutPrefix = userId.startsWith("@") ? userId.slice(1) : userId;
+  return withoutPrefix.split(":")[0] || userId;
+}
+
+function getDefaultProfile(userId) {
+  const displayName = getDefaultDisplayName(userId);
+
+  return {
+    avatarUrl: "",
+    bio: "",
+    createdAt: 0,
+    displayName,
+    normalizedDisplayName: normalizeDisplayName(displayName),
+    updatedAt: 0,
+    userId,
+  };
+}
+
+function sanitizeProfile(profile, userId) {
+  return {
+    ...getDefaultProfile(userId),
+    ...(profile ?? {}),
+    userId,
+  };
+}
+
 function getFriendKey(userA, userB) {
   return [userA, userB].sort().join("|");
 }
@@ -86,25 +133,14 @@ function getFriendKey(userA, userB) {
 function getPresenceState(lastSeenAt) {
   const ageMs = now() - Number(lastSeenAt || 0);
 
-  if (ageMs <= 90_000) {
-    return "online";
-  }
-
-  if (ageMs <= 10 * 60_000) {
-    return "idle";
-  }
-
+  if (ageMs <= 90_000) return "online";
+  if (ageMs <= 10 * 60_000) return "idle";
   return "offline";
 }
 
 function getFriendStatusForUser(edge, userId) {
-  if (!edge) {
-    return "none";
-  }
-
-  if (edge.status === "friends") {
-    return "friends";
-  }
+  if (!edge) return "none";
+  if (edge.status === "friends") return "friends";
 
   if (edge.status === "pending") {
     return edge.requesterUserId === userId ? "outgoing" : "incoming";
@@ -126,6 +162,101 @@ function getFriendStatuses(friendStore, userId) {
   }
 
   return statuses;
+}
+
+async function handleProfileUsers(response, corsHeaders, url) {
+  const ids = (url.searchParams.get("ids") ?? "")
+    .split(",")
+    .map((id) => id.trim())
+    .filter(Boolean);
+
+  const profileStore = await readJsonFile(PROFILES_FILE, {});
+  const profiles = {};
+
+  for (const userId of ids) {
+    if (isValidMatrixUserId(userId)) {
+      profiles[userId] = sanitizeProfile(profileStore[userId], userId);
+    }
+  }
+
+  sendJson(response, 200, { profiles }, corsHeaders);
+}
+
+async function handleProfileMe(request, response, corsHeaders) {
+  const userId = request.headers["x-kodiak-user-id"];
+
+  if (!isValidMatrixUserId(userId)) {
+    sendJson(response, 400, { error: "Invalid Matrix userId." }, corsHeaders);
+    return;
+  }
+
+  const profileStore = await readJsonFile(PROFILES_FILE, {});
+  sendJson(response, 200, { profile: sanitizeProfile(profileStore[userId], userId) }, corsHeaders);
+}
+
+async function handleSaveProfileMe(request, response, corsHeaders) {
+  const body = await readRequestBody(request);
+  const userId = getCurrentUserId(request, body);
+
+  if (!isValidMatrixUserId(userId)) {
+    sendJson(response, 400, { error: "Invalid Matrix userId." }, corsHeaders);
+    return;
+  }
+
+  const profileStore = await readJsonFile(PROFILES_FILE, {});
+  const existingProfile = sanitizeProfile(profileStore[userId], userId);
+
+  const nextDisplayName = String(body.displayName ?? existingProfile.displayName).trim().replace(/\s+/g, " ");
+  const normalizedDisplayName = normalizeDisplayName(nextDisplayName);
+  const nextBio = String(body.bio ?? existingProfile.bio ?? "").trim();
+  const nextAvatarUrl = Object.prototype.hasOwnProperty.call(body, "avatarUrl")
+    ? String(body.avatarUrl ?? "")
+    : existingProfile.avatarUrl ?? "";
+
+  if (!nextDisplayName) {
+    sendJson(response, 400, { error: "Display name cannot be empty." }, corsHeaders);
+    return;
+  }
+
+  if (nextDisplayName.length > 32) {
+    sendJson(response, 400, { error: "Display name must be 32 characters or less." }, corsHeaders);
+    return;
+  }
+
+  if (nextBio.length > 180) {
+    sendJson(response, 400, { error: "Bio must be 180 characters or less." }, corsHeaders);
+    return;
+  }
+
+  if (RESERVED_DISPLAY_NAMES.has(normalizedDisplayName)) {
+    sendJson(response, 409, { error: "That display name is reserved." }, corsHeaders);
+    return;
+  }
+
+  const duplicateProfile = Object.values(profileStore).find((profile) => {
+    return profile?.userId !== userId && profile?.normalizedDisplayName === normalizedDisplayName;
+  });
+
+  if (duplicateProfile) {
+    sendJson(response, 409, { error: "That display name is already taken." }, corsHeaders);
+    return;
+  }
+
+  const profile = {
+    ...existingProfile,
+    avatarUrl: nextAvatarUrl,
+    bio: nextBio,
+    createdAt: existingProfile.createdAt || now(),
+    displayName: nextDisplayName,
+    normalizedDisplayName,
+    updatedAt: now(),
+    userId,
+  };
+
+  profileStore[userId] = profile;
+  await writeJsonFile(PROFILES_FILE, profileStore);
+
+  sendJson(response, 200, { ok: true, profile }, corsHeaders);
 }
 
 async function handlePresenceHeartbeat(request, response, corsHeaders) {
@@ -150,14 +281,7 @@ async function handlePresenceHeartbeat(request, response, corsHeaders) {
   };
 
   await writeJsonFile(PRESENCE_FILE, presenceStore);
-
-  sendJson(response, 200, {
-    ok: true,
-    presence: {
-      ...presenceStore[userId],
-      presence: "online",
-    },
-  }, corsHeaders);
+  sendJson(response, 200, { ok: true, presence: { ...presenceStore[userId], presence: "online" } }, corsHeaders);
 }
 
 async function handlePresenceUsers(response, corsHeaders, url) {
@@ -166,18 +290,11 @@ async function handlePresenceUsers(response, corsHeaders, url) {
     .map((id) => id.trim())
     .filter(Boolean);
 
-  if (!ids.length) {
-    sendJson(response, 200, { users: {} }, corsHeaders);
-    return;
-  }
-
   const presenceStore = await readJsonFile(PRESENCE_FILE, {});
   const users = {};
 
   for (const userId of ids) {
-    if (!isValidMatrixUserId(userId)) {
-      continue;
-    }
+    if (!isValidMatrixUserId(userId)) continue;
 
     const storedPresence = presenceStore[userId];
 
@@ -232,6 +349,7 @@ async function handleFriendRequest(request, response, corsHeaders) {
         status: "friends",
         updatedAt: now(),
       };
+
       await writeJsonFile(FRIENDS_FILE, friendStore);
       sendJson(response, 200, { ok: true, status: "friends", statuses: getFriendStatuses(friendStore, userId) }, corsHeaders);
       return;
@@ -312,11 +430,22 @@ const server = createServer(async (request, response) => {
 
   try {
     if (request.method === "GET" && url.pathname === "/api/health") {
-      sendJson(response, 200, {
-        ok: true,
-        service: "kodiak-connect-backend",
-        time: new Date().toISOString(),
-      }, corsHeaders);
+      sendJson(response, 200, { ok: true, service: "kodiak-connect-backend", time: new Date().toISOString() }, corsHeaders);
+      return;
+    }
+
+    if (request.method === "GET" && url.pathname === "/api/profiles/users") {
+      await handleProfileUsers(response, corsHeaders, url);
+      return;
+    }
+
+    if (request.method === "GET" && url.pathname === "/api/profiles/me") {
+      await handleProfileMe(request, response, corsHeaders);
+      return;
+    }
+
+    if (request.method === "POST" && url.pathname === "/api/profiles/me") {
+      await handleSaveProfileMe(request, response, corsHeaders);
       return;
     }
 
