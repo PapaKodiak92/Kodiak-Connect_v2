@@ -15,6 +15,21 @@ interface MatrixChannelPanelProps {
   identity: MatrixLoginIdentity;
 }
 
+interface ParsedReplyContext {
+  eventId?: string;
+  preview: string;
+  sender: string;
+}
+
+interface ParsedMessageBody {
+  body: string;
+  reply?: ParsedReplyContext;
+}
+
+const REPLY_EVENT_PREFIX = 'KC_REPLY_EVENT=';
+const REPLY_SENDER_PREFIX = 'KC_REPLY_SENDER=';
+const REPLY_PREVIEW_PREFIX = 'KC_REPLY_PREVIEW=';
+
 function getDisplayName(userId: string) {
   const withoutPrefix = userId.startsWith('@') ? userId.slice(1) : userId;
   return withoutPrefix.split(':')[0] || userId;
@@ -94,12 +109,66 @@ function getShortMessagePreview(body: string) {
   return compactBody.length > 96 ? `${compactBody.slice(0, 96)}...` : compactBody;
 }
 
+function parseKeyedReplyBody(body: string): ParsedMessageBody | null {
+  if (!body.startsWith(REPLY_EVENT_PREFIX)) {
+    return null;
+  }
+
+  const [metadataBlock, ...bodyParts] = body.split('\n\n');
+  const metadataLines = metadataBlock.split('\n');
+  const eventId = metadataLines.find((line) => line.startsWith(REPLY_EVENT_PREFIX))?.slice(REPLY_EVENT_PREFIX.length);
+  const sender = metadataLines.find((line) => line.startsWith(REPLY_SENDER_PREFIX))?.slice(REPLY_SENDER_PREFIX.length);
+  const preview = metadataLines.find((line) => line.startsWith(REPLY_PREVIEW_PREFIX))?.slice(REPLY_PREVIEW_PREFIX.length);
+  const messageBody = bodyParts.join('\n\n').trim();
+
+  if (!sender || !preview || !messageBody) {
+    return null;
+  }
+
+  return {
+    body: messageBody,
+    reply: {
+      eventId,
+      preview,
+      sender,
+    },
+  };
+}
+
+function parseLegacyReplyBody(body: string): ParsedMessageBody | null {
+  const match = body.match(/^Replying to ([^:]+): ([\s\S]+?)\n\n([\s\S]+)$/);
+
+  if (!match) {
+    return null;
+  }
+
+  return {
+    body: match[3].trim(),
+    reply: {
+      preview: getShortMessagePreview(match[2]),
+      sender: match[1],
+    },
+  };
+}
+
+function parseMessageBody(body: string): ParsedMessageBody {
+  return parseKeyedReplyBody(body) ?? parseLegacyReplyBody(body) ?? { body };
+}
+
 function buildReplyBody(replyTarget: MatrixTextMessage | null, body: string) {
   if (!replyTarget) {
     return body;
   }
 
-  return `Replying to ${getDisplayName(replyTarget.sender)}: ${getShortMessagePreview(replyTarget.body)}\n\n${body}`;
+  const parsedTarget = parseMessageBody(replyTarget.body);
+
+  return [
+    `${REPLY_EVENT_PREFIX}${replyTarget.eventId}`,
+    `${REPLY_SENDER_PREFIX}${getDisplayName(replyTarget.sender)}`,
+    `${REPLY_PREVIEW_PREFIX}${getShortMessagePreview(parsedTarget.body)}`,
+    '',
+    body,
+  ].join('\n');
 }
 
 export function MatrixChannelPanel({ activeChannel, activeSpace, identity }: MatrixChannelPanelProps) {
@@ -110,6 +179,7 @@ export function MatrixChannelPanel({ activeChannel, activeSpace, identity }: Mat
   const [isLoading, setIsLoading] = useState(true);
   const [isSending, setIsSending] = useState(false);
   const [errorText, setErrorText] = useState<string | null>(null);
+  const messageElementRefs = useRef<Record<string, HTMLElement | null>>({});
   const pollingTimer = useRef<number | null>(null);
 
   const displayName = getDisplayName(identity.userId);
@@ -188,6 +258,25 @@ export function MatrixChannelPanel({ activeChannel, activeSpace, identity }: Mat
     };
   }, [refreshMessages, roomId]);
 
+  function handleJumpToMessage(eventId?: string) {
+    if (!eventId) {
+      return;
+    }
+
+    const targetElement = messageElementRefs.current[eventId];
+
+    if (!targetElement) {
+      return;
+    }
+
+    targetElement.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    targetElement.classList.add('matrix-message--focused');
+
+    window.setTimeout(() => {
+      targetElement.classList.remove('matrix-message--focused');
+    }, 1600);
+  }
+
   async function handleSendMessage(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
@@ -240,22 +329,47 @@ export function MatrixChannelPanel({ activeChannel, activeSpace, identity }: Mat
           <div className="matrix-empty-state">Loading #{activeChannel.name}...</div>
         ) : messages.length ? (
           <div className="matrix-message-list" aria-label="Message history">
-            {messages.map((message) => (
-              <article key={message.eventId} className={`matrix-message ${message.sender === identity.userId ? 'matrix-message--own' : ''}`}>
-                <header>
-                  <strong>{getDisplayName(message.sender)}</strong>
-                  <time>{formatMessageTime(message.originServerTs)}</time>
-                </header>
-                <p>{message.body}</p>
-                {canPost ? (
-                  <div className="matrix-message-actions">
-                    <button type="button" onClick={() => setReplyTarget(message)}>
-                      Reply
+            {messages.map((message) => {
+              const parsedMessage = parseMessageBody(message.body);
+              const isOwnMessage = message.sender === identity.userId;
+
+              return (
+                <div key={message.eventId} className={`matrix-message-group ${isOwnMessage ? 'matrix-message-group--own' : ''}`}>
+                  {parsedMessage.reply ? (
+                    <button
+                      type="button"
+                      className="matrix-reply-thread-link"
+                      onClick={() => handleJumpToMessage(parsedMessage.reply?.eventId)}
+                      disabled={!parsedMessage.reply.eventId}
+                    >
+                      <span aria-hidden="true">↪</span>
+                      <strong>{parsedMessage.reply.sender}</strong>
+                      <span>{parsedMessage.reply.preview}</span>
                     </button>
-                  </div>
-                ) : null}
-              </article>
-            ))}
+                  ) : null}
+
+                  <article
+                    ref={(element) => {
+                      messageElementRefs.current[message.eventId] = element;
+                    }}
+                    className={`matrix-message ${isOwnMessage ? 'matrix-message--own' : ''}`}
+                  >
+                    <header>
+                      <strong>{getDisplayName(message.sender)}</strong>
+                      <time>{formatMessageTime(message.originServerTs)}</time>
+                    </header>
+                    <p>{parsedMessage.body}</p>
+                    {canPost ? (
+                      <div className="matrix-message-actions">
+                        <button type="button" onClick={() => setReplyTarget({ ...message, body: parsedMessage.body })}>
+                          Reply
+                        </button>
+                      </div>
+                    ) : null}
+                  </article>
+                </div>
+              );
+            })}
           </div>
         ) : (
           <div className="matrix-empty-state">{getEmptyState(activeChannel, canPost)}</div>
@@ -267,7 +381,7 @@ export function MatrixChannelPanel({ activeChannel, activeSpace, identity }: Mat
           <div className="message-reply-preview">
             <div>
               <strong>Replying to {getDisplayName(replyTarget.sender)}</strong>
-              <span>{getShortMessagePreview(replyTarget.body)}</span>
+              <span>{getShortMessagePreview(parseMessageBody(replyTarget.body).body)}</span>
             </div>
             <button type="button" onClick={() => setReplyTarget(null)} aria-label="Cancel reply">
               Cancel
