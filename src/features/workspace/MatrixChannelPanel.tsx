@@ -3,11 +3,13 @@ import type { MatrixLoginIdentity } from '../auth/matrixLoginService';
 import {
   joinRoomByAlias,
   loadRecentMessages,
+  loadTypingUsers,
   MatrixRestError,
   redactMessage,
   sendReaction,
   sendReplacementMessage,
   sendTextMessage,
+  sendTypingState,
   type MatrixTextMessage,
 } from '../matrix/matrixRestClient';
 import type { WorkspaceChannel, WorkspaceSpace } from './workspaceTypes';
@@ -44,9 +46,13 @@ const REPLY_EVENT_PREFIX = 'KC_REPLY_EVENT=';
 const REPLY_SENDER_PREFIX = 'KC_REPLY_SENDER=';
 const REPLY_PREVIEW_PREFIX = 'KC_REPLY_PREVIEW=';
 const MENTION_PATTERN = /(^|\s)(@[a-zA-Z0-9._-]{2,32})/g;
+const ACTIVE_MENTION_PATTERN = /(^|\s)@([a-zA-Z0-9._-]{0,32})$/;
 const REACTION_OPTIONS = ['\u{1F44D}', '\u{2764}\u{FE0F}', '\u{1F602}', '\u{1F525}', '\u{1F440}'];
 const PLATFORM_MODERATOR_IDS = ['@papakodiak:v2.kodiak-connect.com'];
-const ACTIVE_MENTION_PATTERN = /(^|\s)@([a-zA-Z0-9._-]{0,32})$/;
+const MESSAGE_POLL_INTERVAL_MS = 5000;
+const TYPING_POLL_INTERVAL_MS = 2500;
+const TYPING_TIMEOUT_MS = 5000;
+const TYPING_IDLE_STOP_MS = 2500;
 
 function getDisplayName(userId: string) {
   const withoutPrefix = userId.startsWith('@') ? userId.slice(1) : userId;
@@ -248,6 +254,24 @@ function hasUserReacted(message: MatrixTextMessage, reactionKey: string, userId:
   return message.reactions?.some((reaction) => reaction.key === reactionKey && reaction.senders.includes(userId)) ?? false;
 }
 
+function getTypingIndicatorText(typingUserIds: string[]) {
+  const typingNames = typingUserIds.map(getDisplayName);
+
+  if (typingNames.length === 0) {
+    return '';
+  }
+
+  if (typingNames.length === 1) {
+    return `${typingNames[0]} is typing`;
+  }
+
+  if (typingNames.length === 2) {
+    return `${typingNames[0]} and ${typingNames[1]} are typing`;
+  }
+
+  return `${typingNames[0]} and ${typingNames.length - 1} others are typing`;
+}
+
 function renderMessageTextWithMentions(body: string, currentUserLocalpart: string): ReactNode[] {
   const renderedParts: ReactNode[] = [];
   let lastIndex = 0;
@@ -291,9 +315,9 @@ export function MatrixChannelPanel({ activeChannel, activeSpace, identity }: Mat
   const [replyTarget, setReplyTarget] = useState<MatrixTextMessage | null>(null);
   const [editingMessage, setEditingMessage] = useState<MatrixTextMessage | null>(null);
   const [openActionMenu, setOpenActionMenu] = useState<{ messageId: string; x: number; y: number } | null>(null);
-  const [openActionMenuMessageId, setOpenActionMenuMessageId] = useState<string | null>(null);
   const [pendingDeleteMessage, setPendingDeleteMessage] = useState<MatrixTextMessage | null>(null);
   const [reactionPickerMessageId, setReactionPickerMessageId] = useState<string | null>(null);
+  const [typingUserIds, setTypingUserIds] = useState<string[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isSending, setIsSending] = useState(false);
   const [errorText, setErrorText] = useState<string | null>(null);
@@ -301,6 +325,10 @@ export function MatrixChannelPanel({ activeChannel, activeSpace, identity }: Mat
   const messageListRef = useRef<HTMLDivElement | null>(null);
   const shouldStickToBottomRef = useRef(true);
   const pollingTimer = useRef<number | null>(null);
+  const typingPollTimer = useRef<number | null>(null);
+  const typingStopTimer = useRef<number | null>(null);
+  const typingSinceBatchRef = useRef<string | undefined>(undefined);
+  const isTypingSentRef = useRef(false);
 
   const displayName = getDisplayName(identity.userId);
   const currentUserLocalpart = getUserLocalpart(identity.userId);
@@ -308,10 +336,9 @@ export function MatrixChannelPanel({ activeChannel, activeSpace, identity }: Mat
   const mentionSuggestions = getMentionSuggestions(messages, currentUserLocalpart, activeMentionSearch);
   const canPost = canPostInChannel(activeChannel, identity.userId);
   const canModerate = canModerateMessages(identity.userId);
-  const openActionMenuMessage = openActionMenu
-    ? messages.find((message) => message.eventId === openActionMenu.messageId) ?? null
-    : null;
+  const openActionMenuMessage = openActionMenu ? messages.find((message) => message.eventId === openActionMenu.messageId) ?? null : null;
   const openActionMenuParsedMessage = openActionMenuMessage ? parseMessageBody(openActionMenuMessage.body) : null;
+  const typingIndicatorText = getTypingIndicatorText(typingUserIds);
 
   const refreshMessages = useCallback(
     async (targetRoomId: string) => {
@@ -320,6 +347,20 @@ export function MatrixChannelPanel({ activeChannel, activeSpace, identity }: Mat
     },
     [identity],
   );
+
+  const stopTyping = useCallback(async () => {
+    if (!roomId || !isTypingSentRef.current) {
+      return;
+    }
+
+    isTypingSentRef.current = false;
+
+    try {
+      await sendTypingState(identity, roomId, false);
+    } catch (error) {
+      console.warn('[Kodiak Connect] Failed to stop Matrix typing notification', error);
+    }
+  }, [identity, roomId]);
 
   useEffect(() => {
     shouldStickToBottomRef.current = true;
@@ -342,6 +383,9 @@ export function MatrixChannelPanel({ activeChannel, activeSpace, identity }: Mat
       setEditingMessage(null);
       setOpenActionMenu(null);
       setPendingDeleteMessage(null);
+      setTypingUserIds([]);
+      typingSinceBatchRef.current = undefined;
+      isTypingSentRef.current = false;
 
       try {
         const joinedRoomId = await joinRoomByAlias(identity, activeChannel.matrixAlias);
@@ -384,7 +428,7 @@ export function MatrixChannelPanel({ activeChannel, activeSpace, identity }: Mat
       void refreshMessages(roomId).catch((error) => {
         console.error('[Kodiak Connect] Matrix room refresh failed', error);
       });
-    }, 5000);
+    }, MESSAGE_POLL_INTERVAL_MS);
 
     return () => {
       if (pollingTimer.current) {
@@ -392,6 +436,81 @@ export function MatrixChannelPanel({ activeChannel, activeSpace, identity }: Mat
       }
     };
   }, [refreshMessages, roomId]);
+
+  useEffect(() => {
+    if (!roomId) {
+      return undefined;
+    }
+
+    async function refreshTypingUsers() {
+      if (!roomId) {
+        return;
+      }
+
+      try {
+        const typingState = await loadTypingUsers(identity, roomId, typingSinceBatchRef.current);
+        typingSinceBatchRef.current = typingState.nextBatch ?? typingSinceBatchRef.current;
+
+        if (typingState.userIds) {
+          setTypingUserIds(typingState.userIds.filter((userId) => userId !== identity.userId));
+        }
+      } catch (error) {
+        console.warn('[Kodiak Connect] Matrix typing poll failed', error);
+      }
+    }
+
+    void refreshTypingUsers();
+
+    typingPollTimer.current = window.setInterval(() => {
+      void refreshTypingUsers();
+    }, TYPING_POLL_INTERVAL_MS);
+
+    return () => {
+      if (typingPollTimer.current) {
+        window.clearInterval(typingPollTimer.current);
+      }
+    };
+  }, [identity, roomId]);
+
+  useEffect(() => {
+    if (!roomId || !canPost) {
+      return undefined;
+    }
+
+    if (typingStopTimer.current) {
+      window.clearTimeout(typingStopTimer.current);
+      typingStopTimer.current = null;
+    }
+
+    if (!draftMessage.trim()) {
+      void stopTyping();
+      return undefined;
+    }
+
+    if (!isTypingSentRef.current) {
+      isTypingSentRef.current = true;
+      void sendTypingState(identity, roomId, true, TYPING_TIMEOUT_MS).catch((error) => {
+        isTypingSentRef.current = false;
+        console.warn('[Kodiak Connect] Failed to send Matrix typing notification', error);
+      });
+    }
+
+    typingStopTimer.current = window.setTimeout(() => {
+      void stopTyping();
+    }, TYPING_IDLE_STOP_MS);
+
+    return () => {
+      if (typingStopTimer.current) {
+        window.clearTimeout(typingStopTimer.current);
+      }
+    };
+  }, [canPost, draftMessage, identity, roomId, stopTyping]);
+
+  useEffect(() => {
+    return () => {
+      void stopTyping();
+    };
+  }, [stopTyping]);
 
   useEffect(() => {
     const messageList = messageListRef.current;
@@ -402,77 +521,6 @@ export function MatrixChannelPanel({ activeChannel, activeSpace, identity }: Mat
 
     messageList.scrollTop = messageList.scrollHeight;
   }, [messages, activeChannel.id]);
-
-  useEffect(() => {
-    const messageList = messageListRef.current;
-
-    if (!messageList) {
-      return undefined;
-    }
-
-    function nativeContextMenuHandler(event: globalThis.MouseEvent) {
-      const target = event.target as HTMLElement | null;
-      const messageElement = target?.closest<HTMLElement>('[data-message-event-id]');
-
-      if (!messageElement) {
-        return;
-      }
-
-      event.preventDefault();
-      event.stopPropagation();
-
-      const message = messages.find((candidateMessage) => candidateMessage.eventId === messageElement.dataset.messageEventId);
-
-      if (!message) {
-        return;
-      }
-
-      openMessageActionMenu(message, event.clientX, event.clientY);
-    }
-
-    messageList.addEventListener('contextmenu', nativeContextMenuHandler, true);
-
-    return () => {
-      messageList.removeEventListener('contextmenu', nativeContextMenuHandler, true);
-    };
-  }, [messages, canPost]);
-
-  useEffect(() => {
-    const messageList = messageListRef.current;
-
-    if (!messageList) {
-      return undefined;
-    }
-
-    function findMessageFromEvent(event: Event) {
-      const target = event.target as HTMLElement | null;
-      const messageElement = target?.closest<HTMLElement>('[data-message-event-id]');
-
-      if (!messageElement?.dataset.messageEventId) {
-        return null;
-      }
-
-      return messages.find((candidateMessage) => candidateMessage.eventId === messageElement.dataset.messageEventId) ?? null;
-    }
-
-    function nativeContextMenuBlocker(event: globalThis.MouseEvent) {
-      const message = findMessageFromEvent(event);
-
-      if (!message) {
-        return;
-      }
-
-      event.preventDefault();
-      event.stopPropagation();
-      openMessageActionMenu(message, event.clientX, event.clientY);
-    }
-
-    messageList.addEventListener('contextmenu', nativeContextMenuBlocker, true);
-
-    return () => {
-      messageList.removeEventListener('contextmenu', nativeContextMenuBlocker, true);
-    };
-  }, [messages, canPost]);
 
   function findMessageForDomTarget(target: EventTarget | null) {
     const element = target instanceof HTMLElement ? target : null;
@@ -657,6 +705,8 @@ export function MatrixChannelPanel({ activeChannel, activeSpace, identity }: Mat
     setErrorText(null);
 
     try {
+      await stopTyping();
+
       if (editingMessage) {
         await sendReplacementMessage(identity, roomId, editingMessage.eventId, trimmedMessage);
         setEditingMessage(null);
@@ -722,9 +772,9 @@ export function MatrixChannelPanel({ activeChannel, activeSpace, identity }: Mat
                       disabled={!parsedMessage.reply.eventId}
                       title={`Replying to ${parsedMessage.reply.sender}: ${parsedMessage.reply.preview}`}
                     >
-                      <span className="matrix-reply-thread-link__arrow" aria-hidden="true">?</span>
+                      <span className="matrix-reply-thread-link__arrow" aria-hidden="true">↪</span>
                       <strong>{parsedMessage.reply.sender}</strong>
-                      <span className="matrix-reply-thread-link__separator" aria-hidden="true">�</span>
+                      <span className="matrix-reply-thread-link__separator" aria-hidden="true">·</span>
                       <span className="matrix-reply-thread-link__preview">{parsedMessage.reply.preview}</span>
                     </button>
                   ) : null}
@@ -769,56 +819,6 @@ export function MatrixChannelPanel({ activeChannel, activeSpace, identity }: Mat
                         ))}
                       </div>
                     ) : null}
-
-                    {canPost ? (
-                      <div className="matrix-message-actions">
-                        <button
-                          type="button"
-                          className="matrix-message-action-trigger"
-                          aria-label="Open message actions"
-                          aria-expanded={openActionMenuMessageId === message.eventId}
-                          onClick={() =>
-                            setOpenActionMenuMessageId((currentMessageId) => (currentMessageId === message.eventId ? null : message.eventId))
-                          }
-                        >
-                          ���
-                        </button>
-
-                        {openActionMenuMessageId === message.eventId ? (
-                          <div className="matrix-message-action-menu">
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setReactionPickerMessageId((currentMessageId) => (currentMessageId === message.eventId ? null : message.eventId));
-                                setOpenActionMenu(null);
-                              }}
-                            >
-                              React
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setReplyTarget({ ...message, body: parsedMessage.body });
-                                setEditingMessage(null);
-                                setOpenActionMenu(null);
-                              }}
-                            >
-                              Reply
-                            </button>
-                            {message.sender === identity.userId ? (
-                              <button type="button" onClick={() => startEditingMessage({ ...message, body: parsedMessage.body })}>
-                                Edit
-                              </button>
-                            ) : null}
-                            {message.sender === identity.userId || canModerate ? (
-                              <button type="button" className="matrix-message-action--danger" onClick={() => requestDeleteMessage(message)}>
-                                Delete
-                              </button>
-                            ) : null}
-                          </div>
-                        ) : null}
-                      </div>
-                    ) : null}
                   </article>
                 </div>
               );
@@ -830,6 +830,15 @@ export function MatrixChannelPanel({ activeChannel, activeSpace, identity }: Mat
       </div>
 
       <form className="message-composer-placeholder" onSubmit={handleSendMessage}>
+        {typingIndicatorText ? (
+          <div className="matrix-typing-indicator" aria-live="polite">
+            <span>{typingIndicatorText}</span>
+            <i aria-hidden="true" />
+            <i aria-hidden="true" />
+            <i aria-hidden="true" />
+          </div>
+        ) : null}
+
         {editingMessage ? (
           <div className="message-edit-preview">
             <div>
@@ -878,8 +887,6 @@ export function MatrixChannelPanel({ activeChannel, activeSpace, identity }: Mat
         </button>
       </form>
 
-
-
       {openActionMenu && openActionMenuMessage && openActionMenuParsedMessage ? (
         <div
           className="matrix-message-action-menu matrix-message-action-menu--floating kodiak-global-message-action-menu"
@@ -911,19 +918,12 @@ export function MatrixChannelPanel({ activeChannel, activeSpace, identity }: Mat
             Reply
           </button>
           {openActionMenuMessage.sender === identity.userId ? (
-            <button
-              type="button"
-              onClick={() => startEditingMessage({ ...openActionMenuMessage, body: openActionMenuParsedMessage.body })}
-            >
+            <button type="button" onClick={() => startEditingMessage({ ...openActionMenuMessage, body: openActionMenuParsedMessage.body })}>
               Edit
             </button>
           ) : null}
           {openActionMenuMessage.sender === identity.userId || canModerate ? (
-            <button
-              type="button"
-              className="matrix-message-action--danger"
-              onClick={() => requestDeleteMessage(openActionMenuMessage)}
-            >
+            <button type="button" className="matrix-message-action--danger" onClick={() => requestDeleteMessage(openActionMenuMessage)}>
               Delete
             </button>
           ) : null}
