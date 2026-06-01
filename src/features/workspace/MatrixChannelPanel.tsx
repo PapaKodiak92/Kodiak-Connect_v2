@@ -413,6 +413,8 @@ export function MatrixChannelPanel({
   const [areMessageSoundsEnabled, setAreMessageSoundsEnabled] = useState(() => window.localStorage.getItem('KC_SOUND_MESSAGES') !== 'false');
   const [isSentSoundEnabled, setIsSentSoundEnabled] = useState(() => window.localStorage.getItem('KC_SOUND_SENT') !== 'false');
   const [isReceivedSoundEnabled, setIsReceivedSoundEnabled] = useState(() => window.localStorage.getItem('KC_SOUND_RECEIVED') !== 'false');
+  const [areBrowserNotificationsEnabled, setAreBrowserNotificationsEnabled] = useState(() => window.localStorage.getItem('KC_BROWSER_NOTIFICATIONS') === 'true');
+  const [isNotificationSoundEnabled, setIsNotificationSoundEnabled] = useState(() => window.localStorage.getItem('KC_NOTIFY_SOUND') !== 'false');
   const [isLoading, setIsLoading] = useState(true);
   const [isSending, setIsSending] = useState(false);
   const [errorText, setErrorText] = useState<string | null>(null);
@@ -584,7 +586,9 @@ export function MatrixChannelPanel({
     window.localStorage.setItem('KC_SOUND_MESSAGES', String(areMessageSoundsEnabled));
     window.localStorage.setItem('KC_SOUND_SENT', String(isSentSoundEnabled));
     window.localStorage.setItem('KC_SOUND_RECEIVED', String(isReceivedSoundEnabled));
-  }, [areMessageSoundsEnabled, isReceivedSoundEnabled, isSentSoundEnabled]);
+    window.localStorage.setItem('KC_BROWSER_NOTIFICATIONS', String(areBrowserNotificationsEnabled));
+    window.localStorage.setItem('KC_NOTIFY_SOUND', String(isNotificationSoundEnabled));
+  }, [areBrowserNotificationsEnabled, areMessageSoundsEnabled, isNotificationSoundEnabled, isReceivedSoundEnabled, isSentSoundEnabled]);
 
   useEffect(() => {
     shouldStickToBottomRef.current = true;
@@ -1246,6 +1250,43 @@ export function MatrixChannelPanel({
     }
   }
 
+  async function handleBrowserNotificationToggle(enabled: boolean) {
+    if (!enabled) {
+      setAreBrowserNotificationsEnabled(false);
+      return;
+    }
+
+    if (!('Notification' in window)) {
+      setSettingsErrorText('Browser notifications are not supported in this browser.');
+      setAreBrowserNotificationsEnabled(false);
+      return;
+    }
+
+    if (!window.isSecureContext) {
+      setSettingsErrorText('Browser notifications require HTTPS or localhost. Use http://localhost:5173 for local testing, or an HTTPS staging URL.');
+      setAreBrowserNotificationsEnabled(false);
+      return;
+    }
+
+    if (Notification.permission === 'granted') {
+      setAreBrowserNotificationsEnabled(true);
+      return;
+    }
+
+    if (Notification.permission === 'denied') {
+      setSettingsErrorText('Browser notifications are blocked. Enable them in your browser site settings.');
+      setAreBrowserNotificationsEnabled(false);
+      return;
+    }
+
+    const permission = await Notification.requestPermission();
+    setAreBrowserNotificationsEnabled(permission === 'granted');
+
+    if (permission !== 'granted') {
+      setSettingsErrorText('Browser notification permission was not granted.');
+    }
+  }
+
   function handleAvatarFileChange(file: File | null) {
     setSettingsErrorText(null);
 
@@ -1858,6 +1899,27 @@ export function MatrixChannelPanel({
                   disabled={!areMessageSoundsEnabled}
                 />
                 <span>Received sound</span>
+              </label>
+            </div>
+
+            <div className="kodiak-sound-settings kodiak-notification-settings">
+              <strong>Notifications</strong>
+              <label>
+                <input
+                  type="checkbox"
+                  checked={areBrowserNotificationsEnabled}
+                  onChange={(event) => void handleBrowserNotificationToggle(event.target.checked)}
+                />
+                <span>Browser notifications</span>
+              </label>
+              <label>
+                <input
+                  type="checkbox"
+                  checked={isNotificationSoundEnabled}
+                  onChange={(event) => setIsNotificationSoundEnabled(event.target.checked)}
+                  disabled={!areBrowserNotificationsEnabled}
+                />
+                <span>Notification sound</span>
               </label>
             </div>
 
