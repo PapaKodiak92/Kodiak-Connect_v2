@@ -1,15 +1,15 @@
 {
   "@papakodiak:v2.kodiak-connect.com": {
-    "avatarUrl": "blob:http://localhost:5173/71d4536f-5ef1-47a0-95bf-710fbcf7e54b",
+    "avatarUrl": "blob:http://localhost:5173/dd953cb5-9359-4868-b18a-dbf46e251a83",
     "displayName": "PapaKodiak",
-    "lastSeenAt": 1780300072731,
+    "lastSeenAt": 1780300077940,
     "status": "online",
     "userId": "@papakodiak:v2.kodiak-connect.com"
   },
   "@kodiaktest:v2.kodiak-connect.com": {
-    "avatarUrl": "blob:http://localhost:5173/9aaa60f7-8994-4a23-b562-51c57aaf4a29",
+    "avatarUrl": "blob:http://localhost:5173/a356bd3b-90d8-4ae4-9c31-f43ac3160baf",
     "displayName": "KCTest",
-    "lastSeenAt": 1780300072683,
+    "lastSeenAt": 1780300078004,
     "status": "online",
     "userId": "@kodiaktest:v2.kodiak-connect.com"
   }
