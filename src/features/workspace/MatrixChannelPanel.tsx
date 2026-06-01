@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
+import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import type { MatrixLoginIdentity } from '../auth/matrixLoginService';
 import {
   joinRoomByAlias,
@@ -29,10 +29,15 @@ interface ParsedMessageBody {
 const REPLY_EVENT_PREFIX = 'KC_REPLY_EVENT=';
 const REPLY_SENDER_PREFIX = 'KC_REPLY_SENDER=';
 const REPLY_PREVIEW_PREFIX = 'KC_REPLY_PREVIEW=';
+const MENTION_PATTERN = /(^|\s)(@[a-zA-Z0-9._-]{2,32})/g;
 
 function getDisplayName(userId: string) {
   const withoutPrefix = userId.startsWith('@') ? userId.slice(1) : userId;
   return withoutPrefix.split(':')[0] || userId;
+}
+
+function getUserLocalpart(userId: string) {
+  return getDisplayName(userId).toLowerCase();
 }
 
 function formatMessageTime(timestamp: number) {
@@ -171,6 +176,42 @@ function buildReplyBody(replyTarget: MatrixTextMessage | null, body: string) {
   ].join('\n');
 }
 
+function renderMessageTextWithMentions(body: string, currentUserLocalpart: string): ReactNode[] {
+  const renderedParts: ReactNode[] = [];
+  let lastIndex = 0;
+  let match: RegExpExecArray | null;
+
+  MENTION_PATTERN.lastIndex = 0;
+
+  while ((match = MENTION_PATTERN.exec(body)) !== null) {
+    const fullMatch = match[0];
+    const leadingWhitespace = match[1] ?? '';
+    const mention = match[2];
+    const mentionStart = match.index + leadingWhitespace.length;
+
+    if (mentionStart > lastIndex) {
+      renderedParts.push(body.slice(lastIndex, mentionStart));
+    }
+
+    const mentionLocalpart = mention.slice(1).toLowerCase();
+    const isMentioningCurrentUser = mentionLocalpart === currentUserLocalpart;
+
+    renderedParts.push(
+      <span key={`${mention}-${mentionStart}`} className={`matrix-mention ${isMentioningCurrentUser ? 'matrix-mention--self' : ''}`}>
+        {mention}
+      </span>,
+    );
+
+    lastIndex = match.index + fullMatch.length;
+  }
+
+  if (lastIndex < body.length) {
+    renderedParts.push(body.slice(lastIndex));
+  }
+
+  return renderedParts;
+}
+
 export function MatrixChannelPanel({ activeChannel, activeSpace, identity }: MatrixChannelPanelProps) {
   const [roomId, setRoomId] = useState<string | null>(null);
   const [messages, setMessages] = useState<MatrixTextMessage[]>([]);
@@ -183,6 +224,7 @@ export function MatrixChannelPanel({ activeChannel, activeSpace, identity }: Mat
   const pollingTimer = useRef<number | null>(null);
 
   const displayName = getDisplayName(identity.userId);
+  const currentUserLocalpart = getUserLocalpart(identity.userId);
   const canPost = canPostInChannel(activeChannel, identity.userId);
 
   const refreshMessages = useCallback(
@@ -360,7 +402,7 @@ export function MatrixChannelPanel({ activeChannel, activeSpace, identity }: Mat
                       <strong>{getDisplayName(message.sender)}</strong>
                       <time>{formatMessageTime(message.originServerTs)}</time>
                     </header>
-                    <p>{parsedMessage.body}</p>
+                    <p>{renderMessageTextWithMentions(parsedMessage.body, currentUserLocalpart)}</p>
                     {canPost ? (
                       <div className="matrix-message-actions">
                         <button type="button" onClick={() => setReplyTarget({ ...message, body: parsedMessage.body })}>
