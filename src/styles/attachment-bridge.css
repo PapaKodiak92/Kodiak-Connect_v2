@@ -216,6 +216,64 @@
   white-space: nowrap;
 }
 
+.matrix-media-message {
+  display: grid;
+  gap: 0.62rem;
+  width: min(420px, 100%);
+  border: 1px solid rgba(251, 146, 60, 0.18);
+  border-radius: 18px;
+  background: rgba(2, 6, 23, 0.34);
+  padding: 0.7rem;
+}
+
+.matrix-media-message img,
+.matrix-media-message video {
+  display: block;
+  width: 100%;
+  max-height: 320px;
+  border-radius: 14px;
+  background: rgba(2, 6, 23, 0.72);
+  object-fit: contain;
+}
+
+.matrix-media-message audio {
+  width: 100%;
+}
+
+.matrix-media-message__details {
+  display: grid;
+  gap: 0.16rem;
+}
+
+.matrix-media-message__details strong {
+  overflow: hidden;
+  color: #fff7ed;
+  font-size: 0.92rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.matrix-media-message__details small {
+  color: #94a3b8;
+  font-size: 0.78rem;
+}
+
+.matrix-media-message__open {
+  width: fit-content;
+  border: 1px solid rgba(251, 146, 60, 0.24);
+  border-radius: 999px;
+  background: rgba(15, 23, 42, 0.72);
+  color: #fed7aa;
+  font-size: 0.78rem;
+  font-weight: 900;
+  padding: 0.4rem 0.7rem;
+  text-decoration: none;
+}
+
+.matrix-message--own .matrix-media-message {
+  justify-self: end;
+}
+
 @media (max-width: 760px) {
   .kodiak-attachment-bridge {
     right: 5.55rem;
