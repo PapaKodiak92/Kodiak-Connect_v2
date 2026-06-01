@@ -1,0 +1,10 @@
+{
+  "@kodiaktest:v2.kodiak-connect.com|@papakodiak:v2.kodiak-connect.com": {
+    "createdAt": 1780300925774,
+    "requesterUserId": "@kodiaktest:v2.kodiak-connect.com",
+    "status": "friends",
+    "targetUserId": "@papakodiak:v2.kodiak-connect.com",
+    "acceptedAt": 1780300930399,
+    "updatedAt": 1780300930399
+  }
+}

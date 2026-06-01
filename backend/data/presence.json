@@ -1,16 +1,16 @@
 {
-  "@papakodiak:v2.kodiak-connect.com": {
-    "avatarUrl": "blob:http://localhost:5173/b6cdefe6-6802-4997-af19-777d475ca22e",
-    "displayName": "PapaKodiak",
-    "lastSeenAt": 1780300080911,
-    "status": "online",
-    "userId": "@papakodiak:v2.kodiak-connect.com"
-  },
   "@kodiaktest:v2.kodiak-connect.com": {
-    "avatarUrl": "blob:http://localhost:5173/ad344334-fa3d-4a15-a08d-06bd35b4657a",
+    "avatarUrl": "blob:http://localhost:5173/e842c0ad-5719-46b3-afec-769531897b35",
     "displayName": "KCTest",
-    "lastSeenAt": 1780300080896,
+    "lastSeenAt": 1780300982902,
     "status": "online",
     "userId": "@kodiaktest:v2.kodiak-connect.com"
+  },
+  "@papakodiak:v2.kodiak-connect.com": {
+    "avatarUrl": "blob:http://localhost:5173/73c8ead4-e93f-465c-9105-fa06bfeadb57",
+    "displayName": "PapaKodiak",
+    "lastSeenAt": 1780300982940,
+    "status": "online",
+    "userId": "@papakodiak:v2.kodiak-connect.com"
   }
 }
