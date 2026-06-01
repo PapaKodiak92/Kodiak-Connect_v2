@@ -23,6 +23,9 @@ jobs:
     permissions:
       contents: read
 
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
@@ -30,7 +33,7 @@ jobs:
       - name: Set up Node
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 24
 
       - name: Post curated changelog to Matrix
         run: node scripts/post-matrix-dev-update.mjs
