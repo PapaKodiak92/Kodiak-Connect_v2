@@ -4,11 +4,11 @@ on:
   workflow_dispatch:
     inputs:
       title:
-        description: Dev update title/version
-        required: true
+        description: Optional dev update title/version. If blank, the script uses the changelog file heading.
+        required: false
         type: string
-      changelog:
-        description: Curated changelog body
+      changelog_file:
+        description: Changelog file path, for example docs/changelogs/v0.3.0-staging.md
         required: true
         type: string
 
@@ -39,4 +39,4 @@ jobs:
           MATRIX_BASE_URL: https://matrix-v2.kodiak-connect.com
           MATRIX_ROOM_ALIAS: "#dev-updates:v2.kodiak-connect.com"
           DEV_UPDATE_TITLE: ${{ github.event.inputs.title || github.event.release.name || github.event.release.tag_name }}
-          DEV_UPDATE_BODY: ${{ github.event.inputs.changelog || github.event.release.body }}
+          CHANGELOG_FILE: ${{ github.event.inputs.changelog_file }}
