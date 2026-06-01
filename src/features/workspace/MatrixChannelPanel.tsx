@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
+import { useCallback, useEffect, useRef, useState, type FormEvent, type KeyboardEvent, type ReactNode } from 'react';
 import type { MatrixLoginIdentity } from '../auth/matrixLoginService';
 import {
   joinRoomByAlias,
@@ -384,6 +384,15 @@ export function MatrixChannelPanel({ activeChannel, activeSpace, identity }: Mat
     setDraftMessage((currentDraft) => applyMentionSuggestion(currentDraft, getActiveMentionSearch(currentDraft), suggestion));
   }
 
+  function handleComposerKeyDown(event: KeyboardEvent<HTMLInputElement>) {
+    if (event.key !== 'Tab' || mentionSuggestions.length === 0) {
+      return;
+    }
+
+    event.preventDefault();
+    insertMentionSuggestion(mentionSuggestions[0]);
+  }
+
   async function handleSendMessage(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
@@ -514,6 +523,7 @@ export function MatrixChannelPanel({ activeChannel, activeSpace, identity }: Mat
           placeholder={getComposerPlaceholder(activeChannel, canPost, roomId, replyTarget)}
           value={draftMessage}
           onChange={(event) => setDraftMessage(event.target.value)}
+          onKeyDown={handleComposerKeyDown}
           disabled={!roomId || isSending || !canPost}
         />
         <button type="submit" disabled={!roomId || isSending || !canPost || !draftMessage.trim()}>
