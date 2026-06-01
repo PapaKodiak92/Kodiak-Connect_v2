@@ -84,6 +84,58 @@
   white-space: pre-wrap;
 }
 
+.matrix-message-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 0.6rem;
+  opacity: 0;
+  transition: opacity 160ms ease;
+}
+
+.matrix-message:hover .matrix-message-actions,
+.matrix-message:focus-within .matrix-message-actions {
+  opacity: 1;
+}
+
+.matrix-message-actions button,
+.message-reply-preview button {
+  border-color: rgba(251, 146, 60, 0.22);
+  background: rgba(15, 23, 42, 0.72);
+  color: #fed7aa;
+  font-size: 0.78rem;
+  padding: 0.4rem 0.7rem;
+}
+
+.message-reply-preview {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.85rem;
+  border: 1px solid rgba(251, 146, 60, 0.18);
+  border-radius: 18px;
+  background: rgba(15, 23, 42, 0.72);
+  padding: 0.75rem 0.9rem;
+}
+
+.message-reply-preview div {
+  display: grid;
+  gap: 0.25rem;
+  min-width: 0;
+}
+
+.message-reply-preview strong {
+  color: #fff7ed;
+  font-size: 0.9rem;
+}
+
+.message-reply-preview span {
+  color: #94a3b8;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .matrix-empty-state {
   display: grid;
   min-height: 220px;
