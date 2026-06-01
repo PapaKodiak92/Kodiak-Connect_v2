@@ -325,6 +325,18 @@ export function WorkspaceShell({ identity, onLogout }: WorkspaceShellProps) {
     setActiveChannelId(channel.id);
   }
 
+  function handleCloseDirectMessage(channelId: string) {
+    setDirectMessageChannels((currentChannels) => {
+      const nextChannels = currentChannels.filter((channel) => channel.id !== channelId);
+      writeStoredDirectMessageChannels(identity.userId, nextChannels);
+      return nextChannels;
+    });
+
+    if (activeChannelId === channelId) {
+      setActiveChannelId('general');
+    }
+  }
+
   function handleOpenDirectMessage(userId: string, displayName = getDisplayNameFromUserId(userId)) {
     const directMessageChannel = createDirectMessageChannel(userId, displayName);
 
@@ -357,6 +369,7 @@ export function WorkspaceShell({ identity, onLogout }: WorkspaceShellProps) {
         activeChannelId={activeChannel.id}
         channelActivity={channelActivity}
         onSelectChannel={handleSelectChannel}
+        onCloseDirectMessage={handleCloseDirectMessage}
         onLogout={onLogout}
       />
       {activeChannel.matrixAlias || activeChannel.matrixDmUserId ? (

@@ -1,3 +1,4 @@
+import { useRef, useState, type MouseEvent, type TouchEvent } from 'react';
 import type { WorkspaceChannel, WorkspaceSpace } from './workspaceTypes';
 
 export interface ChannelActivity {
@@ -13,6 +14,7 @@ interface ChannelSidebarProps {
   activeSpace: WorkspaceSpace;
   channelActivity: ChannelActivityById;
   onSelectChannel: (channel: WorkspaceChannel) => void;
+  onCloseDirectMessage?: (channelId: string) => void;
   onLogout: () => void;
 }
 
@@ -25,7 +27,83 @@ function getChannelPrefix(kind: WorkspaceChannel['kind']) {
   return '#';
 }
 
-export function ChannelSidebar({ activeChannelId, activeSpace, channelActivity, onSelectChannel, onLogout }: ChannelSidebarProps) {
+export function ChannelSidebar({
+  activeChannelId,
+  activeSpace,
+  channelActivity,
+  onSelectChannel,
+  onCloseDirectMessage,
+  onLogout,
+}: ChannelSidebarProps) {
+  const [openChannelMenu, setOpenChannelMenu] = useState<{ channelId: string; x: number; y: number } | null>(null);
+  const longPressTimer = useRef<number | null>(null);
+
+  function getSafeMenuPosition(clientX: number, clientY: number) {
+    const menuWidth = 210;
+    const menuHeight = 145;
+    const padding = 14;
+
+    return {
+      x: Math.min(Math.max(clientX, padding), window.innerWidth - menuWidth - padding),
+      y: Math.min(Math.max(clientY, padding), window.innerHeight - menuHeight - padding),
+    };
+  }
+
+  function clearLongPressTimer() {
+    if (longPressTimer.current) {
+      window.clearTimeout(longPressTimer.current);
+      longPressTimer.current = null;
+    }
+  }
+
+  function openDirectMessageMenu(channel: WorkspaceChannel, clientX: number, clientY: number) {
+    if (channel.kind !== 'dm' || !onCloseDirectMessage) {
+      return;
+    }
+
+    const position = getSafeMenuPosition(clientX, clientY);
+
+    setOpenChannelMenu({
+      channelId: channel.id,
+      x: position.x,
+      y: position.y,
+    });
+  }
+
+  function handleChannelContextMenu(event: MouseEvent<HTMLButtonElement>, channel: WorkspaceChannel) {
+    if (channel.kind !== 'dm') {
+      return;
+    }
+
+    event.preventDefault();
+    event.stopPropagation();
+
+    openDirectMessageMenu(channel, event.clientX, event.clientY);
+  }
+
+  function handleChannelTouchStart(event: TouchEvent<HTMLButtonElement>, channel: WorkspaceChannel) {
+    if (channel.kind !== 'dm') {
+      return;
+    }
+
+    const touch = event.touches[0];
+
+    if (!touch) {
+      return;
+    }
+
+    clearLongPressTimer();
+
+    longPressTimer.current = window.setTimeout(() => {
+      openDirectMessageMenu(channel, touch.clientX, touch.clientY);
+    }, 520);
+  }
+
+  function closeChannelMenu() {
+    clearLongPressTimer();
+    setOpenChannelMenu(null);
+  }
+
   return (
     <aside className="channel-sidebar" aria-label={`${activeSpace.name} channels`}>
       <div className="channel-sidebar__header">
@@ -55,6 +133,11 @@ export function ChannelSidebar({ activeChannelId, activeSpace, channelActivity, 
                       hasMention ? 'channel-button--mention' : ''
                     }`}
                     disabled={channel.disabled}
+                    onContextMenu={(event) => handleChannelContextMenu(event, channel)}
+                    onTouchStart={(event) => handleChannelTouchStart(event, channel)}
+                    onTouchEnd={clearLongPressTimer}
+                    onTouchMove={clearLongPressTimer}
+                    onTouchCancel={clearLongPressTimer}
                     onClick={() => onSelectChannel(channel)}
                   >
                     <span aria-hidden="true">{getChannelPrefix(channel.kind)}</span>
@@ -72,6 +155,52 @@ export function ChannelSidebar({ activeChannelId, activeSpace, channelActivity, 
           </section>
         ))}
       </nav>
+
+      {openChannelMenu ? (
+        <>
+          <div
+            className="channel-sidebar-menu-backdrop"
+            role="presentation"
+            onClick={closeChannelMenu}
+            onMouseDown={(event) => {
+              if (event.button === 2) {
+                event.preventDefault();
+                event.stopPropagation();
+                closeChannelMenu();
+              }
+            }}
+            onContextMenu={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              closeChannelMenu();
+            }}
+          />
+          <div
+            className="channel-sidebar-context-menu"
+            style={{ left: openChannelMenu.x, top: openChannelMenu.y }}
+            onContextMenu={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+            }}
+          >
+            <button
+              type="button"
+              onClick={() => {
+                onCloseDirectMessage?.(openChannelMenu.channelId);
+                closeChannelMenu();
+              }}
+            >
+              Close chat
+            </button>
+            <button type="button" disabled>
+              Add people soon
+            </button>
+            <button type="button" className="channel-sidebar-context-menu__danger" disabled>
+              Destroy chat soon
+            </button>
+          </div>
+        </>
+      ) : null}
 
       <div className="channel-sidebar__footer">
         <button type="button" disabled>
