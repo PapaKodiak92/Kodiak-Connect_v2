@@ -104,9 +104,9 @@ function getEmptyState(channel: WorkspaceChannel, canPost: boolean) {
   return 'No messages yet. Send the first message in Official Space.';
 }
 
-function getShortMessagePreview(body: string) {
+function getShortMessagePreview(body: string, maxLength = 52) {
   const compactBody = body.replace(/\s+/g, ' ').trim();
-  return compactBody.length > 96 ? `${compactBody.slice(0, 96)}...` : compactBody;
+  return compactBody.length > maxLength ? `${compactBody.slice(0, maxLength).trim()}...` : compactBody;
 }
 
 function parseKeyedReplyBody(body: string): ParsedMessageBody | null {
@@ -129,7 +129,7 @@ function parseKeyedReplyBody(body: string): ParsedMessageBody | null {
     body: messageBody,
     reply: {
       eventId,
-      preview,
+      preview: getShortMessagePreview(preview, 52),
       sender,
     },
   };
@@ -145,7 +145,7 @@ function parseLegacyReplyBody(body: string): ParsedMessageBody | null {
   return {
     body: match[3].trim(),
     reply: {
-      preview: getShortMessagePreview(match[2]),
+      preview: getShortMessagePreview(match[2], 52),
       sender: match[1],
     },
   };
@@ -165,7 +165,7 @@ function buildReplyBody(replyTarget: MatrixTextMessage | null, body: string) {
   return [
     `${REPLY_EVENT_PREFIX}${replyTarget.eventId}`,
     `${REPLY_SENDER_PREFIX}${getDisplayName(replyTarget.sender)}`,
-    `${REPLY_PREVIEW_PREFIX}${getShortMessagePreview(parsedTarget.body)}`,
+    `${REPLY_PREVIEW_PREFIX}${getShortMessagePreview(parsedTarget.body, 52)}`,
     '',
     body,
   ].join('\n');
@@ -341,10 +341,12 @@ export function MatrixChannelPanel({ activeChannel, activeSpace, identity }: Mat
                       className="matrix-reply-thread-link"
                       onClick={() => handleJumpToMessage(parsedMessage.reply?.eventId)}
                       disabled={!parsedMessage.reply.eventId}
+                      title={`Replying to ${parsedMessage.reply.sender}: ${parsedMessage.reply.preview}`}
                     >
-                      <span aria-hidden="true">↪</span>
+                      <span className="matrix-reply-thread-link__arrow" aria-hidden="true">↪</span>
                       <strong>{parsedMessage.reply.sender}</strong>
-                      <span>{parsedMessage.reply.preview}</span>
+                      <span className="matrix-reply-thread-link__separator" aria-hidden="true">·</span>
+                      <span className="matrix-reply-thread-link__preview">{parsedMessage.reply.preview}</span>
                     </button>
                   ) : null}
 
@@ -381,7 +383,7 @@ export function MatrixChannelPanel({ activeChannel, activeSpace, identity }: Mat
           <div className="message-reply-preview">
             <div>
               <strong>Replying to {getDisplayName(replyTarget.sender)}</strong>
-              <span>{getShortMessagePreview(parseMessageBody(replyTarget.body).body)}</span>
+              <span>{getShortMessagePreview(parseMessageBody(replyTarget.body).body, 72)}</span>
             </div>
             <button type="button" onClick={() => setReplyTarget(null)} aria-label="Cancel reply">
               Cancel
