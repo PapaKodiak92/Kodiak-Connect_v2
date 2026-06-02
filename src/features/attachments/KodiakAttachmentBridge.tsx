@@ -560,8 +560,8 @@ export function KodiakAttachmentBridge({ identity }: KodiakAttachmentBridgeProps
       }
 
       const noticeBody = files.length === 1
-        ? `📎 Shared ${uploadedLabels[0]}. Open Transfers to preview/download.`
-        : `📁 Shared ${files.length} files. Open Transfers to preview/download.`;
+        ? `+Shared ${uploadedLabels[0]}. Open Transfers to preview/download.`
+        : `+Shared ${files.length} files. Open Transfers to preview/download.`;
       await sendTextNotice(identity, roomId, noticeBody);
 
       setStatusText(`Shared ${files.length} file${files.length === 1 ? '' : 's'} to chat.`);
@@ -600,9 +600,9 @@ export function KodiakAttachmentBridge({ identity }: KodiakAttachmentBridgeProps
         });
         const contentUri = await uploadFile(identity, file);
         await sendAttachmentEvent(identity, roomId, file, contentUri);
-        await sendTextNotice(identity, roomId, `🎞️ Shared GIF: ${title}. Open Transfers to preview/download.`);
+        await sendTextNotice(identity, roomId, `[GIF] Shared GIF: ${title}. Open Transfers to preview/download.`);
       } catch {
-        await sendTextNotice(identity, roomId, `🎞️ ${title}: ${gifUrl}`);
+        await sendTextNotice(identity, roomId, `[GIF] ${title}: ${gifUrl}`);
       }
 
       setStatusText('GIF shared to chat.');
@@ -642,7 +642,7 @@ export function KodiakAttachmentBridge({ identity }: KodiakAttachmentBridgeProps
   }
 
   return (
-    <aside className={`kodiak-attachment-bridge ${isExpanded ? 'kodiak-attachment-bridge--expanded' : ''}`} aria-label="File sharing">
+    <aside className={`kodiak-attachment-bridge ${isExpanded ? 'X' : '+'}`} aria-label="File sharing">
       <input ref={imageInputRef} type="file" accept="image/*,.gif" multiple hidden onChange={(event) => void shareFiles(event.currentTarget.files)} />
       <input ref={fileInputRef} type="file" multiple hidden onChange={(event) => void shareFiles(event.currentTarget.files)} />
       <input ref={folderInputRef} type="file" multiple hidden onChange={(event) => void shareFiles(event.currentTarget.files)} />
@@ -653,7 +653,7 @@ export function KodiakAttachmentBridge({ identity }: KodiakAttachmentBridgeProps
         onClick={() => setIsExpanded((expanded) => !expanded)}
         title="GIFs, files, music, and folder sharing"
       >
-        {isExpanded ? '×' : '📎'}
+        {isExpanded ? 'X' : '+'}
       </button>
 
       {isExpanded ? (
@@ -726,7 +726,7 @@ export function KodiakAttachmentBridge({ identity }: KodiakAttachmentBridgeProps
                     {attachment.objectUrl && VIDEO_MSGTYPES.has(attachment.msgtype) ? <video controls src={attachment.objectUrl} /> : null}
                     <div>
                       <strong>{attachment.body}</strong>
-                      <span>{getDisplayName(attachment.sender)} · {formatBytes(attachment.size)} · {formatTime(attachment.originServerTs)}</span>
+                      <span>{getDisplayName(attachment.sender)} - {formatBytes(attachment.size)} - {formatTime(attachment.originServerTs)}</span>
                     </div>
                     <button type="button" onClick={() => void downloadAttachment(attachment)}>Download</button>
                   </article>

@@ -572,11 +572,6 @@
   touch-action: manipulation;
 }
 
-.matrix-message-actions,
-.matrix-message-action-trigger {
-  display: none !important;
-}
-
 .matrix-action-menu-backdrop {
   position: fixed;
   inset: 0;

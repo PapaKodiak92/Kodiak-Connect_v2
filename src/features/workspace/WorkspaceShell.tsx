@@ -203,7 +203,7 @@ function showKodiakBrowserNotification(channel: WorkspaceChannel, messageBody: s
     return;
   }
 
-  const notification = new Notification(`Kodiak Connect — ${getChannelDisplayTitle(channel)}`, {
+  const notification = new Notification(`Kodiak Connect - ${getChannelDisplayTitle(channel)}`, {
     body: messageBody.length > 120 ? `${messageBody.slice(0, 117)}...` : messageBody,
     icon: '/favicon.ico',
     silent: true,

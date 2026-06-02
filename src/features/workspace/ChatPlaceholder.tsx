@@ -406,7 +406,7 @@ function SafetyCenterReports({ identity }: Pick<ChatPlaceholderProps, 'identity'
                         <p>{action.body}</p>
                         <small>
                           {getDisplayName(action.actorUserId)}
-                          {action.type === 'note' ? ' · internal only' : ''}
+                          {action.type === 'note' ? ' - internal only' : ''}
                         </small>
                       </article>
                     ))}

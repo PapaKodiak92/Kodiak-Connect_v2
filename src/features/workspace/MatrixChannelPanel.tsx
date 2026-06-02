@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent, type MouseEvent, type ReactNode } from 'react';
+import { createPortal } from 'react-dom';
 import type { MatrixLoginIdentity } from '../auth/matrixLoginService';
-import { playKodiakSound } from '../audio/kodiakSounds';
+import { playKodiakSound, unlockKodiakSounds } from '../audio/kodiakSounds';
 import {
   loadKodiakPresence,
   loadKodiakProfiles,
@@ -702,6 +703,22 @@ export function MatrixChannelPanel({
     Object.entries(displayNamesByUserId).map(([userId, displayName]) => [getUserLocalpart(userId), displayName]),
   );
 
+
+  useEffect(() => {
+    function unlockSounds() {
+      unlockKodiakSounds();
+      window.removeEventListener('pointerdown', unlockSounds, true);
+      window.removeEventListener('keydown', unlockSounds, true);
+    }
+
+    window.addEventListener('pointerdown', unlockSounds, true);
+    window.addEventListener('keydown', unlockSounds, true);
+
+    return () => {
+      window.removeEventListener('pointerdown', unlockSounds, true);
+      window.removeEventListener('keydown', unlockSounds, true);
+    };
+  }, []);
   useEffect(() => {
     const userIdsToLoad = new Set<string>([identity.userId]);
 
@@ -1286,14 +1303,20 @@ export function MatrixChannelPanel({
   }
 
   function handleMessageListContextMenu(event: MouseEvent<HTMLDivElement>) {
+    event.preventDefault();
+    event.stopPropagation();
+
+    if (openActionMenu) {
+      closeMessageActionMenu();
+      return;
+    }
+
     const message = findMessageForDomTarget(event.target);
 
     if (!message) {
       return;
     }
 
-    event.preventDefault();
-    event.stopPropagation();
     openMessageActionMenu(message, event.clientX, event.clientY);
   }
 
@@ -1343,13 +1366,13 @@ export function MatrixChannelPanel({
   }
 
   function getSafeMenuPosition(clientX: number, clientY: number) {
-    const menuWidth = 230;
-    const menuHeight = 210;
-    const padding = 14;
+    const menuWidth = 190;
+    const menuHeight = 175;
+    const padding = 8;
 
     return {
-      x: Math.min(Math.max(clientX, padding), window.innerWidth - menuWidth - padding),
-      y: Math.min(Math.max(clientY, padding), window.innerHeight - menuHeight - padding),
+      x: Math.min(Math.max(clientX + 6, padding), window.innerWidth - menuWidth - padding),
+      y: Math.min(Math.max(clientY + 6, padding), window.innerHeight - menuHeight - padding),
     };
   }
 
@@ -1805,6 +1828,7 @@ export function MatrixChannelPanel({
 
   async function handleSendMessage(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    unlockKodiakSounds();
 
     const trimmedMessage = draftMessage.trim();
 
@@ -1825,6 +1849,12 @@ export function MatrixChannelPanel({
     setIsSending(true);
     setErrorText(null);
 
+    const shouldPlaySentSound = !editingMessage && areMessageSoundsEnabled && isSentSoundEnabled;
+
+    if (shouldPlaySentSound) {
+      playKodiakSound('messageSent', 0.55);
+    }
+
     try {
       await stopTyping();
 
@@ -1833,10 +1863,6 @@ export function MatrixChannelPanel({
         setEditingMessage(null);
       } else {
         await sendTextMessage(identity, roomId, buildReplyBody(replyTarget, trimmedMessage));
-
-        if (areMessageSoundsEnabled && isSentSoundEnabled) {
-          playKodiakSound('messageSent', 0.55);
-        }
       }
 
       setDraftMessage('');
@@ -1892,7 +1918,7 @@ export function MatrixChannelPanel({
             ref={messageListRef}
             className="matrix-message-list"
             aria-label="Message history"
-            onContextMenu={handleMessageListContextMenu}
+            onContextMenuCapture={handleMessageListContextMenu}
             onScroll={handleMessageListScroll}
           >
             {visibleMessages.map((message: MatrixTextMessage) => {
@@ -1911,7 +1937,7 @@ export function MatrixChannelPanel({
                     >
                       <span className="matrix-reply-thread-link__arrow" aria-hidden="true">â†ª</span>
                       <strong>{parsedMessage.reply.sender}</strong>
-                      <span className="matrix-reply-thread-link__separator" aria-hidden="true">Â·</span>
+                      <span className="matrix-reply-thread-link__separator" aria-hidden="true"> - </span>
                       <span className="matrix-reply-thread-link__preview">{parsedMessage.reply.preview}</span>
                     </button>
                   ) : null}
@@ -1976,23 +2002,6 @@ export function MatrixChannelPanel({
                         ))}
                       </div>
                     ) : null}
-
-                      <div className="matrix-message-actions">
-                        <button
-                          type="button"
-                          className="matrix-message-action-trigger"
-                          aria-label="Open message actions"
-                          aria-expanded={openActionMenu?.messageId === message.eventId}
-                          onClick={(event) => {
-                            event.preventDefault();
-                            event.stopPropagation();
-                            const buttonRect = event.currentTarget.getBoundingClientRect();
-                            openMessageActionMenu(message, buttonRect.right, buttonRect.top);
-                          }}
-                        >
-                          ⋯
-                        </button>
-                      </div>
                     </div>
                   </article>
                 </div>
@@ -2010,9 +2019,20 @@ export function MatrixChannelPanel({
           className="matrix-member-panel__toggle"
           aria-label={isMemberPanelOpen ? 'Hide member panel' : 'Show member panel'}
           title={isMemberPanelOpen ? 'Hide members' : 'Show members'}
-          onClick={() => setIsMemberPanelOpen((isOpen) => !isOpen)}
+          onPointerDown={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            setIsMemberPanelOpen((isOpen) => !isOpen);
+          }}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter' || event.key === ' ') {
+              event.preventDefault();
+              event.stopPropagation();
+              setIsMemberPanelOpen((isOpen) => !isOpen);
+            }
+          }}
         >
-          {isMemberPanelOpen ? 'â€º' : 'â€¹'}
+          {isMemberPanelOpen ? '>' : '<'}
         </button>
 
         <div className="matrix-member-panel__inner">
@@ -2032,7 +2052,7 @@ export function MatrixChannelPanel({
                 <strong>{getKnownDisplayName(userId)}</strong>
                 <small>
                   <i className={`matrix-presence-text-dot matrix-presence-text-dot--${getKnownPresence(userId)}`} aria-hidden="true" />
-                  {getPresenceLabel(userId)} Â· {getMemberRoleLabel(userId)}
+                  {getPresenceLabel(userId)} - {getMemberRoleLabel(userId)}
                 </small>
               </span>
             </button>
@@ -2101,13 +2121,14 @@ export function MatrixChannelPanel({
         </button>
       </form>
 
-      {openActionMenu && openActionMenuMessage && openActionMenuParsedMessage ? (
+      {openActionMenu && openActionMenuMessage && openActionMenuParsedMessage ? createPortal(
         <div
           className="matrix-message-action-menu matrix-message-action-menu--floating kodiak-global-message-action-menu"
-          style={{ left: openActionMenu.x, top: openActionMenu.y }}
+          style={{ position: 'fixed', left: openActionMenu.x, top: openActionMenu.y }}
           onContextMenu={(event) => {
             event.preventDefault();
             event.stopPropagation();
+            closeMessageActionMenu();
           }}
         >
           {openActionMenuMessage.sender !== identity.userId && onOpenDirectMessage ? (
@@ -2115,15 +2136,13 @@ export function MatrixChannelPanel({
               type="button"
               onClick={() => {
                 onOpenDirectMessage(openActionMenuMessage.sender, getKnownDisplayName(openActionMenuMessage.sender));
-                setOpenActionMenu(null);
-                setReactionPickerMessageId(null);
-                setReplyTarget(null);
-                setEditingMessage(null);
+                closeMessageActionMenu();
               }}
             >
               Message {getKnownDisplayName(openActionMenuMessage.sender)}
             </button>
           ) : null}
+
           {canPost ? (
             <button
               type="button"
@@ -2131,56 +2150,52 @@ export function MatrixChannelPanel({
                 setReactionPickerMessageId((currentMessageId) =>
                   currentMessageId === openActionMenuMessage.eventId ? null : openActionMenuMessage.eventId,
                 );
-                setOpenActionMenu(null);
+                closeMessageActionMenu();
               }}
             >
               React
             </button>
           ) : null}
+
           {canPost ? (
             <button
               type="button"
               onClick={() => {
                 setReplyTarget({ ...openActionMenuMessage, body: openActionMenuParsedMessage.body });
                 setEditingMessage(null);
-                setOpenActionMenu(null);
+                closeMessageActionMenu();
               }}
             >
               Reply
             </button>
           ) : null}
+
           {openActionMenuMessage.sender === identity.userId ? (
-            <button type="button" onClick={() => startEditingMessage({ ...openActionMenuMessage, body: openActionMenuParsedMessage.body })}>
+            <button
+              type="button"
+              onClick={() => {
+                startEditingMessage({ ...openActionMenuMessage, body: openActionMenuParsedMessage.body });
+                closeMessageActionMenu();
+              }}
+            >
               Edit
             </button>
           ) : null}
+
           {openActionMenuMessage.sender === identity.userId || canModerate ? (
-            <button type="button" className="matrix-message-action--danger" onClick={() => requestDeleteMessage(openActionMenuMessage)}>
+            <button
+              type="button"
+              className="matrix-message-action--danger"
+              onClick={() => {
+                requestDeleteMessage(openActionMenuMessage);
+                closeMessageActionMenu();
+              }}
+            >
               Delete
             </button>
           ) : null}
-        </div>
-      ) : null}
-
-      {openActionMenu ? (
-        <div
-          className="matrix-action-menu-backdrop"
-          aria-label="Close message actions"
-          role="presentation"
-          onClick={closeMessageActionMenu}
-          onMouseDown={(event) => {
-            if (event.button === 2) {
-              event.preventDefault();
-              event.stopPropagation();
-              closeMessageActionMenu();
-            }
-          }}
-          onContextMenu={(event) => {
-            event.preventDefault();
-            event.stopPropagation();
-            closeMessageActionMenu();
-          }}
-        />
+        </div>,
+        document.body,
       ) : null}
 
       {openProfileUserId ? (
@@ -2563,7 +2578,7 @@ export function MatrixChannelPanel({
                       {report.context || report.roomId ? (
                         <small>
                           {report.context ? `Context: ${report.context}` : ''}
-                          {report.context && report.roomId ? ' Â· ' : ''}
+                          {report.context && report.roomId ? '  -  ' : ''}
                           {report.roomId ? `Room: ${report.roomId}` : ''}
                         </small>
                       ) : null}

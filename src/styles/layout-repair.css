@@ -243,54 +243,258 @@
   display: none !important;
 }
 
-/* Kodiak 1.1.2: message action and header pill repair */
-.chat-placeholder__header .chat-placeholder__user--button {
+/* Kodiak workspace repair: right-click menu and header alignment */
+.chat-placeholder__header {
+  align-items: center !important;
+}
+
+.chat-placeholder__header .chat-placeholder__user--button:not(.kodiak-safety-center-trigger) {
   align-self: center !important;
-  margin-top: 0.85rem !important;
-  transform: translateY(0.35rem) !important;
+  margin-top: 0.7rem !important;
+  transform: none !important;
 }
 
-.matrix-message .matrix-message-actions {
-  position: absolute !important;
-  top: 0.72rem !important;
-  right: 0.75rem !important;
-  bottom: auto !important;
-  display: flex !important;
-  justify-content: flex-end !important;
-  margin: 0 !important;
-  opacity: 0 !important;
-  pointer-events: none !important;
-  transition: opacity 160ms ease, transform 160ms ease !important;
-  transform: translateY(-2px) !important;
+.matrix-member-panel__toggle {
+  font-family: Arial, Helvetica, sans-serif !important;
+  font-weight: 900 !important;
 }
 
-.matrix-message:hover .matrix-message-actions,
-.matrix-message:focus-within .matrix-message-actions {
-  opacity: 1 !important;
+.matrix-message {
+  position: relative !important;
+  cursor: context-menu !important;
+}
+
+.matrix-message-actions,
+.matrix-message-action-trigger {
+  display: none !important;
+}
+
+.matrix-message-action-menu--floating,
+.kodiak-global-message-action-menu {
+  position: fixed !important;
+  z-index: 1300 !important;
+  width: 180px !important;
   pointer-events: auto !important;
-  transform: translateY(0) !important;
 }
 
-.matrix-message .matrix-message-action-trigger {
+.matrix-action-menu-backdrop {
+  position: fixed !important;
+  inset: 0 !important;
+  z-index: 1200 !important;
+  display: block !important;
+  border: 0 !important;
+  background: transparent !important;
+  padding: 0 !important;
+}
+/* Kodiak context menu final repair */
+.matrix-message-actions,
+.matrix-message-action-trigger {
+  display: none !important;
+}
+
+.matrix-message-action-menu--floating,
+.kodiak-global-message-action-menu {
+  position: fixed !important;
+  z-index: 5000 !important;
+  width: 190px !important;
+  pointer-events: auto !important;
+}
+
+.matrix-action-menu-backdrop {
+  position: fixed !important;
+  inset: 0 !important;
+  z-index: 4990 !important;
+  border: 0 !important;
+  background: transparent !important;
+  padding: 0 !important;
+}
+
+/* Kodiak final portal context menu repair */
+.matrix-message-actions,
+.matrix-message-action-trigger {
+  display: none !important;
+}
+
+.matrix-message-action-menu--floating,
+.kodiak-global-message-action-menu {
+  position: fixed !important;
+  right: auto !important;
+  bottom: auto !important;
+  z-index: 99999 !important;
+  width: 190px !important;
+  min-width: 190px !important;
+  pointer-events: auto !important;
+}
+
+.matrix-action-menu-backdrop {
+  display: none !important;
+  pointer-events: none !important;
+}
+
+.matrix-member-panel__toggle {
+  z-index: 100000 !important;
+  pointer-events: auto !important;
+}
+
+/* Kodiak hard member panel collapse repair */
+.matrix-member-panel {
+  position: relative !important;
+  flex: 0 0 300px !important;
+  width: 300px !important;
+  min-width: 300px !important;
+  max-width: 300px !important;
+  overflow: visible !important;
+  transition:
+    flex-basis 180ms ease,
+    width 180ms ease,
+    min-width 180ms ease,
+    max-width 180ms ease !important;
+}
+
+.matrix-member-panel.matrix-member-panel--collapsed,
+.matrix-member-panel[data-member-panel-open='false'] {
+  flex-basis: 42px !important;
+  width: 42px !important;
+  min-width: 42px !important;
+  max-width: 42px !important;
+}
+
+.matrix-member-panel.matrix-member-panel--collapsed .matrix-member-panel__inner,
+.matrix-member-panel[data-member-panel-open='false'] .matrix-member-panel__inner {
+  opacity: 0 !important;
+  visibility: hidden !important;
+  pointer-events: none !important;
+  transform: translateX(1rem) !important;
+}
+
+.matrix-member-panel__inner {
+  transition:
+    opacity 140ms ease,
+    visibility 140ms ease,
+    transform 180ms ease !important;
+}
+
+.matrix-member-panel__toggle {
+  position: absolute !important;
+  left: -18px !important;
+  top: 50% !important;
+  z-index: 100000 !important;
   display: inline-flex !important;
   align-items: center !important;
   justify-content: center !important;
-  width: 2.05rem !important;
-  height: 1.55rem !important;
-  border: 1px solid rgba(251, 146, 60, 0.24) !important;
-  border-radius: 999px !important;
-  background: rgba(15, 23, 42, 0.92) !important;
-  color: #fed7aa !important;
-  font-size: 1.05rem !important;
-  font-weight: 900 !important;
-  line-height: 1 !important;
-  padding: 0 0 0.12rem !important;
-  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.28) !important;
+  width: 32px !important;
+  height: 52px !important;
+  transform: translateY(-50%) !important;
+  pointer-events: auto !important;
+  user-select: none !important;
 }
 
-.matrix-message .matrix-message-action-trigger:hover,
-.matrix-message .matrix-message-action-trigger:focus-visible,
-.matrix-message .matrix-message-action-trigger[aria-expanded='true'] {
-  border-color: rgba(251, 146, 60, 0.72) !important;
-  background: rgba(67, 20, 7, 0.7) !important;
+/* Kodiak final member panel grid repair */
+.matrix-channel-content {
+  grid-template-columns: minmax(0, 1fr) 292px !important;
+  transition: grid-template-columns 220ms ease !important;
+}
+
+.matrix-channel-content.matrix-channel-content--members-collapsed,
+.matrix-channel-content[data-member-panel-open='false'] {
+  grid-template-columns: minmax(0, 1fr) 42px !important;
+}
+
+.matrix-channel-content .matrix-member-panel {
+  width: auto !important;
+  min-width: 0 !important;
+  max-width: none !important;
+  flex: initial !important;
+  overflow: visible !important;
+}
+
+.matrix-channel-content.matrix-channel-content--members-collapsed .matrix-member-panel__inner,
+.matrix-channel-content[data-member-panel-open='false'] .matrix-member-panel__inner {
+  opacity: 0 !important;
+  visibility: hidden !important;
+  pointer-events: none !important;
+  transform: translateX(1rem) !important;
+}
+
+.matrix-channel-content:not(.matrix-channel-content--members-collapsed) .matrix-member-panel__inner,
+.matrix-channel-content[data-member-panel-open='true'] .matrix-member-panel__inner {
+  opacity: 1 !important;
+  visibility: visible !important;
+  pointer-events: auto !important;
+  transform: translateX(0) !important;
+}
+
+.matrix-member-panel__toggle {
+  z-index: 100000 !important;
+  pointer-events: auto !important;
+}
+
+/* Kodiak hard override: hide corrupted member-panel glyph text */
+.matrix-member-panel__toggle {
+  font-size: 0 !important;
+  line-height: 0 !important;
+}
+
+.matrix-member-panel__toggle::before {
+  content: ">" !important;
+  display: inline-block !important;
+  font-size: 16px !important;
+  line-height: 1 !important;
+  font-family: Arial, Helvetica, sans-serif !important;
+  font-weight: 900 !important;
+}
+
+.matrix-channel-content.matrix-channel-content--members-collapsed .matrix-member-panel__toggle::before,
+.matrix-channel-content[data-member-panel-open='false'] .matrix-member-panel__toggle::before {
+  content: "<" !important;
+}
+
+
+/* Kodiak final repair: context menu and close glyphs only */
+.matrix-message-actions,
+.matrix-message-action-trigger {
+  display: none !important;
+}
+
+.matrix-message-action-menu--floating,
+.kodiak-global-message-action-menu {
+  position: fixed !important;
+  right: auto !important;
+  bottom: auto !important;
+  z-index: 999999 !important;
+  width: 190px !important;
+  min-width: 190px !important;
+  pointer-events: auto !important;
+}
+
+.matrix-action-menu-backdrop {
+  display: none !important;
+  pointer-events: none !important;
+}
+
+/* Hide corrupted modal/friend/settings close text and draw clean X */
+button[aria-label^='Close'],
+.kodiak-settings-modal__close,
+.kodiak-safety-center-modal__close,
+.kodiak-friend-center__close,
+[class*='modal__close'],
+[class*='center__close'] {
+  font-size: 0 !important;
+  line-height: 0 !important;
+  color: transparent !important;
+}
+
+button[aria-label^='Close']::before,
+.kodiak-settings-modal__close::before,
+.kodiak-safety-center-modal__close::before,
+.kodiak-friend-center__close::before,
+[class*='modal__close']::before,
+[class*='center__close']::before {
+  content: "X" !important;
+  display: inline-block !important;
+  color: #fed7aa !important;
+  font-size: 16px !important;
+  line-height: 1 !important;
+  font-family: Arial, Helvetica, sans-serif !important;
+  font-weight: 900 !important;
 }

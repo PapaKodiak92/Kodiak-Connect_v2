@@ -1,4 +1,4 @@
-﻿import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { KodiakStatusCard } from '../../components/ui/KodiakStatusCard';
 import { updateManifest } from './updateManifest';
 import {

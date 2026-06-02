@@ -23,10 +23,10 @@ interface ChannelSidebarProps {
 
 function getChannelPrefix(kind: WorkspaceChannel['kind']) {
   if (kind === 'announcement') return '!';
-  if (kind === 'safety') return '◆';
-  if (kind === 'family') return '⌂';
-  if (kind === 'business') return '◈';
-  if (kind === 'dm') return '●';
+  if (kind === 'safety') return 'S';
+  if (kind === 'family') return 'F';
+  if (kind === 'business') return 'B';
+  if (kind === 'dm') return 'DM';
   return '#';
 }
 

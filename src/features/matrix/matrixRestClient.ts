@@ -259,10 +259,15 @@ function collectEdits(events: MatrixEvent[]) {
 
 function isTransferNotice(body = '') {
   return (
-    (body.includes('Open Transfers to preview/download') && (body.includes('Shared GIF') || body.includes('Shared image/GIF') || body.includes('Shared music/audio') || body.includes('Shared video') || body.includes('Shared file'))) ||
-    /^ðŸ“ Shared \d+ files/.test(body) ||
-    /^ðŸ“Ž Shared .+/.test(body) ||
-    /^ðŸŽžï¸ Shared GIF:/.test(body)
+    (body.includes('Open Transfers to preview/download') &&
+      (body.includes('Shared GIF') ||
+        body.includes('Shared image/GIF') ||
+        body.includes('Shared music/audio') ||
+        body.includes('Shared video') ||
+        body.includes('Shared file'))) ||
+    /^\[Transfer\] Shared \d+ files/.test(body) ||
+    /^\[Transfer\] Shared .+/.test(body) ||
+    /^\[GIF\] Shared GIF:/.test(body)
   );
 }
 

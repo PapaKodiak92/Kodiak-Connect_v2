@@ -85,7 +85,7 @@ interface KodiakBlockStateResponse {
 }
 
 const KODIAK_API_BASE_URL =
-  (import.meta.env.VITE_KODIAK_API_BASE_URL as string | undefined)?.trim() || 'http://localhost:8787';
+  (import.meta.env.VITE_KODIAK_API_BASE_URL as string | undefined)?.trim() || 'https://api.kodiak-connect.com';
 
 function getHeaders(identity: MatrixLoginIdentity) {
   return {

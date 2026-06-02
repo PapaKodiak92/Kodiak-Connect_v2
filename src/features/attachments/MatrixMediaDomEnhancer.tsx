@@ -68,7 +68,7 @@ function buildCard(identity: MatrixLoginIdentity, media: EncodedMediaMessage) {
 
   const details = document.createElement('span');
   details.className = 'matrix-media-message__details';
-  details.innerHTML = `<strong>${fileName}</strong><small>${[media.info?.mimetype, formatSize(media.info?.size)].filter(Boolean).join(' · ')}</small>`;
+  details.innerHTML = `<strong>${fileName}</strong><small>${[media.info?.mimetype, formatSize(media.info?.size)].filter(Boolean).join(' - ')}</small>`;
   card.append(details);
 
   if (mediaUrl) {
