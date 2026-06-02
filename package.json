@@ -1,5 +1,5 @@
 {
-  "name": "kodiak-connect-v2",
+  "name": "kodiak-connect",
   "private": true,
   "version": "0.2.8",
   "type": "module",
@@ -13,7 +13,7 @@
     "cap:open:android": "cap open android",
     "tauri:dev": "tauri dev",
     "tauri:build": "tauri build",
-    "tauri:signer:generate": "tauri signer generate -w ~/.tauri/kodiak-connect-v2.key",
+    "tauri:signer:generate": "tauri signer generate -w ~/.tauri/kodiak-connect.key",
     "check": "tsc -b",
     "backend:dev": "node backend/server.mjs",
     "backend:health": "node -e \"fetch('http://localhost:8787/api/health').then(r=>r.json()).then(console.log).catch(console.error)\"",

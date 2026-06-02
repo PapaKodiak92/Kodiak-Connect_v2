@@ -1,15 +1,19 @@
-name: Post Dev Update
+﻿name: Post Dev Update
 
 on:
   workflow_dispatch:
     inputs:
       title:
         description: Dev update title/version
-        required: true
+        required: false
         type: string
       changelog:
         description: Curated changelog body
-        required: true
+        required: false
+        type: string
+      changelog_file:
+        description: Repo changelog file path, example docs/changelogs/v1.0.0.md
+        required: false
         type: string
 
   release:
@@ -43,3 +47,4 @@ jobs:
           MATRIX_ROOM_ALIAS: "#dev-updates:kodiak-connect.com"
           DEV_UPDATE_TITLE: ${{ github.event.inputs.title || github.event.release.name || github.event.release.tag_name }}
           DEV_UPDATE_BODY: ${{ github.event.inputs.changelog || github.event.release.body }}
+          DEV_UPDATE_CHANGELOG_FILE: ${{ github.event.inputs.changelog_file }}

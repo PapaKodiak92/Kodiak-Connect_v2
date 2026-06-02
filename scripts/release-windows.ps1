@@ -4,7 +4,7 @@ param(
   [string]$Version,
 
   [string]$Notes = 'Kodiak Connect desktop release.',
-  [string]$SigningKeyPath = "$env:USERPROFILE\.tauri\kodiak-connect-v2-release.key",
+  [string]$SigningKeyPath = "$env:USERPROFILE\.tauri\kodiak-connect-release.key",
   [string]$SigningKeyPassword = $env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD,
   [string]$VpsHost = 'root@51.81.81.159'
 )

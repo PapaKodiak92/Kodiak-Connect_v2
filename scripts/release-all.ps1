@@ -5,10 +5,10 @@ param(
 
   [string]$Notes = 'Kodiak Connect release.',
   [string]$VpsHost = 'root@51.81.81.159',
-  [string]$VpsRepoPath = '/root/Kodiak-Connect_v2',
+  [string]$VpsRepoPath = '/opt/kodiak-connect',
   [string]$RemoteRoot = '/var/www/kodiak-connect-updates',
   [string]$BaseUrl = 'https://updates.kodiak-connect.com',
-  [string]$SigningKeyPath = "$env:USERPROFILE\.tauri\kodiak-connect-v2-release.key",
+  [string]$SigningKeyPath = "$env:USERPROFILE\.tauri\kodiak-connect-release.key",
   [string]$SigningKeyPassword = $env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD,
   [int]$KeepLocalBundleVersions = 3,
   [switch]$SkipGitPush
@@ -167,11 +167,11 @@ try {
     $RemoteScript = @"
 set -e
 export PATH="`$HOME/.cargo/bin:`$PATH"
-if [ -f '/root/.tauri/kodiak-connect-v2.env' ]; then
-  . '/root/.tauri/kodiak-connect-v2.env'
+if [ -f '/root/.tauri/kodiak-connect.env' ]; then
+  . '/root/.tauri/kodiak-connect.env'
 fi
 if [ -z "`$TAURI_SIGNING_PRIVATE_KEY_PASSWORD" ]; then
-  echo 'Missing TAURI_SIGNING_PRIVATE_KEY_PASSWORD on VPS. Create /root/.tauri/kodiak-connect-v2.env.' >&2
+  echo 'Missing TAURI_SIGNING_PRIVATE_KEY_PASSWORD on VPS. Create /root/.tauri/kodiak-connect.env.' >&2
   exit 1
 fi
 cd '$VpsRepoPath'
@@ -180,7 +180,7 @@ git reset --hard origin/main
 npm ci
 npm run build
 cargo --version
-TAURI_SIGNING_PRIVATE_KEY='/root/.tauri/kodiak-connect-v2-release.key' npx tauri build --bundles deb
+TAURI_SIGNING_PRIVATE_KEY='/root/.tauri/kodiak-connect-release.key' npx tauri build --bundles deb
 DEB_FILE="`$(find src-tauri/target/release/bundle/deb -maxdepth 1 -type f -name 'Kodiak Connect_${Version}_amd64.deb' | head -n 1)"
 SIG_FILE="`$DEB_FILE.sig"
 if [ -z "`$DEB_FILE" ] || [ ! -f "`$DEB_FILE" ]; then
