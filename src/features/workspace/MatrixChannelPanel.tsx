@@ -1775,15 +1775,7 @@ export function MatrixChannelPanel({
     setSettingsErrorText(null);
 
     try {
-      let nextAvatarSource = '';
-
-      if (avatarFile) {
-        const avatarMxcUrl = await uploadProfileAvatar(identity, avatarFile);
-        nextAvatarSource = avatarMxcUrl;
-      }
-
       const savedProfile = await saveKodiakProfile(identity, {
-        ...(nextAvatarSource ? { avatarUrl: nextAvatarSource } : {}),
         bio: nextBio,
         displayName: nextDisplayName,
       });
@@ -1797,6 +1789,35 @@ export function MatrixChannelPanel({
         ...currentBios,
         [identity.userId]: savedProfile?.bio ?? nextBio,
       }));
+
+      let nextAvatarSource = '';
+      let avatarUploadFailed = false;
+
+      if (avatarFile) {
+        try {
+          nextAvatarSource = await uploadProfileAvatar(identity, avatarFile);
+
+          const savedAvatarProfile = await saveKodiakProfile(identity, {
+            avatarUrl: nextAvatarSource,
+            bio: nextBio,
+            displayName: nextDisplayName,
+          });
+
+          setDisplayNamesByUserId((currentNames) => ({
+            ...currentNames,
+            [identity.userId]: savedAvatarProfile?.displayName ?? nextDisplayName,
+          }));
+
+          setProfileBiosByUserId((currentBios) => ({
+            ...currentBios,
+            [identity.userId]: savedAvatarProfile?.bio ?? nextBio,
+          }));
+        } catch (avatarError) {
+          avatarUploadFailed = true;
+          console.error('[Kodiak Connect] Failed to upload profile avatar', avatarError);
+          setSettingsErrorText('Profile text saved, but the profile picture upload failed. Try a smaller PNG/JPG, or try again after media upload is fixed.');
+        }
+      }
 
       if (nextAvatarSource) {
         const authenticatedAvatarUrl = await getAuthenticatedMatrixMediaObjectUrl(identity, nextAvatarSource, 96, 96).catch(() => null);
@@ -1813,6 +1834,10 @@ export function MatrixChannelPanel({
             url: savedAvatarUrl,
           };
         }
+      }
+
+      if (avatarUploadFailed) {
+        return;
       }
 
       setAvatarFile(null);

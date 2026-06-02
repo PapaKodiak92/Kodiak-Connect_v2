@@ -415,14 +415,23 @@ export async function uploadProfileAvatar(identity: MatrixLoginIdentity, file: F
   let lastError: MatrixRestError | null = null;
 
   for (const uploadPath of uploadPaths) {
-    const response = await fetch(`${identity.baseUrl}${uploadPath}`, {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${identity.accessToken}`,
-        'Content-Type': file.type || 'application/octet-stream',
-      },
-      body: file,
-    });
+    let response: Response;
+
+    try {
+      response = await fetch(`${identity.baseUrl}${uploadPath}`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${identity.accessToken}`,
+          'Content-Type': file.type || 'application/octet-stream',
+        },
+        body: file,
+      });
+    } catch (error) {
+      lastError = new MatrixRestError(
+        error instanceof Error ? error.message : `Matrix avatar upload failed at ${uploadPath}.`,
+      );
+      continue;
+    }
 
     if (response.ok) {
       const data = (await response.json()) as MatrixUploadResponse;
