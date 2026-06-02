@@ -236,3 +236,9 @@
     grid-template-columns: 1fr !important;
   }
 }
+
+/* Kodiak cleanup: member rows already show presence on the avatar.
+   Hide the extra text-row dot so each member only has one status light. */
+.matrix-member-panel .matrix-presence-text-dot {
+  display: none !important;
+}

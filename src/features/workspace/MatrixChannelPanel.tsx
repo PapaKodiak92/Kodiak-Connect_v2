@@ -140,11 +140,6 @@ function getDirectMessageTargetUserId(channel: WorkspaceChannel, currentUserId: 
     return channel.matrixDmUserId;
   }
 
-  // Seeded-account fallback: when logged in as kodiaktest, the fixed test DM should point back to papakodiak.
-  if (currentUserId.toLowerCase().startsWith('@kodiaktest:')) {
-    return '@papakodiak:kodiak-connect.com';
-  }
-
   return channel.matrixDmUserId;
 }
 
@@ -1863,17 +1858,7 @@ export function MatrixChannelPanel({
           <h1>{channelHeadingPrefix}{activeChannel.name}</h1>
           <p>{activeChannel.description}</p>
         </div>
-
-        <button
-          type="button"
-          className="chat-placeholder__user chat-placeholder__user--button kodiak-safety-center-trigger"
-          onClick={openSafetyCenter}
-        >
-          <span className="status-light status-light--idle" aria-hidden="true" />
-          <span>Safety Center</span>
-        </button>
-
-        <button
+<button
           type="button"
           className="chat-placeholder__user chat-placeholder__user--button"
           onClick={() => {

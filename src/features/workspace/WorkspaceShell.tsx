@@ -40,7 +40,7 @@ interface WorkspaceShellProps {
 
 const ACTIVITY_POLL_INTERVAL_MS = 30_000;
 const MATRIX_SERVER_NAME = 'kodiak-connect.com';
-const SEEDED_USER_LOCALPARTS = ['papakodiak', 'kodiaktest'];
+const SEEDED_USER_LOCALPARTS = ['papakodiak'];
 const spaces: WorkspaceSpace[] = [officialSpace];
 
 type FriendStatus = 'none' | 'incoming' | 'outgoing' | 'friends';
@@ -224,10 +224,6 @@ function getDirectMessageTargetUserId(channel: WorkspaceChannel, currentUserId: 
 
   if (channel.matrixDmUserId !== currentUserId) {
     return channel.matrixDmUserId;
-  }
-
-  if (currentUserId.toLowerCase().startsWith('@kodiaktest:')) {
-    return '@papakodiak:kodiak-connect.com';
   }
 
   return channel.matrixDmUserId;
@@ -856,7 +852,7 @@ export function WorkspaceShell({ identity, onLogout }: WorkspaceShellProps) {
               ) : null}
 
               {!directMessageSearchResults.length && !manualDirectMessageUserId ? (
-                <p className="kodiak-start-dm-results__empty">Type a username like kodiaktest to start a DM.</p>
+                <p className="kodiak-start-dm-results__empty">Type a username to start a DM.</p>
               ) : null}
             </div>
 
