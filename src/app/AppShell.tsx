@@ -15,7 +15,7 @@ import { usePlatformInfo } from '../platform/usePlatformInfo';
 type AppState = 'booting' | 'checking-update' | 'update-required' | 'login' | 'workspace';
 
 const KODIAK_API_BASE_URL =
-  (import.meta.env.VITE_KODIAK_API_BASE_URL as string | undefined)?.trim().replace(/\/+$/, '') || 'http://localhost:8787';
+  (import.meta.env.VITE_KODIAK_API_BASE_URL as string | undefined)?.trim().replace(/\/+$/, '') || 'https://api.kodiak-connect.com';
 
 const launcherLinks = [
   {

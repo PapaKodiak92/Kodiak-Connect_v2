@@ -1,4 +1,4 @@
-const DEFAULT_AUTH_API_BASE_URL = 'http://localhost:8788';
+const DEFAULT_AUTH_API_BASE_URL = 'https://auth.kodiak-connect.com';
 const DEFAULT_MATRIX_BASE_URL = 'https://matrix.kodiak-connect.com';
 const DEFAULT_MATRIX_SERVER_NAME = 'kodiak-connect.com';
 

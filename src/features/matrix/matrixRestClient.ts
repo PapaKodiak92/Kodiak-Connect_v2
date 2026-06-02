@@ -18,7 +18,7 @@ export interface MatrixTextMessage {
     size?: number;
   };
   mediaUrl?: string;
-  msgtype?: 'm.text' | MatrixMediaMessageType;
+  msgtype?: 'm.text' | 'm.notice' | MatrixMediaMessageType;
   originServerTs: number;
   reactions?: MatrixReactionSummary[];
   replyToEventId?: string;
@@ -260,9 +260,9 @@ function collectEdits(events: MatrixEvent[]) {
 function isTransferNotice(body = '') {
   return (
     (body.includes('Open Transfers to preview/download') && (body.includes('Shared GIF') || body.includes('Shared image/GIF') || body.includes('Shared music/audio') || body.includes('Shared video') || body.includes('Shared file'))) ||
-    /^📁 Shared \d+ files/.test(body) ||
-    /^📎 Shared .+/.test(body) ||
-    /^🎞️ Shared GIF:/.test(body)
+    /^ðŸ“ Shared \d+ files/.test(body) ||
+    /^ðŸ“Ž Shared .+/.test(body) ||
+    /^ðŸŽžï¸ Shared GIF:/.test(body)
   );
 }
 
@@ -584,7 +584,7 @@ export async function loadRecentMessages(identity: MatrixLoginIdentity, roomId: 
         return false;
       }
 
-      if (msgtype === 'm.text') {
+      if (msgtype === 'm.text' || msgtype === 'm.notice') {
         return Boolean(event.content?.body) && !isTransferNotice(event.content?.body);
       }
 
