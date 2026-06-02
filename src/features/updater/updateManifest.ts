@@ -1,4 +1,4 @@
-﻿export interface KodiakUpdateTarget {
+export interface KodiakUpdateTarget {
   platform: 'windows' | 'linux-deb' | 'linux-appimage' | 'android' | 'web';
   version: string;
   url: string;
