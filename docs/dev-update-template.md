@@ -7,7 +7,7 @@ Do not post raw commit logs. Keep updates clear, user-facing, and safe for publi
 ## Template
 
 ```text
-vX.Y.Z-staging — Milestone Name
+vX.Y.Z — Milestone Name
 
 Added:
 - Item one
@@ -26,7 +26,7 @@ Notes:
 ## Example
 
 ```text
-v0.3.0-staging — Official Space Live Chat
+v0.3.0-prelive — Official Space Live Chat
 
 Added:
 - Official Space server/channel shell
@@ -41,6 +41,6 @@ Changed:
 - Official channels are separated from normal chat channels
 
 Notes:
-- This is still a staging milestone, not a production release
+- This is still a pre-live milestone, not a production release
 - Changelog posts should stay curated and manually approved
 ```

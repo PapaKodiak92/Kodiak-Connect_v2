@@ -74,7 +74,7 @@ interface GiphySearchResponse {
   data?: GiphySearchResult[];
 }
 
-const MATRIX_SERVER_NAME = 'v2.kodiak-connect.com';
+const MATRIX_SERVER_NAME = 'kodiak-connect.com';
 const ATTACHMENT_POLL_INTERVAL_MS = 7000;
 const MAX_ATTACHMENT_BYTES = 50 * 1024 * 1024;
 const IMAGE_MSGTYPES = new Set(['m.image']);

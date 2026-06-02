@@ -39,8 +39,8 @@ interface WorkspaceShellProps {
 }
 
 const ACTIVITY_POLL_INTERVAL_MS = 30_000;
-const MATRIX_SERVER_NAME = 'v2.kodiak-connect.com';
-const STAGING_USER_LOCALPARTS = ['papakodiak', 'kodiaktest'];
+const MATRIX_SERVER_NAME = 'kodiak-connect.com';
+const SEEDED_USER_LOCALPARTS = ['papakodiak', 'kodiaktest'];
 const spaces: WorkspaceSpace[] = [officialSpace];
 
 type FriendStatus = 'none' | 'incoming' | 'outgoing' | 'friends';
@@ -227,7 +227,7 @@ function getDirectMessageTargetUserId(channel: WorkspaceChannel, currentUserId: 
   }
 
   if (currentUserId.toLowerCase().startsWith('@kodiaktest:')) {
-    return '@papakodiak:v2.kodiak-connect.com';
+    return '@papakodiak:kodiak-connect.com';
   }
 
   return channel.matrixDmUserId;
@@ -366,7 +366,7 @@ export function WorkspaceShell({ identity, onLogout }: WorkspaceShellProps) {
   useEffect(() => {
     const userIdsToLoad = new Set<string>();
 
-    for (const localpart of STAGING_USER_LOCALPARTS) {
+    for (const localpart of SEEDED_USER_LOCALPARTS) {
       const userId = getMatrixUserIdFromLocalpart(localpart);
 
       if (userId !== identity.userId) {

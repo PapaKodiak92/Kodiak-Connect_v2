@@ -19,7 +19,7 @@ interface ChatPlaceholderProps {
   identity: MatrixLoginIdentity;
 }
 
-const PLATFORM_MODERATOR_IDS = ['@papakodiak:v2.kodiak-connect.com'];
+const PLATFORM_MODERATOR_IDS = ['@papakodiak:kodiak-connect.com'];
 
 type ReportComposerMode = 'reply' | 'note' | 'close' | 'dismiss' | 'reopen' | 'archive' | 'delete';
 

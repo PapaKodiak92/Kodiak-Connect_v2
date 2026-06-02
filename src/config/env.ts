@@ -1,6 +1,6 @@
 const DEFAULT_AUTH_API_BASE_URL = 'http://localhost:8788';
-const DEFAULT_MATRIX_BASE_URL = 'https://matrix-v2.kodiak-connect.com';
-const DEFAULT_MATRIX_SERVER_NAME = 'v2.kodiak-connect.com';
+const DEFAULT_MATRIX_BASE_URL = 'https://matrix.kodiak-connect.com';
+const DEFAULT_MATRIX_SERVER_NAME = 'kodiak-connect.com';
 
 function normalizeBaseUrl(value: string) {
   return value.trim().replace(/\/+$/, '');

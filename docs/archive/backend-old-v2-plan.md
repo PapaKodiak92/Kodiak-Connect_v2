@@ -6,15 +6,15 @@ This plan defines the clean backend direction for Kodiak Connect v2.
 
 Build v2 as a separate backend from v1 so the MVP can remain online while v2 is developed safely.
 
-## Staging domains
+## Production domains
 
-Use staging names while v2 is under construction:
+Use production names while v2 is under construction:
 
 ```text
-v2.kodiak-connect.com
-matrix-v2.kodiak-connect.com
-api-v2.kodiak-connect.com
-updates-v2.kodiak-connect.com
+kodiak-connect.com
+matrix-kodiak-connect.com
+api-kodiak-connect.com
+updates-kodiak-connect.com
 ```
 
 ## Production domains
@@ -41,11 +41,11 @@ Initial backend foundation:
 
 ## First backend milestone
 
-- Add staging infrastructure templates.
-- Bring up a fresh staging Matrix server.
+- Add production infrastructure templates.
+- Bring up a fresh production Matrix server.
 - Confirm the Matrix client versions endpoint responds.
 - Create a first admin test account.
-- Keep login UI frontend-only until the staging backend is healthy.
+- Keep login UI frontend-only until the production backend is healthy.
 
 ## App integration order
 

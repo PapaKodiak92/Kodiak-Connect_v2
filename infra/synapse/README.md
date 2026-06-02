@@ -1,17 +1,17 @@
-# Synapse staging notes
+# Synapse production notes
 
-This folder is reserved for the Kodiak Connect v2 staging Matrix server.
+This folder is reserved for the Kodiak Connect production Matrix server.
 
-## Staging identity
+## Production identity
 
-Use staging-only Matrix identity while v2 is under construction:
+Use production-only Matrix identity while v2 is under construction:
 
 ```text
-server name: v2.kodiak-connect.com
-public base URL: https://matrix-v2.kodiak-connect.com/
+server name: kodiak-connect.com
+public base URL: https://matrix-kodiak-connect.com/
 ```
 
-Staging accounts and rooms are disposable.
+Production accounts and rooms are disposable.
 
 ## Production identity later
 

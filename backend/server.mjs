@@ -27,7 +27,7 @@ const ALLOWED_ORIGINS = new Set([
     .filter(Boolean),
 ]);
 const PLATFORM_MODERATOR_IDS = new Set([
-  "@papakodiak:v2.kodiak-connect.com",
+  "@papakodiak:kodiak-connect.com",
   ...String(process.env.KODIAK_PLATFORM_MODERATOR_IDS ?? "")
     .split(",")
     .map((userId) => userId.trim())
@@ -1120,6 +1120,6 @@ const server = createServer(async (request, response) => {
   }
 });
 
-server.listen(PORT, () => {
+server.listen(PORT, '127.0.0.1', () => {
   console.log(`[Kodiak Backend] listening on http://localhost:${PORT}`);
 });

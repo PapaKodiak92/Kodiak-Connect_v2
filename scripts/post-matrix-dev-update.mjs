@@ -1,6 +1,6 @@
 const MATRIX_ACCESS_TOKEN = String(process.env.MATRIX_ACCESS_TOKEN ?? '').trim();
-const MATRIX_BASE_URL = String(process.env.MATRIX_BASE_URL ?? 'https://matrix-v2.kodiak-connect.com').trim().replace(/\/+$/, '');
-const MATRIX_ROOM_ALIAS = String(process.env.MATRIX_ROOM_ALIAS ?? '#dev-updates:v2.kodiak-connect.com').trim();
+const MATRIX_BASE_URL = String(process.env.MATRIX_BASE_URL ?? 'https://matrix.kodiak-connect.com').trim().replace(/\/+$/, '');
+const MATRIX_ROOM_ALIAS = String(process.env.MATRIX_ROOM_ALIAS ?? '#dev-updates:kodiak-connect.com').trim();
 const DEV_UPDATE_TITLE = String(process.env.DEV_UPDATE_TITLE ?? '').trim();
 const DEV_UPDATE_BODY = String(process.env.DEV_UPDATE_BODY ?? '').trim();
 

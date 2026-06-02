@@ -29,7 +29,7 @@ export function OfficialSpaceAcknowledgementModal({ onAcknowledge }: OfficialSpa
             <li>Server owners, parents/guardians, business owners, moderators, and premium users can still face enforcement.</li>
             <li>Serious safety concerns may be reviewed by Kodiak Trust & Safety.</li>
             <li>Reports and red-flag incidents may be preserved and escalated when required.</li>
-            <li>Terms, privacy, and safety policies are still drafts during staging and must be legally reviewed before public launch.</li>
+            <li>Terms, privacy, and safety policies are still drafts during production and must be legally reviewed before public launch.</li>
           </ul>
         </div>
 

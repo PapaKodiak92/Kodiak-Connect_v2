@@ -85,7 +85,7 @@ const REPLY_PREVIEW_PREFIX = 'KC_REPLY_PREVIEW=';
 const MENTION_PATTERN = /(^|\s)(@[a-zA-Z0-9._-]{2,32})/g;
 const ACTIVE_MENTION_PATTERN = /(^|\s)@([a-zA-Z0-9._-]{0,32})$/;
 const REACTION_OPTIONS = ['\u{1F44D}', '\u{2764}\u{FE0F}', '\u{1F602}', '\u{1F525}', '\u{1F440}'];
-const PLATFORM_MODERATOR_IDS = ['@papakodiak:v2.kodiak-connect.com'];
+const PLATFORM_MODERATOR_IDS = ['@papakodiak:kodiak-connect.com'];
 const MESSAGE_POLL_INTERVAL_MS = 5000;
 const TYPING_POLL_INTERVAL_MS = 2500;
 const TYPING_TIMEOUT_MS = 5000;
@@ -140,9 +140,9 @@ function getDirectMessageTargetUserId(channel: WorkspaceChannel, currentUserId: 
     return channel.matrixDmUserId;
   }
 
-  // Staging fallback: when logged in as kodiaktest, the fixed test DM should point back to papakodiak.
+  // Seeded-account fallback: when logged in as kodiaktest, the fixed test DM should point back to papakodiak.
   if (currentUserId.toLowerCase().startsWith('@kodiaktest:')) {
-    return '@papakodiak:v2.kodiak-connect.com';
+    return '@papakodiak:kodiak-connect.com';
   }
 
   return channel.matrixDmUserId;
@@ -175,7 +175,7 @@ function formatMessageTime(timestamp: number) {
 function getMatrixErrorMessage(error: unknown, activeChannel: WorkspaceChannel) {
   if (error instanceof MatrixRestError) {
     if (error.errcode === 'M_NOT_FOUND' || error.status === 404) {
-      return `This Matrix room does not exist yet. Create #${activeChannel.name} on staging.`;
+      return `This Matrix room does not exist yet. Create #${activeChannel.name} in Kodiak Connect.`;
     }
 
     if (error.errcode === 'M_FORBIDDEN' || error.status === 403) {
@@ -1463,7 +1463,7 @@ export function MatrixChannelPanel({
     }
 
     if (!window.isSecureContext) {
-      setSettingsErrorText('Browser notifications require HTTPS or localhost. Use http://localhost:5173 for local testing, or an HTTPS staging URL.');
+      setSettingsErrorText('Browser notifications require HTTPS or localhost. Use http://localhost:5173 for local testing, or an HTTPS live URL.');
       setAreBrowserNotificationsEnabled(false);
       return;
     }

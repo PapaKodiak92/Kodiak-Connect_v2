@@ -11,8 +11,8 @@ const AUTH_ACCOUNTS_FILE = join(DATA_DIR, 'auth-accounts.json');
 const PROFILES_FILE = join(DATA_DIR, 'profiles.json');
 
 const PORT = Number(process.env.KODIAK_AUTH_PORT ?? 8788);
-const MATRIX_HOMESERVER_URL = String(process.env.KODIAK_MATRIX_HOMESERVER_URL ?? process.env.VITE_MATRIX_BASE_URL ?? 'https://matrix-v2.kodiak-connect.com').replace(/\/+$/, '');
-const MATRIX_SERVER_NAME = String(process.env.KODIAK_MATRIX_SERVER_NAME ?? process.env.VITE_MATRIX_SERVER_NAME ?? 'v2.kodiak-connect.com');
+const MATRIX_HOMESERVER_URL = String(process.env.KODIAK_MATRIX_HOMESERVER_URL ?? process.env.VITE_MATRIX_BASE_URL ?? 'https://matrix.kodiak-connect.com').replace(/\/+$/, '');
+const MATRIX_SERVER_NAME = String(process.env.KODIAK_MATRIX_SERVER_NAME ?? process.env.VITE_MATRIX_SERVER_NAME ?? 'kodiak-connect.com');
 const MATRIX_ADMIN_TOKEN = String(process.env.KODIAK_MATRIX_ADMIN_TOKEN ?? '').trim();
 const MATRIX_REGISTRATION_SHARED_SECRET = String(process.env.KODIAK_MATRIX_REGISTRATION_SHARED_SECRET ?? '').trim();
 const RESEND_API_KEY = String(process.env.RESEND_API_KEY ?? '').trim();
@@ -619,6 +619,6 @@ const server = createServer(async (request, response) => {
   }
 });
 
-server.listen(PORT, () => {
+server.listen(PORT, '127.0.0.1', () => {
   console.log(`[Kodiak Auth] listening on http://localhost:${PORT}`);
 });

@@ -132,7 +132,7 @@ function getLoginErrorMessage(error: unknown) {
     return error.message;
   }
 
-  return 'Kodiak Connect could not reach the Matrix staging server.';
+  return 'Kodiak Connect could not reach the Matrix server.';
 }
 
 function getRetryCooldownMs(error: unknown) {
