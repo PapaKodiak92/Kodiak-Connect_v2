@@ -5,6 +5,44 @@
   --workspace-top-offset: 0px;
 }
 
+html,
+body,
+#root {
+  min-height: 100%;
+  overflow: hidden !important;
+  scrollbar-width: none !important;
+}
+
+html::-webkit-scrollbar,
+body::-webkit-scrollbar,
+#root::-webkit-scrollbar,
+.workspace-app-shell::-webkit-scrollbar,
+.chat-placeholder::-webkit-scrollbar,
+.matrix-chat-body::-webkit-scrollbar,
+.matrix-message-list::-webkit-scrollbar,
+.kodiak-modal-backdrop::-webkit-scrollbar,
+.kodiak-profile-card::-webkit-scrollbar,
+.kodiak-report-modal::-webkit-scrollbar,
+.kodiak-confirm-modal::-webkit-scrollbar,
+.kodiak-start-dm-modal::-webkit-scrollbar {
+  width: 0 !important;
+  height: 0 !important;
+  display: none !important;
+}
+
+.workspace-app-shell,
+.chat-placeholder,
+.matrix-chat-body,
+.matrix-message-list,
+.kodiak-modal-backdrop,
+.kodiak-profile-card,
+.kodiak-report-modal,
+.kodiak-confirm-modal,
+.kodiak-start-dm-modal {
+  scrollbar-width: none !important;
+  -ms-overflow-style: none !important;
+}
+
 .workspace-app-shell {
   padding-top: 0 !important;
 }
@@ -79,7 +117,14 @@
   gap: 0.95rem !important;
   overscroll-behavior: contain !important;
   padding: clamp(1rem, 2.4vw, 1.5rem) !important;
-  scrollbar-width: thin !important;
+  scrollbar-width: none !important;
+  -ms-overflow-style: none !important;
+}
+
+.policy-modal::-webkit-scrollbar {
+  width: 0 !important;
+  height: 0 !important;
+  display: none !important;
 }
 
 .policy-modal__brand {
@@ -298,244 +343,4 @@
   z-index: 5000 !important;
   width: 190px !important;
   pointer-events: auto !important;
-}
-
-.matrix-action-menu-backdrop {
-  position: fixed !important;
-  inset: 0 !important;
-  z-index: 4990 !important;
-  border: 0 !important;
-  background: transparent !important;
-  padding: 0 !important;
-}
-
-/* Kodiak final portal context menu repair */
-.matrix-message-actions,
-.matrix-message-action-trigger {
-  display: none !important;
-}
-
-.matrix-message-action-menu--floating,
-.kodiak-global-message-action-menu {
-  position: fixed !important;
-  right: auto !important;
-  bottom: auto !important;
-  z-index: 99999 !important;
-  width: 190px !important;
-  min-width: 190px !important;
-  pointer-events: auto !important;
-}
-
-.matrix-action-menu-backdrop {
-  display: none !important;
-  pointer-events: none !important;
-}
-
-.matrix-member-panel__toggle {
-  z-index: 100000 !important;
-  pointer-events: auto !important;
-}
-
-/* Kodiak hard member panel collapse repair */
-.matrix-member-panel {
-  position: relative !important;
-  flex: 0 0 300px !important;
-  width: 300px !important;
-  min-width: 300px !important;
-  max-width: 300px !important;
-  overflow: visible !important;
-  transition:
-    flex-basis 180ms ease,
-    width 180ms ease,
-    min-width 180ms ease,
-    max-width 180ms ease !important;
-}
-
-.matrix-member-panel.matrix-member-panel--collapsed,
-.matrix-member-panel[data-member-panel-open='false'] {
-  flex-basis: 42px !important;
-  width: 42px !important;
-  min-width: 42px !important;
-  max-width: 42px !important;
-}
-
-.matrix-member-panel.matrix-member-panel--collapsed .matrix-member-panel__inner,
-.matrix-member-panel[data-member-panel-open='false'] .matrix-member-panel__inner {
-  opacity: 0 !important;
-  visibility: hidden !important;
-  pointer-events: none !important;
-  transform: translateX(1rem) !important;
-}
-
-.matrix-member-panel__inner {
-  transition:
-    opacity 140ms ease,
-    visibility 140ms ease,
-    transform 180ms ease !important;
-}
-
-.matrix-member-panel__toggle {
-  position: absolute !important;
-  left: -18px !important;
-  top: 50% !important;
-  z-index: 100000 !important;
-  display: inline-flex !important;
-  align-items: center !important;
-  justify-content: center !important;
-  width: 32px !important;
-  height: 52px !important;
-  transform: translateY(-50%) !important;
-  pointer-events: auto !important;
-  user-select: none !important;
-}
-
-/* Kodiak final member panel grid repair */
-.matrix-channel-content {
-  grid-template-columns: minmax(0, 1fr) 292px !important;
-  transition: grid-template-columns 220ms ease !important;
-}
-
-.matrix-channel-content.matrix-channel-content--members-collapsed,
-.matrix-channel-content[data-member-panel-open='false'] {
-  grid-template-columns: minmax(0, 1fr) 42px !important;
-}
-
-.matrix-channel-content .matrix-member-panel {
-  width: auto !important;
-  min-width: 0 !important;
-  max-width: none !important;
-  flex: initial !important;
-  overflow: visible !important;
-}
-
-.matrix-channel-content.matrix-channel-content--members-collapsed .matrix-member-panel__inner,
-.matrix-channel-content[data-member-panel-open='false'] .matrix-member-panel__inner {
-  opacity: 0 !important;
-  visibility: hidden !important;
-  pointer-events: none !important;
-  transform: translateX(1rem) !important;
-}
-
-.matrix-channel-content:not(.matrix-channel-content--members-collapsed) .matrix-member-panel__inner,
-.matrix-channel-content[data-member-panel-open='true'] .matrix-member-panel__inner {
-  opacity: 1 !important;
-  visibility: visible !important;
-  pointer-events: auto !important;
-  transform: translateX(0) !important;
-}
-
-.matrix-member-panel__toggle {
-  z-index: 100000 !important;
-  pointer-events: auto !important;
-}
-
-/* Kodiak hard override: hide corrupted member-panel glyph text */
-.matrix-member-panel__toggle {
-  font-size: 0 !important;
-  line-height: 0 !important;
-}
-
-.matrix-member-panel__toggle::before {
-  content: ">" !important;
-  display: inline-block !important;
-  font-size: 16px !important;
-  line-height: 1 !important;
-  font-family: Arial, Helvetica, sans-serif !important;
-  font-weight: 900 !important;
-}
-
-.matrix-channel-content.matrix-channel-content--members-collapsed .matrix-member-panel__toggle::before,
-.matrix-channel-content[data-member-panel-open='false'] .matrix-member-panel__toggle::before {
-  content: "<" !important;
-}
-
-
-/* Kodiak final repair: context menu and close glyphs only */
-.matrix-message-actions,
-.matrix-message-action-trigger {
-  display: none !important;
-}
-
-.matrix-message-action-menu--floating,
-.kodiak-global-message-action-menu {
-  position: fixed !important;
-  right: auto !important;
-  bottom: auto !important;
-  z-index: 999999 !important;
-  width: 190px !important;
-  min-width: 190px !important;
-  pointer-events: auto !important;
-}
-
-.matrix-action-menu-backdrop {
-  display: none !important;
-  pointer-events: none !important;
-}
-
-/* Hide corrupted modal/friend/settings close text and draw clean X */
-button[aria-label^='Close'],
-.kodiak-settings-modal__close,
-.kodiak-safety-center-modal__close,
-.kodiak-friend-center__close,
-[class*='modal__close'],
-[class*='center__close'] {
-  font-size: 0 !important;
-  line-height: 0 !important;
-  color: transparent !important;
-}
-
-button[aria-label^='Close']::before,
-.kodiak-settings-modal__close::before,
-.kodiak-safety-center-modal__close::before,
-.kodiak-friend-center__close::before,
-[class*='modal__close']::before,
-[class*='center__close']::before {
-  content: "X" !important;
-  display: inline-block !important;
-  color: #fed7aa !important;
-  font-size: 16px !important;
-  line-height: 1 !important;
-  font-family: Arial, Helvetica, sans-serif !important;
-  font-weight: 900 !important;
-}
-
-/* Kodiak v1.1.4: desktop titlebar workspace offset
-   Keeps the custom window controls from covering the workspace logo/header. */
-:root {
-  --kodiak-window-titlebar-height: 36px;
-}
-
-.window-titlebar {
-  position: fixed !important;
-  top: 0 !important;
-  left: 0 !important;
-  right: 0 !important;
-  height: var(--kodiak-window-titlebar-height) !important;
-  min-height: var(--kodiak-window-titlebar-height) !important;
-  z-index: 1000000 !important;
-}
-
-.workspace-app-shell {
-  height: calc(100vh - var(--kodiak-window-titlebar-height)) !important;
-  min-height: calc(100vh - var(--kodiak-window-titlebar-height)) !important;
-  max-height: calc(100vh - var(--kodiak-window-titlebar-height)) !important;
-  margin-top: var(--kodiak-window-titlebar-height) !important;
-  padding-top: 0 !important;
-  overflow: hidden !important;
-}
-
-.workspace-app-shell .server-rail,
-.workspace-app-shell .channel-sidebar,
-.workspace-app-shell .chat-placeholder,
-.workspace-app-shell .matrix-channel-panel,
-.workspace-app-shell .matrix-channel-content,
-.workspace-app-shell .matrix-chat-body,
-.workspace-app-shell .matrix-member-panel {
-  max-height: calc(100vh - var(--kodiak-window-titlebar-height)) !important;
-}
-
-.workspace-app-shell .server-rail,
-.workspace-app-shell .channel-sidebar,
-.workspace-app-shell .chat-placeholder {
-  height: calc(100vh - var(--kodiak-window-titlebar-height)) !important;
 }
