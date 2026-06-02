@@ -101,13 +101,16 @@ export function AppShell() {
   const [serverOnline, setServerOnline] = useState(false);
   const updaterOnline = true;
   const isMobile = platform.kind === 'android';
-  const isWebDev = import.meta.env.DEV && platform.kind === 'web';
+  const isWeb = platform.kind === 'web';
   const platformLabel = isMobile ? 'Mobile' : platform.kind === 'desktop' ? 'Desktop' : 'Web';
 
   useEffect(() => {
-    const timeout = window.setTimeout(() => setAppState('checking-update'), 420);
+    const timeout = window.setTimeout(() => {
+      setAppState(isWeb ? 'login' : 'checking-update');
+    }, 420);
+
     return () => window.clearTimeout(timeout);
-  }, []);
+  }, [isWeb]);
 
   useEffect(() => {
     let cancelled = false;
@@ -139,13 +142,13 @@ export function AppShell() {
   }, []);
 
   const handleUpdateCheckFailed = useCallback(() => {
-    if (isWebDev) {
+    if (isWeb) {
       setAppState('login');
       return;
     }
 
     setAppState('update-required');
-  }, [isWebDev]);
+  }, [isWeb]);
 
   const handleLoginSuccess = useCallback((identity: MatrixLoginIdentity) => {
     setMatrixIdentity(identity);
@@ -159,14 +162,14 @@ export function AppShell() {
 
   const updaterPanel = isMobile ? (
     <AndroidUpdatePanel onUpToDate={handleUpToDate} onUpdateRequired={handleUpdateRequired} onUpdateCheckFailed={handleUpdateCheckFailed} />
-  ) : (
+  ) : platform.kind === 'desktop' ? (
     <UpdaterPanel
       onUpToDate={handleUpToDate}
       onUpdateRequired={handleUpdateRequired}
       onUpdateCheckFailed={handleUpdateCheckFailed}
-      allowContinueOnFailure={isWebDev}
+      allowContinueOnFailure={false}
     />
-  );
+  ) : null;
 
   if (appState === 'booting') {
     return <KodiakSplashScreen />;
