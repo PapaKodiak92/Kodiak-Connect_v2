@@ -1,0 +1,16 @@
+warning: in the working copy of 'src/styles/layout-repair.css', CRLF will be replaced by LF the next time Git touches it
+ src/components/security/TurnstileWidget.tsx        |   2 [32m+[m[31m-[m
+ .../attachments/KodiakAttachmentBridge.tsx         |  14 [32m+[m[31m-[m
+ .../attachments/MatrixMediaDomEnhancer.tsx         |   2 [32m+[m[31m-[m
+ src/features/audio/kodiakSounds.ts                 |  37 [32m++[m[31m-[m
+ src/features/backend/kodiakApiClient.ts            |   2 [32m+[m[31m-[m
+ src/features/matrix/matrixRestClient.ts            |  13 [32m+[m[31m-[m
+ src/features/updater/AndroidUpdatePanel.tsx        |   2 [32m+[m[31m-[m
+ src/features/workspace/ChannelSidebar.tsx          |   8 [32m+[m[31m-[m
+ src/features/workspace/ChatPlaceholder.tsx         |   2 [32m+[m[31m-[m
+ src/features/workspace/MatrixChannelPanel.tsx      | 149 [32m++++++[m[31m-----[m
+ src/features/workspace/WorkspaceShell.tsx          |   2 [32m+[m[31m-[m
+ src/styles/launcher.css                            |   2 [32m+[m[31m-[m
+ src/styles/layout-repair.css                       | 272 [32m++++++++++++++++++[m[31m---[m
+ src/styles/matrix-chat.css                         |   5 [31m-[m
+ 14 files changed, 361 insertions(+), 151 deletions(-)
