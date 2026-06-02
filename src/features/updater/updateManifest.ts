@@ -1,4 +1,4 @@
-export interface KodiakUpdateTarget {
+﻿export interface KodiakUpdateTarget {
   platform: 'windows' | 'linux-deb' | 'linux-appimage' | 'android' | 'web';
   version: string;
   url: string;
@@ -16,8 +16,9 @@ export interface KodiakUpdateManifest {
 
 export const updateManifest: KodiakUpdateManifest = {
   appId: 'com.kodiakholdings.kodiakconnect',
-  currentVersion: '1.1.4',
+  currentVersion: '1.1.5',
   channel: 'dev',
-  generatedAt: '2026-05-30T00:00:00.000Z',
+  generatedAt: '2026-06-02T19:45:49.315Z',
   targets: [],
 };
+
