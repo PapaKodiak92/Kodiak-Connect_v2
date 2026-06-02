@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { LoginScreen } from '../features/auth/LoginScreen';
 import type { MatrixLoginIdentity } from '../features/auth/matrixLoginService';
+import { kodiakEnv } from '../config/env';
 import { KodiakAttachmentBridge } from '../features/attachments/KodiakAttachmentBridge';
 import { MatrixMediaDomEnhancer } from '../features/attachments/MatrixMediaDomEnhancer';
 import { AndroidUpdatePanel } from '../features/updater/AndroidUpdatePanel';
@@ -12,6 +13,9 @@ import { openAndroidApkDownload } from '../platform/android/androidUpdateService
 import { usePlatformInfo } from '../platform/usePlatformInfo';
 
 type AppState = 'booting' | 'checking-update' | 'update-required' | 'login' | 'workspace';
+
+const KODIAK_API_BASE_URL =
+  (import.meta.env.VITE_KODIAK_API_BASE_URL as string | undefined)?.trim().replace(/\/+$/, '') || 'http://localhost:8787';
 
 const launcherLinks = [
   {
@@ -73,12 +77,29 @@ function LauncherSocialLinks({ isMobile }: LauncherSocialLinksProps) {
   );
 }
 
+async function checkEndpointHealth(url: string) {
+  const response = await fetch(url, {
+    cache: 'no-store',
+  });
+
+  if (!response.ok) {
+    throw new Error(`Health check failed: ${url}`);
+  }
+}
+
+async function checkServerHealth() {
+  await Promise.all([
+    checkEndpointHealth(`${kodiakEnv.authApiBaseUrl}/api/auth/health`),
+    checkEndpointHealth(`${KODIAK_API_BASE_URL}/api/health`),
+  ]);
+}
+
 export function AppShell() {
   const platform = usePlatformInfo();
   const [appState, setAppState] = useState<AppState>('booting');
   const [matrixIdentity, setMatrixIdentity] = useState<MatrixLoginIdentity | null>(null);
+  const [serverOnline, setServerOnline] = useState(false);
   const updaterOnline = true;
-  const serverOnline = false;
   const isMobile = platform.kind === 'android';
   const isWebDev = import.meta.env.DEV && platform.kind === 'web';
   const platformLabel = isMobile ? 'Mobile' : platform.kind === 'desktop' ? 'Desktop' : 'Web';
@@ -86,6 +107,27 @@ export function AppShell() {
   useEffect(() => {
     const timeout = window.setTimeout(() => setAppState('checking-update'), 420);
     return () => window.clearTimeout(timeout);
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    checkServerHealth()
+      .then(() => {
+        if (!cancelled) {
+          setServerOnline(true);
+        }
+      })
+      .catch((error) => {
+        console.error('[Kodiak Connect] Server health check failed', error);
+        if (!cancelled) {
+          setServerOnline(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   const handleUpToDate = useCallback(() => {
