@@ -177,6 +177,7 @@ fi
 cd '$VpsRepoPath'
 git fetch origin main
 git reset --hard origin/main
+
 if command -v apt-get >/dev/null 2>&1 && sudo -n true >/dev/null 2>&1; then
   echo 'Ensuring Linux Tauri/tray build dependencies are installed...'
   sudo -n apt-get update
@@ -193,8 +194,8 @@ if command -v apt-get >/dev/null 2>&1 && sudo -n true >/dev/null 2>&1; then
     file \
     libssl-dev \
     libgtk-3-dev \
-    "$WEBKIT_PACKAGE" \
-    "$JSC_PACKAGE" \
+    "`$WEBKIT_PACKAGE" \
+    "`$JSC_PACKAGE" \
     libsoup-3.0-dev \
     libayatana-appindicator3-dev \
     librsvg2-dev \
@@ -204,12 +205,13 @@ if command -v apt-get >/dev/null 2>&1 && sudo -n true >/dev/null 2>&1; then
 else
   echo 'Skipping dependency install because sudo/apt-get is unavailable for this release user.'
 fi
+
 echo 'Cleaning generated Linux build folders before npm ci...'
 if command -v sudo >/dev/null 2>&1 && sudo -n true >/dev/null 2>&1; then
-  sudo -n chown -R "$(id -u):$(id -g)" node_modules src-tauri/target "$HOME/.npm" 2>/dev/null || true
+  sudo -n chown -R "`$(id -u):`$(id -g)" node_modules src-tauri/target "`$HOME/.npm" 2>/dev/null || true
 fi
 rm -rf node_modules src-tauri/target
-mkdir -p "$HOME/.npm"
+mkdir -p "`$HOME/.npm"
 npm cache verify || true
 
 npm ci --no-audit --no-fund
