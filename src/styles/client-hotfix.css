@@ -898,3 +898,49 @@ html[data-kodiak-theme='system'] {
 .kodiak-startup-settings label small {
   color: rgba(203, 213, 225, 0.68);
 }
+
+.matrix-chat-body {
+  position: relative !important;
+}
+
+.matrix-jump-to-latest {
+  position: absolute;
+  right: clamp(1rem, 3vw, 2rem);
+  bottom: 1rem;
+  z-index: 70;
+  display: inline-grid;
+  grid-template-columns: auto auto;
+  align-items: center;
+  gap: 0.45rem;
+  border: 1px solid rgba(251, 146, 60, 0.42);
+  border-radius: 999px;
+  background: rgba(15, 23, 42, 0.92);
+  box-shadow: 0 18px 42px rgba(0, 0, 0, 0.32);
+  color: #fed7aa;
+  cursor: pointer;
+  font-weight: 900;
+  padding: 0.58rem 0.78rem;
+}
+
+.matrix-jump-to-latest span {
+  display: inline-grid;
+  width: 1.55rem;
+  height: 1.55rem;
+  place-items: center;
+  border-radius: 999px;
+  background: rgba(251, 146, 60, 0.16);
+  font-size: 1rem;
+  line-height: 1;
+}
+
+.matrix-jump-to-latest:hover {
+  border-color: rgba(251, 146, 60, 0.78);
+  transform: translateY(-1px);
+}
+
+@media (max-width: 820px) {
+  .matrix-jump-to-latest {
+    right: 0.85rem;
+    bottom: 0.85rem;
+  }
+}

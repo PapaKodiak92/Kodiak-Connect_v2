@@ -91,6 +91,8 @@ const MESSAGE_POLL_INTERVAL_MS = 5000;
 const TYPING_POLL_INTERVAL_MS = 2500;
 const TYPING_TIMEOUT_MS = 5000;
 const TYPING_IDLE_STOP_MS = 2500;
+const STICK_TO_BOTTOM_DISTANCE_PX = 160;
+const SHOW_JUMP_TO_LATEST_DISTANCE_PX = 520;
 const KODIAK_PROFILE_CACHE_KEY = 'KC_BACKEND_PROFILE_CACHE';
 const KODIAK_THEME_KEY = 'KC_THEME_MODE';
 
@@ -531,6 +533,7 @@ export function MatrixChannelPanel({
   const [isSending, setIsSending] = useState(false);
   const [errorText, setErrorText] = useState<string | null>(null);
   const [profileActionErrorText, setProfileActionErrorText] = useState<string | null>(null);
+  const [isJumpToLatestVisible, setIsJumpToLatestVisible] = useState(false);
   const messageElementRefs = useRef<Record<string, HTMLElement | null>>({});
   const messageListRef = useRef<HTMLDivElement | null>(null);
   const composerInputRef = useRef<HTMLInputElement | null>(null);
@@ -996,6 +999,7 @@ export function MatrixChannelPanel({
 
   useEffect(() => {
     shouldStickToBottomRef.current = true;
+    setIsJumpToLatestVisible(false);
     hasLoadedSoundBaselineRef.current = false;
     latestSoundMessageTsRef.current = 0;
   }, [activeChannel.id]);
@@ -1324,11 +1328,23 @@ export function MatrixChannelPanel({
   useEffect(() => {
     const messageList = messageListRef.current;
 
-    if (!messageList || !shouldStickToBottomRef.current) {
-      return;
+    if (!messageList) {
+      return undefined;
     }
 
-    messageList.scrollTop = messageList.scrollHeight;
+    if (!shouldStickToBottomRef.current) {
+      const distanceFromBottom = messageList.scrollHeight - messageList.scrollTop - messageList.clientHeight;
+      setIsJumpToLatestVisible(distanceFromBottom > SHOW_JUMP_TO_LATEST_DISTANCE_PX);
+      return undefined;
+    }
+
+    const frameId = window.requestAnimationFrame(() => {
+      messageList.scrollTop = messageList.scrollHeight;
+      shouldStickToBottomRef.current = true;
+      setIsJumpToLatestVisible(false);
+    });
+
+    return () => window.cancelAnimationFrame(frameId);
   }, [messages, activeChannel.id]);
 
   function findMessageForDomTarget(target: EventTarget | null) {
@@ -1369,7 +1385,25 @@ export function MatrixChannelPanel({
     }
 
     const distanceFromBottom = messageList.scrollHeight - messageList.scrollTop - messageList.clientHeight;
-    shouldStickToBottomRef.current = distanceFromBottom < 160;
+    const isCloseToBottom = distanceFromBottom < STICK_TO_BOTTOM_DISTANCE_PX;
+
+    shouldStickToBottomRef.current = isCloseToBottom;
+    setIsJumpToLatestVisible(!isCloseToBottom && distanceFromBottom > SHOW_JUMP_TO_LATEST_DISTANCE_PX);
+  }
+
+  function scrollToLatestMessages() {
+    const messageList = messageListRef.current;
+
+    if (!messageList) {
+      return;
+    }
+
+    shouldStickToBottomRef.current = true;
+    setIsJumpToLatestVisible(false);
+    messageList.scrollTo({
+      top: messageList.scrollHeight,
+      behavior: 'smooth',
+    });
   }
 
   function handleJumpToMessage(eventId?: string) {
@@ -2222,6 +2256,18 @@ export function MatrixChannelPanel({
         ) : (
           <div className="matrix-empty-state">{getEmptyState(activeChannel, canPost)}</div>
         )}
+
+        {isJumpToLatestVisible ? (
+          <button
+            type="button"
+            className="matrix-jump-to-latest"
+            onClick={scrollToLatestMessages}
+            aria-label="Jump to latest message"
+          >
+            <span aria-hidden="true">↓</span>
+            <strong>Latest</strong>
+          </button>
+        ) : null}
       </div>
 
       <aside className={`matrix-member-panel ${isMemberPanelOpen ? '' : 'matrix-member-panel--collapsed'}`} aria-label="Room members">
