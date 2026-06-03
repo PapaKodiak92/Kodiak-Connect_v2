@@ -177,6 +177,33 @@ fi
 cd '$VpsRepoPath'
 git fetch origin main
 git reset --hard origin/main
+if command -v apt-get >/dev/null 2>&1 && sudo -n true >/dev/null 2>&1; then
+  echo 'Ensuring Linux Tauri/tray build dependencies are installed...'
+  sudo -n apt-get update
+  if apt-cache show libwebkit2gtk-4.1-dev >/dev/null 2>&1; then
+    WEBKIT_PACKAGE='libwebkit2gtk-4.1-dev'
+    JSC_PACKAGE='libjavascriptcoregtk-4.1-dev'
+  else
+    WEBKIT_PACKAGE='libwebkit2gtk-4.0-dev'
+    JSC_PACKAGE='libjavascriptcoregtk-4.0-dev'
+  fi
+  sudo -n env DEBIAN_FRONTEND=noninteractive apt-get install -y \
+    build-essential \
+    curl \
+    file \
+    libssl-dev \
+    libgtk-3-dev \
+    "$WEBKIT_PACKAGE" \
+    "$JSC_PACKAGE" \
+    libsoup-3.0-dev \
+    libayatana-appindicator3-dev \
+    librsvg2-dev \
+    patchelf \
+    pkg-config \
+    wget
+else
+  echo 'Skipping dependency install because sudo/apt-get is unavailable for this release user.'
+fi
 npm ci
 npm run build
 cargo --version
