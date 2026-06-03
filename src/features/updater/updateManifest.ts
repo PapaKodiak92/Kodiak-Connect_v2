@@ -16,7 +16,7 @@ export interface KodiakUpdateManifest {
 
 export const updateManifest: KodiakUpdateManifest = {
   appId: 'com.kodiakholdings.kodiakconnect',
-  currentVersion: '1.1.7',
+  currentVersion: '1.1.8',
   channel: 'dev',
   generatedAt: '2026-06-02T19:45:49.315Z',
   targets: [],
