@@ -5,7 +5,9 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const DATA_DIR = join(__dirname, 'data');
+const DATA_DIR = process.env.KODIAK_DATA_DIR
+  ? process.env.KODIAK_DATA_DIR
+  : join(__dirname, 'data');
 const AUTH_PENDING_FILE = join(DATA_DIR, 'auth-pending.json');
 const AUTH_ACCOUNTS_FILE = join(DATA_DIR, 'auth-accounts.json');
 const PROFILES_FILE = join(DATA_DIR, 'profiles.json');
