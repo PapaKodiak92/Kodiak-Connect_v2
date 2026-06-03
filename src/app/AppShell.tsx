@@ -1,6 +1,12 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { LoginScreen } from '../features/auth/LoginScreen';
-import type { MatrixLoginIdentity } from '../features/auth/matrixLoginService';
+import {
+  clearStoredMatrixLoginIdentity,
+  readStoredMatrixLoginIdentity,
+  storeMatrixLoginIdentity,
+  validateMatrixLoginIdentity,
+  type MatrixLoginIdentity,
+} from '../features/auth/matrixLoginService';
 import { kodiakEnv } from '../config/env';
 import { KodiakAttachmentBridge } from '../features/attachments/KodiakAttachmentBridge';
 import { MatrixMediaDomEnhancer } from '../features/attachments/MatrixMediaDomEnhancer';
@@ -103,6 +109,7 @@ export function AppShell() {
   const isMobile = platform.kind === 'android';
   const isWeb = platform.kind === 'web';
   const platformLabel = isMobile ? 'Mobile' : platform.kind === 'desktop' ? 'Desktop' : 'Web';
+  const hasCheckedStoredLoginRef = useRef(false);
 
   useEffect(() => {
     const timeout = window.setTimeout(() => {
@@ -133,6 +140,63 @@ export function AppShell() {
     };
   }, []);
 
+  useEffect(() => {
+    if (appState !== 'login' || hasCheckedStoredLoginRef.current) {
+      return undefined;
+    }
+
+    const storedIdentity = readStoredMatrixLoginIdentity();
+
+    hasCheckedStoredLoginRef.current = true;
+
+    if (!storedIdentity) {
+      return undefined;
+    }
+
+    let cancelled = false;
+
+    let restoreTimeoutId = 0;
+    const restoreTimeout = new Promise<MatrixLoginIdentity>((_, reject) => {
+      restoreTimeoutId = window.setTimeout(() => {
+        reject(new Error('Saved session restore timed out.'));
+      }, 4500);
+    });
+
+    Promise.race([validateMatrixLoginIdentity(storedIdentity), restoreTimeout])
+      .then((identity) => {
+        if (cancelled) {
+          return;
+        }
+
+        storeMatrixLoginIdentity(identity);
+        setMatrixIdentity(identity);
+        setAppState('workspace');
+      })
+      .catch((error) => {
+        console.warn('[Kodiak Connect] Saved login could not be restored', error);
+
+        if (cancelled) {
+          return;
+        }
+
+        clearStoredMatrixLoginIdentity();
+        setMatrixIdentity(null);
+        setAppState('login');
+      })
+      .finally(() => {
+        if (restoreTimeoutId) {
+          window.clearTimeout(restoreTimeoutId);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+      if (restoreTimeoutId) {
+        window.clearTimeout(restoreTimeoutId);
+      }
+    };
+  }, [appState]);
+
   const handleUpToDate = useCallback(() => {
     setAppState('login');
   }, []);
@@ -151,11 +215,13 @@ export function AppShell() {
   }, [isWeb]);
 
   const handleLoginSuccess = useCallback((identity: MatrixLoginIdentity) => {
+    storeMatrixLoginIdentity(identity);
     setMatrixIdentity(identity);
     setAppState('workspace');
   }, []);
 
   const handleLogout = useCallback(() => {
+    clearStoredMatrixLoginIdentity();
     setMatrixIdentity(null);
     setAppState('login');
   }, []);

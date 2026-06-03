@@ -1,4 +1,4 @@
-﻿import { useEffect } from 'react';
+import { useEffect } from 'react';
 import type { MatrixLoginIdentity } from '../auth/matrixLoginService';
 
 interface MatrixMediaDomEnhancerProps {
@@ -88,11 +88,26 @@ function appendError(card: HTMLElement, message: string) {
   card.append(error);
 }
 
+
+async function chooseDomEnhancerSavePath(suggestedName: string) {
+  const { invoke } = await import('@tauri-apps/api/core');
+  return invoke<string | null>('choose_save_path', { suggestedName });
+}
+
+async function writeDomEnhancerFile(savePath: string, blob: Blob) {
+  const { invoke } = await import('@tauri-apps/api/core');
+  const bytes = Array.from(new Uint8Array(await blob.arrayBuffer()));
+
+  await invoke('write_downloaded_file', {
+    path: savePath,
+    bytes,
+  });
+}
 function createDownloadButton(
   identity: MatrixLoginIdentity,
   mediaUrl: string,
   fileName: string,
-  trackObjectUrl: (url: string) => void,
+  _trackObjectUrl: (url: string) => void,
 ) {
   const button = document.createElement('button');
   button.type = 'button';
@@ -101,37 +116,51 @@ function createDownloadButton(
 
   button.addEventListener('click', async () => {
     const originalText = button.textContent;
-    button.disabled = true;
-    button.textContent = 'Downloading...';
 
     try {
-      if (!isAuthenticatedMatrixMediaUrl(mediaUrl)) {
-        window.open(mediaUrl, '_blank', 'noopener,noreferrer');
-        button.textContent = originalText;
+      button.disabled = true;
+      button.textContent = 'Choose location...';
+
+      const savePath = await chooseDomEnhancerSavePath(fileName);
+
+      if (!savePath) {
+        button.textContent = 'Canceled';
+        window.setTimeout(() => {
+          button.textContent = originalText;
+          button.disabled = false;
+        }, 1200);
         return;
       }
 
-      const blob = await fetchAuthenticatedBlob(identity, mediaUrl);
-      const objectUrl = URL.createObjectURL(blob);
-      trackObjectUrl(objectUrl);
+      button.textContent = 'Downloading...';
 
-      const anchor = document.createElement('a');
-      anchor.href = objectUrl;
-      anchor.download = fileName;
-      document.body.append(anchor);
-      anchor.click();
-      anchor.remove();
+      const blob = isAuthenticatedMatrixMediaUrl(mediaUrl)
+        ? await fetchAuthenticatedBlob(identity, mediaUrl)
+        : await fetch(mediaUrl).then((response) => {
+            if (!response.ok) {
+              throw new Error('File download failed.');
+            }
 
-      window.setTimeout(() => URL.revokeObjectURL(objectUrl), 2000);
+            return response.blob();
+          });
+
+      button.textContent = 'Saving...';
+      await writeDomEnhancerFile(savePath, blob);
+
+      button.textContent = 'Saved';
+
+      window.setTimeout(() => {
+        button.textContent = originalText;
+        button.disabled = false;
+      }, 1800);
     } catch (error) {
       console.error('[Kodiak Connect] Authenticated media download failed', error);
       button.textContent = 'Failed';
 
       window.setTimeout(() => {
         button.textContent = originalText;
+        button.disabled = false;
       }, 1800);
-    } finally {
-      button.disabled = false;
     }
   });
 

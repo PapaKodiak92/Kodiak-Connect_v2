@@ -1,4 +1,4 @@
-﻿import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent, type MouseEvent, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent, type MouseEvent, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import type { MatrixLoginIdentity } from '../auth/matrixLoginService';
 import { playKodiakSound, unlockKodiakSounds } from '../audio/kodiakSounds';
@@ -92,6 +92,18 @@ const TYPING_POLL_INTERVAL_MS = 2500;
 const TYPING_TIMEOUT_MS = 5000;
 const TYPING_IDLE_STOP_MS = 2500;
 const KODIAK_PROFILE_CACHE_KEY = 'KC_BACKEND_PROFILE_CACHE';
+const KODIAK_THEME_KEY = 'KC_THEME_MODE';
+
+type KodiakThemeMode = 'default' | 'system';
+
+function readKodiakThemeMode(): KodiakThemeMode {
+  return window.localStorage.getItem(KODIAK_THEME_KEY) === 'system' ? 'system' : 'default';
+}
+
+function applyKodiakThemeMode(themeMode: KodiakThemeMode) {
+  window.localStorage.setItem(KODIAK_THEME_KEY, themeMode);
+  document.documentElement.dataset.kodiakTheme = themeMode;
+}
 
 function readKodiakProfileCache() {
   try {
@@ -478,6 +490,10 @@ export function MatrixChannelPanel({
   const [openProfileUserId, setOpenProfileUserId] = useState<string | null>(null);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [displayNameDraft, setDisplayNameDraft] = useState('');
+  const [settingsTab, setSettingsTab] = useState<'profile' | 'sounds' | 'themes'>('profile');
+  const [themeMode, setThemeMode] = useState<KodiakThemeMode>(() => readKodiakThemeMode());
+  const [soundTestText, setSoundTestText] = useState<string | null>(null);
+  const [isStartMinimizedEnabled, setIsStartMinimizedEnabled] = useState(false);
   const [isSavingSettings, setIsSavingSettings] = useState(false);
   const [settingsErrorText, setSettingsErrorText] = useState<string | null>(null);
   const [friendActionUserId, setFriendActionUserId] = useState<string | null>(null);
@@ -505,6 +521,7 @@ export function MatrixChannelPanel({
   const [profileActionErrorText, setProfileActionErrorText] = useState<string | null>(null);
   const messageElementRefs = useRef<Record<string, HTMLElement | null>>({});
   const messageListRef = useRef<HTMLDivElement | null>(null);
+  const composerInputRef = useRef<HTMLInputElement | null>(null);
   const shouldStickToBottomRef = useRef(true);
   const pollingTimer = useRef<number | null>(null);
   const typingPollTimer = useRef<number | null>(null);
@@ -944,6 +961,10 @@ export function MatrixChannelPanel({
       console.warn('[Kodiak Connect] Failed to stop Matrix typing notification', error);
     }
   }, [identity, roomId]);
+
+  useEffect(() => {
+    applyKodiakThemeMode(themeMode);
+  }, [themeMode]);
 
   useEffect(() => {
     window.localStorage.setItem('KC_SOUND_MESSAGES', String(areMessageSoundsEnabled));
@@ -1623,6 +1644,47 @@ export function MatrixChannelPanel({
     }
   }
 
+  useEffect(() => {
+    let cancelled = false;
+
+    void import('@tauri-apps/api/core')
+      .then(({ invoke }) => invoke<boolean>('get_start_minimized'))
+      .then((enabled) => {
+        if (!cancelled) {
+          setIsStartMinimizedEnabled(Boolean(enabled));
+        }
+      })
+      .catch((error) => {
+        console.warn('[Kodiak Connect] Failed to load start minimized setting', error);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  async function handleStartMinimizedChange(enabled: boolean) {
+    setIsStartMinimizedEnabled(enabled);
+
+    try {
+      const { invoke } = await import('@tauri-apps/api/core');
+      const savedValue = await invoke<boolean>('set_start_minimized', { enabled });
+      setIsStartMinimizedEnabled(Boolean(savedValue));
+    } catch (error) {
+      console.warn('[Kodiak Connect] Failed to save start minimized setting', error);
+      setIsStartMinimizedEnabled(!enabled);
+      setSettingsErrorText('Could not save startup setting.');
+    }
+  }
+
+  async function handleTestKodiakSound() {
+    unlockKodiakSounds();
+    setSoundTestText('Playing test sound...');
+
+    const played = await playKodiakSound('messageReceived', 0.72, { force: true });
+    setSoundTestText(played ? 'Sound test played.' : 'Sound test failed. Check Linux audio output and installed codecs.');
+  }
+
   function openSafetyCenter() {
     setIsSafetyCenterOpen(true);
     void refreshSafetyReports();
@@ -1911,6 +1973,16 @@ export function MatrixChannelPanel({
     }
   }
 
+  async function copyMessageTextToClipboard(messageBody: string) {
+    try {
+      await navigator.clipboard.writeText(messageBody);
+      setErrorText('Copied message text.');
+    } catch (error) {
+      console.warn('[Kodiak Connect] Failed to copy message text', error);
+      setErrorText('Could not copy message text.');
+    }
+  }
+
   async function handleSendMessage(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     unlockKodiakSounds();
@@ -1931,30 +2003,63 @@ export function MatrixChannelPanel({
       return;
     }
 
-    setIsSending(true);
+    const targetRoomId = roomId;
+    const replyContext = replyTarget;
+    const activeEditTarget = editingMessage;
+    const shouldPlaySentSound = !activeEditTarget && areMessageSoundsEnabled && isSentSoundEnabled;
+
     setErrorText(null);
 
-    const shouldPlaySentSound = !editingMessage && areMessageSoundsEnabled && isSentSoundEnabled;
+    void stopTyping().catch((error) => {
+      console.warn('[Kodiak Connect] Failed to stop Matrix typing notification before send', error);
+    });
 
-    if (shouldPlaySentSound) {
-      playKodiakSound('messageSent', 0.55);
-    }
-
-    try {
-      await stopTyping();
-
-      if (editingMessage) {
-        await sendReplacementMessage(identity, roomId, editingMessage.eventId, trimmedMessage);
-        setEditingMessage(null);
-      } else {
-        await sendTextMessage(identity, roomId, buildReplyBody(replyTarget, trimmedMessage));
-      }
-
+    if (!activeEditTarget) {
       setDraftMessage('');
       setReplyTarget(null);
-      await refreshMessages(roomId);
+      setIsSending(false);
+
+      window.requestAnimationFrame(() => {
+        composerInputRef.current?.focus();
+      });
+
+      if (shouldPlaySentSound) {
+        playKodiakSound('messageSent', 0.55);
+      }
+
+      void sendTextMessage(identity, targetRoomId, buildReplyBody(replyContext, trimmedMessage))
+        .then(() => refreshMessages(targetRoomId))
+        .catch((error) => {
+          console.error('[Kodiak Connect] Failed to send Matrix message', error);
+          setDraftMessage((currentDraft) => currentDraft || trimmedMessage);
+          setReplyTarget((currentReplyTarget) => currentReplyTarget ?? replyContext);
+          setErrorText(getMatrixErrorMessage(error, activeChannel));
+
+          window.requestAnimationFrame(() => {
+            composerInputRef.current?.focus();
+          });
+        });
+
+      return;
+    }
+
+    setIsSending(true);
+
+    try {
+      await sendReplacementMessage(identity, targetRoomId, activeEditTarget.eventId, trimmedMessage);
+      setEditingMessage(null);
+      setDraftMessage('');
+      setReplyTarget(null);
+
+      void refreshMessages(targetRoomId).catch((error) => {
+        console.error('[Kodiak Connect] Matrix room refresh failed after edit', error);
+      });
+
+      window.requestAnimationFrame(() => {
+        composerInputRef.current?.focus();
+      });
     } catch (error) {
-      console.error('[Kodiak Connect] Failed to send Matrix message', error);
+      console.error('[Kodiak Connect] Failed to edit Matrix message', error);
       setErrorText(getMatrixErrorMessage(error, activeChannel));
     } finally {
       setIsSending(false);
@@ -1978,6 +2083,7 @@ export function MatrixChannelPanel({
             setAvatarPreviewUrl(null);
             setBioDraft(profileBiosByUserId[identity.userId] ?? '');
             setSettingsErrorText(null);
+            setSettingsTab('profile');
             setIsSettingsOpen(true);
           }}
         >
@@ -2020,7 +2126,7 @@ export function MatrixChannelPanel({
                       disabled={!parsedMessage.reply.eventId}
                       title={`Replying to ${parsedMessage.reply.sender}: ${parsedMessage.reply.preview}`}
                     >
-                      <span className="matrix-reply-thread-link__arrow" aria-hidden="true">Ã¢â€ Âª</span>
+                      <span className="matrix-reply-thread-link__arrow" aria-hidden="true">Reply</span>
                       <strong>{parsedMessage.reply.sender}</strong>
                       <span className="matrix-reply-thread-link__separator" aria-hidden="true"> - </span>
                       <span className="matrix-reply-thread-link__preview">{parsedMessage.reply.preview}</span>
@@ -2117,7 +2223,16 @@ export function MatrixChannelPanel({
             }
           }}
         >
-          {isMemberPanelOpen ? '>' : '<'}
+          <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+            <path
+              d={isMemberPanelOpen ? 'M9 5l6 7-6 7' : 'M15 5l-6 7 6 7'}
+              fill="none"
+              stroke="currentColor"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth="2.5"
+            />
+          </svg>
         </button>
 
         <div className="matrix-member-panel__inner">
@@ -2194,14 +2309,15 @@ export function MatrixChannelPanel({
         ) : null}
 
         <input
+          ref={composerInputRef}
           type="text"
           placeholder={editingMessage ? 'Edit message' : getComposerPlaceholder(activeChannel, canPost, roomId, replyTarget)}
           value={draftMessage}
           onChange={(event) => setDraftMessage(event.target.value)}
           onKeyDown={handleComposerKeyDown}
-          disabled={!roomId || isSending || !canPost}
+          disabled={!roomId || (isSending && Boolean(editingMessage)) || !canPost}
         />
-        <button type="submit" disabled={!roomId || isSending || !canPost || !draftMessage.trim()}>
+        <button type="submit" disabled={!roomId || (isSending && Boolean(editingMessage)) || !canPost || !draftMessage.trim()}>
           {isSending ? (editingMessage ? 'Saving...' : 'Sending...') : editingMessage ? 'Save' : activeChannel.readOnly ? 'Publish' : 'Send'}
         </button>
       </form>
@@ -2227,6 +2343,16 @@ export function MatrixChannelPanel({
               Message {getKnownDisplayName(openActionMenuMessage.sender)}
             </button>
           ) : null}
+
+          <button
+            type="button"
+            onClick={() => {
+              void copyMessageTextToClipboard(openActionMenuParsedMessage.body);
+              closeMessageActionMenu();
+            }}
+          >
+            Copy text
+          </button>
 
           {canPost ? (
             <button
@@ -2616,7 +2742,7 @@ export function MatrixChannelPanel({
               aria-label="Close Safety Center"
               onClick={() => setIsSafetyCenterOpen(false)}
             >
-              Ãƒâ€”
+              X
             </button>
 
             <div className="kodiak-safety-center-modal__header">
@@ -2687,8 +2813,13 @@ export function MatrixChannelPanel({
             aria-labelledby="friend-center-title"
             onClick={(event) => event.stopPropagation()}
           >
-            <button type="button" className="kodiak-friend-center-modal__close" aria-label="Close Friend Center" onClick={onCloseFriendCenter}>
-              Ãƒâ€”
+            <button
+              type="button"
+              className="kodiak-friend-center-modal__close"
+              aria-label="Close Friend Center"
+              onClick={onCloseFriendCenter}
+            >
+              X
             </button>
 
             <div className="kodiak-friend-center-modal__header">
@@ -2880,7 +3011,7 @@ export function MatrixChannelPanel({
               aria-label="Close profile settings"
               onClick={() => setIsSettingsOpen(false)}
             >
-              Ãƒâ€”
+              X
             </button>
             <div className="kodiak-confirm-modal__header">
               <p className="eyebrow eyebrow--ember">Account settings</p>
@@ -2888,99 +3019,149 @@ export function MatrixChannelPanel({
               <p>This is how people see you in chats, DMs, replies, and mentions.</p>
             </div>
 
-            <div className="kodiak-avatar-setting">
-              <div className="kodiak-avatar-setting__preview">
-                {avatarPreviewUrl ? (
-                  <img src={avatarPreviewUrl} alt="" />
-                ) : getKnownAvatarUrl(identity.userId) ? (
-                  <img src={getKnownAvatarUrl(identity.userId) ?? ''} alt="" />
-                ) : (
-                  <span>{getAvatarInitials(headerDisplayName)}</span>
-                )}
+            <div className="kodiak-settings-tabs" role="tablist" aria-label="Settings sections">
+              <button type="button" className={settingsTab === 'profile' ? 'is-active' : ''} onClick={() => setSettingsTab('profile')}>
+                Profile
+              </button>
+              <button type="button" className={settingsTab === 'sounds' ? 'is-active' : ''} onClick={() => setSettingsTab('sounds')}>
+                Sounds
+              </button>
+              <button type="button" className={settingsTab === 'themes' ? 'is-active' : ''} onClick={() => setSettingsTab('themes')}>
+                Themes
+              </button>
+            </div>
+
+            {settingsTab === 'profile' ? (
+              <>
+                <div className="kodiak-avatar-setting">
+                  <div className="kodiak-avatar-setting__preview">
+                    {avatarPreviewUrl ? (
+                      <img src={avatarPreviewUrl} alt="" />
+                    ) : getKnownAvatarUrl(identity.userId) ? (
+                      <img src={getKnownAvatarUrl(identity.userId) ?? ''} alt="" />
+                    ) : (
+                      <span>{getAvatarInitials(headerDisplayName)}</span>
+                    )}
+                  </div>
+                  <label>
+                    <span>Profile picture</span>
+                    <input
+                      type="file"
+                      accept="image/png,image/jpeg,image/jpg,image/webp"
+                      onChange={(event) => handleAvatarFileChange(event.target.files?.[0] ?? null)}
+                    />
+                  </label>
+                </div>
+
+                <label className="kodiak-settings-field">
+                  <span>Display name</span>
+                  <input
+                    type="text"
+                    value={displayNameDraft}
+                    onChange={(event) => setDisplayNameDraft(event.target.value)}
+                    maxLength={32}
+                    placeholder="PapaKodiak"
+                    autoFocus
+                  />
+                </label>
+
+                <label className="kodiak-settings-field kodiak-settings-field--bio">
+                  <span>Bio</span>
+                  <textarea
+                    value={bioDraft}
+                    onChange={(event) => setBioDraft(event.target.value)}
+                    maxLength={180}
+                    placeholder="Tell people a little about yourself."
+                  />
+                  <small>{bioDraft.length}/180</small>
+                </label>
+              </>
+            ) : null}
+
+            {settingsTab === 'sounds' ? (
+              <div className="kodiak-sound-settings kodiak-sound-settings--panel">
+                <strong>Sounds</strong>
+                <p>These settings work inside the desktop app and are saved on this device.</p>
+                <label>
+                  <input
+                    type="checkbox"
+                    checked={areMessageSoundsEnabled}
+                    onChange={(event) => setAreMessageSoundsEnabled(event.target.checked)}
+                  />
+                  <span>Message sounds</span>
+                </label>
+                <label>
+                  <input
+                    type="checkbox"
+                    checked={isSentSoundEnabled}
+                    onChange={(event) => setIsSentSoundEnabled(event.target.checked)}
+                    disabled={!areMessageSoundsEnabled}
+                  />
+                  <span>Sent sound</span>
+                </label>
+                <label>
+                  <input
+                    type="checkbox"
+                    checked={isReceivedSoundEnabled}
+                    onChange={(event) => setIsReceivedSoundEnabled(event.target.checked)}
+                    disabled={!areMessageSoundsEnabled}
+                  />
+                  <span>Received sound</span>
+                </label>
+                <button type="button" className="kodiak-settings-test-button" onClick={() => void handleTestKodiakSound()}>
+                  Test received sound
+                </button>
+                {soundTestText ? <small className="kodiak-settings-help">{soundTestText}</small> : null}
               </div>
-              <label>
-                <span>Profile picture</span>
-                <input
-                  type="file"
-                  accept="image/png,image/jpeg,image/jpg,image/webp"
-                  onChange={(event) => handleAvatarFileChange(event.target.files?.[0] ?? null)}
-                />
-              </label>
-            </div>
+            ) : null}
 
-            <label className="kodiak-settings-field">
-              <span>Display name</span>
-              <input
-                type="text"
-                value={displayNameDraft}
-                onChange={(event) => setDisplayNameDraft(event.target.value)}
-                maxLength={32}
-                placeholder="PapaKodiak"
-                autoFocus
-              />
-            </label>
+            {settingsTab === 'themes' ? (
+              <div className="kodiak-theme-settings">
+                <strong>Themes</strong>
+                <p>Default keeps the current Kodiak look. System follows your operating system preference. More themes can be added later.</p>
 
-            <label className="kodiak-settings-field kodiak-settings-field--bio">
-              <span>Bio</span>
-              <textarea
-                value={bioDraft}
-                onChange={(event) => setBioDraft(event.target.value)}
-                maxLength={180}
-                placeholder="Tell people a little about yourself."
-              />
-              <small>{bioDraft.length}/180</small>
-            </label>
+                <label className={themeMode === 'default' ? 'is-active' : ''}>
+                  <input
+                    type="radio"
+                    name="kodiak-theme"
+                    checked={themeMode === 'default'}
+                    onChange={() => setThemeMode('default')}
+                  />
+                  <span>
+                    <strong>Default</strong>
+                    <small>Kodiak dark theme</small>
+                  </span>
+                </label>
 
-            <div className="kodiak-sound-settings">
-              <strong>Sounds</strong>
-              <label>
-                <input
-                  type="checkbox"
-                  checked={areMessageSoundsEnabled}
-                  onChange={(event) => setAreMessageSoundsEnabled(event.target.checked)}
-                />
-                <span>Message sounds</span>
-              </label>
-              <label>
-                <input
-                  type="checkbox"
-                  checked={isSentSoundEnabled}
-                  onChange={(event) => setIsSentSoundEnabled(event.target.checked)}
-                  disabled={!areMessageSoundsEnabled}
-                />
-                <span>Sent sound</span>
-              </label>
-              <label>
-                <input
-                  type="checkbox"
-                  checked={isReceivedSoundEnabled}
-                  onChange={(event) => setIsReceivedSoundEnabled(event.target.checked)}
-                  disabled={!areMessageSoundsEnabled}
-                />
-                <span>Received sound</span>
-              </label>
-            </div>
+                <label className={themeMode === 'system' ? 'is-active' : ''}>
+                  <input
+                    type="radio"
+                    name="kodiak-theme"
+                    checked={themeMode === 'system'}
+                    onChange={() => setThemeMode('system')}
+                  />
+                  <span>
+                    <strong>System settings</strong>
+                    <small>Match your OS light or dark preference</small>
+                  </span>
+                </label>
 
-            <div className="kodiak-sound-settings kodiak-notification-settings">
-              <strong>Notifications</strong>
-              <label>
-                <input
-                  type="checkbox"
-                  checked={areBrowserNotificationsEnabled}
-                  onChange={(event) => void handleBrowserNotificationToggle(event.target.checked)}
-                />
-                <span>Browser notifications</span>
-              </label>
-              <label>
-                <input
-                  type="checkbox"
-                  checked={isNotificationSoundEnabled}
-                  onChange={(event) => setIsNotificationSoundEnabled(event.target.checked)}
-                  disabled={!areBrowserNotificationsEnabled}
-                />
-                <span>Notification sound</span>
-              </label>
-            </div>
+                <div className="kodiak-startup-settings">
+                  <strong>Startup</strong>
+                  <label className={isStartMinimizedEnabled ? 'is-active' : ''}>
+                    <input
+                      type="checkbox"
+                      checked={isStartMinimizedEnabled}
+                      onChange={(event) => void handleStartMinimizedChange(event.target.checked)}
+                    />
+                    <span>
+                      <strong>Start minimized to tray</strong>
+                      <small>Open Kodiak Connect in the system tray instead of showing the window.</small>
+                    </span>
+                  </label>
+                </div>
+              </div>
+            ) : null}
 
             {settingsErrorText ? <p className="kodiak-settings-error">{settingsErrorText}</p> : null}
 

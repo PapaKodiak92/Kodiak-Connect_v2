@@ -12,6 +12,7 @@ import './styles/safety-center.css';
 import './styles/workspace-surfaces.css';
 import './styles/attachment-bridge.css';
 import './styles/layout-repair.css';
+import './styles/client-hotfix.css';
 
 function clearStaleAvatarObjectUrls() {
   const cacheKey = 'KC_BACKEND_PROFILE_CACHE';

@@ -1,7 +1,7 @@
 {
   "name": "kodiak-connect",
   "private": true,
-  "version": "1.1.6",
+  "version": "1.1.7",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -26,6 +26,8 @@
     "@capacitor/android": "latest",
     "@capacitor/core": "latest",
     "@tauri-apps/api": "latest",
+    "@tauri-apps/plugin-dialog": "^2.7.1",
+    "@tauri-apps/plugin-fs": "^2.5.1",
     "@tauri-apps/plugin-opener": "^2.5.4",
     "@tauri-apps/plugin-updater": "latest",
     "react": "latest",

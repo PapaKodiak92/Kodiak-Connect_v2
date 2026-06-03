@@ -251,12 +251,22 @@ export function WorkspaceShell({ identity, onLogout }: WorkspaceShellProps) {
   );
   const notifiedLatestTsByChannelRef = useRef<Record<string, number>>({});
   const channelActivityBackoffUntilRef = useRef<Record<string, number>>({});
+  const channelActivityRef = useRef<ChannelActivityById>({});
+  const lastSeenByChannelRef = useRef<Record<string, number>>(lastSeenByChannel);
   const hasLoadedFriendStateRef = useRef(false);
   const incomingFriendRequestUserIdsRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {
     friendStatusByUserIdRef.current = friendStatusByUserId;
   }, [friendStatusByUserId]);
+
+  useEffect(() => {
+    channelActivityRef.current = channelActivity;
+  }, [channelActivity]);
+
+  useEffect(() => {
+    lastSeenByChannelRef.current = lastSeenByChannel;
+  }, [lastSeenByChannel]);
 
   const restrictedBlockUserIds = useMemo(() => [...new Set([...blockedUserIds, ...blockedByUserIds])], [blockedByUserIds, blockedUserIds]);
   const blockedUserIdSet = useMemo(() => new Set(restrictedBlockUserIds), [restrictedBlockUserIds]);
@@ -532,6 +542,8 @@ export function WorkspaceShell({ identity, onLogout }: WorkspaceShellProps) {
   );
 
   const refreshChannelActivity = useCallback(async () => {
+    const currentActivity = channelActivityRef.current;
+    const currentLastSeenByChannel = lastSeenByChannelRef.current;
     const currentUserMention = `@${getUserLocalpart(identity.userId)}`;
     const channels = getChannels(activeSpace).filter(
       (channel) => !channel.disabled && (channel.matrixAlias || channel.matrixDmUserId),
@@ -542,7 +554,7 @@ export function WorkspaceShell({ identity, onLogout }: WorkspaceShellProps) {
         const backoffUntil = channelActivityBackoffUntilRef.current[channel.id] ?? 0;
 
         if (Date.now() < backoffUntil) {
-          return [channel.id, channelActivity[channel.id] ?? { hasMention: false, latestTs: 0, unreadCount: 0 }, null] as const;
+          return [channel.id, currentActivity[channel.id] ?? { hasMention: false, latestTs: 0, unreadCount: 0 }, null] as const;
         }
 
         try {
@@ -555,7 +567,7 @@ export function WorkspaceShell({ identity, onLogout }: WorkspaceShellProps) {
             const resolvedDmRoomId = await resolveDirectMessageRoom(identity, directMessageTargetUserId, cachedDmRoomId);
 
             if (!resolvedDmRoomId) {
-              return [channel.id, channelActivity[channel.id] ?? { hasMention: false, latestTs: 0, unreadCount: 0 }, null] as const;
+              return [channel.id, currentActivity[channel.id] ?? { hasMention: false, latestTs: 0, unreadCount: 0 }, null] as const;
             }
 
             roomId = resolvedDmRoomId;
@@ -569,10 +581,10 @@ export function WorkspaceShell({ identity, onLogout }: WorkspaceShellProps) {
           const latestMessage = recentMessages.at(-1);
 
           if (!latestMessage) {
-            return [channel.id, channelActivity[channel.id] ?? { hasMention: false, latestTs: 0, unreadCount: 0 }, null] as const;
+            return [channel.id, currentActivity[channel.id] ?? { hasMention: false, latestTs: 0, unreadCount: 0 }, null] as const;
           }
 
-          const lastSeenTs = lastSeenByChannel[channel.id] ?? 0;
+          const lastSeenTs = currentLastSeenByChannel[channel.id] ?? 0;
           const unreadMessages = recentMessages.filter(
             (message) => message.originServerTs > lastSeenTs && message.sender !== identity.userId && !blockedUserIdSet.has(message.sender) && !blockedUserIdSet.has(message.sender),
           );
@@ -582,12 +594,12 @@ export function WorkspaceShell({ identity, onLogout }: WorkspaceShellProps) {
 
           const latestIncomingMessage = [...recentMessages]
             .reverse()
-            .find((message) => message.sender !== identity.userId && message.originServerTs > (channelActivity[channel.id]?.latestTs ?? 0));
+            .find((message) => message.sender !== identity.userId && message.originServerTs > (currentActivity[channel.id]?.latestTs ?? 0));
 
           const shouldNotify =
             !isActiveChannel &&
             Boolean(latestIncomingMessage) &&
-            Boolean(channelActivity[channel.id]?.latestTs) &&
+            Boolean(currentActivity[channel.id]?.latestTs) &&
             latestIncomingMessage!.originServerTs > (notifiedLatestTsByChannelRef.current[channel.id] ?? 0);
 
           return [
@@ -607,7 +619,7 @@ export function WorkspaceShell({ identity, onLogout }: WorkspaceShellProps) {
           ] as const;
         } catch (error) {
           console.warn(`[Kodiak Connect] Channel activity check failed for ${channel.name}`, error);
-          return [channel.id, channelActivity[channel.id] ?? { hasMention: false, latestTs: 0, unreadCount: 0 }, null] as const;
+          return [channel.id, currentActivity[channel.id] ?? { hasMention: false, latestTs: 0, unreadCount: 0 }, null] as const;
         }
       }),
     );
@@ -615,10 +627,32 @@ export function WorkspaceShell({ identity, onLogout }: WorkspaceShellProps) {
     const activityEntries = activityResults.map(([channelId, activity]) => [channelId, activity] as const);
     const notificationEntries = activityResults.map(([, , notification]) => notification).filter(Boolean);
 
-    setChannelActivity((currentActivity) => ({
-      ...currentActivity,
-      ...Object.fromEntries(activityEntries),
-    }));
+    setChannelActivity((currentActivity) => {
+      let hasChanged = false;
+
+      for (const [channelId, nextActivity] of activityEntries) {
+        const currentEntry = currentActivity[channelId];
+
+        if (
+          !currentEntry ||
+          currentEntry.hasMention !== nextActivity.hasMention ||
+          currentEntry.latestTs !== nextActivity.latestTs ||
+          currentEntry.unreadCount !== nextActivity.unreadCount
+        ) {
+          hasChanged = true;
+          break;
+        }
+      }
+
+      if (!hasChanged) {
+        return currentActivity;
+      }
+
+      return {
+        ...currentActivity,
+        ...Object.fromEntries(activityEntries),
+      };
+    });
 
     for (const notification of notificationEntries) {
       if (!notification) {
@@ -636,7 +670,7 @@ export function WorkspaceShell({ identity, onLogout }: WorkspaceShellProps) {
         playKodiakSound('notify', 0.7);
       }
     }
-  }, [activeChannelId, activeSpace, channelActivity, identity, lastSeenByChannel, markChannelSeen]);
+  }, [activeChannelId, activeSpace, blockedUserIdSet, identity, markChannelSeen]);
 
   useEffect(() => {
     void refreshChannelActivity();

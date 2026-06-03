@@ -1,16 +1,44 @@
+export type KodiakResizeDirection =
+  | 'East'
+  | 'North'
+  | 'NorthEast'
+  | 'NorthWest'
+  | 'South'
+  | 'SouthEast'
+  | 'SouthWest'
+  | 'West';
+
 export async function beginWindowMove() {
-  const { getCurrentWindow } = await import('@tauri-apps/api/window');
-  await getCurrentWindow().startDragging();
+  const windowApi = await import('@tauri-apps/api/window');
+  await windowApi.getCurrentWindow().startDragging();
+}
+
+export async function beginWindowResize(direction: KodiakResizeDirection) {
+  const windowApi = (await import('@tauri-apps/api/window')) as unknown as {
+    getCurrentWindow: () => {
+      startResizeDragging?: (resizeDirection: unknown) => Promise<void>;
+    };
+    ResizeDirection?: Record<string, unknown>;
+  };
+
+  const appWindow = windowApi.getCurrentWindow();
+  const resizeDirection = windowApi.ResizeDirection?.[direction] ?? direction;
+
+  if (typeof appWindow.startResizeDragging !== 'function') {
+    return;
+  }
+
+  await appWindow.startResizeDragging(resizeDirection);
 }
 
 export async function minimizeWindow() {
-  const { getCurrentWindow } = await import('@tauri-apps/api/window');
-  await getCurrentWindow().minimize();
+  const windowApi = await import('@tauri-apps/api/window');
+  await windowApi.getCurrentWindow().minimize();
 }
 
 export async function toggleMaximizeWindow() {
-  const { getCurrentWindow } = await import('@tauri-apps/api/window');
-  const appWindow = getCurrentWindow();
+  const windowApi = await import('@tauri-apps/api/window');
+  const appWindow = windowApi.getCurrentWindow();
 
   if (await appWindow.isMaximized()) {
     await appWindow.unmaximize();
@@ -21,6 +49,6 @@ export async function toggleMaximizeWindow() {
 }
 
 export async function closeWindow() {
-  const { getCurrentWindow } = await import('@tauri-apps/api/window');
-  await getCurrentWindow().close();
+  const windowApi = await import('@tauri-apps/api/window');
+  await windowApi.getCurrentWindow().close();
 }

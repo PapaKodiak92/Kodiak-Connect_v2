@@ -1,4 +1,4 @@
-﻿import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { MatrixLoginIdentity } from '../auth/matrixLoginService';
 import { kodiakEnv } from '../../config/env';
 import { officialSpace } from '../workspace/workspaceData';
@@ -73,6 +73,27 @@ interface GiphySearchResult {
 interface GiphySearchResponse {
   data?: GiphySearchResult[];
 }
+
+interface KodiakFileSystemEntry {
+  fullPath?: string;
+  isDirectory: boolean;
+  isFile: boolean;
+  name: string;
+}
+
+interface KodiakFileSystemFileEntry extends KodiakFileSystemEntry {
+  file: (successCallback: (file: File) => void, errorCallback?: (error: DOMException) => void) => void;
+}
+
+interface KodiakFileSystemDirectoryEntry extends KodiakFileSystemEntry {
+  createReader: () => {
+    readEntries: (successCallback: (entries: KodiakFileSystemEntry[]) => void, errorCallback?: (error: DOMException) => void) => void;
+  };
+}
+
+type KodiakDataTransferItem = Omit<DataTransferItem, 'webkitGetAsEntry'> & {
+  webkitGetAsEntry?: () => KodiakFileSystemEntry | null;
+};
 
 const MATRIX_SERVER_NAME = 'kodiak-connect.com';
 const ATTACHMENT_POLL_INTERVAL_MS = 7000;
@@ -423,6 +444,132 @@ async function loadRecentAttachments(identity: MatrixLoginIdentity, roomId: stri
     .reverse();
 }
 
+function readFileEntry(entry: KodiakFileSystemFileEntry) {
+  return new Promise<File[]>((resolve) => {
+    entry.file(
+      (file) => resolve([file]),
+      () => resolve([]),
+    );
+  });
+}
+
+function readDirectoryEntries(entry: KodiakFileSystemDirectoryEntry) {
+  const reader = entry.createReader();
+  const entries: KodiakFileSystemEntry[] = [];
+
+  return new Promise<KodiakFileSystemEntry[]>((resolve) => {
+    function readBatch() {
+      reader.readEntries(
+        (batch) => {
+          if (!batch.length) {
+            resolve(entries);
+            return;
+          }
+
+          entries.push(...batch);
+          readBatch();
+        },
+        () => resolve(entries),
+      );
+    }
+
+    readBatch();
+  });
+}
+
+async function readDroppedEntry(entry: KodiakFileSystemEntry): Promise<File[]> {
+  if (entry.isFile) {
+    return readFileEntry(entry as KodiakFileSystemFileEntry);
+  }
+
+  if (!entry.isDirectory) {
+    return [];
+  }
+
+  const childEntries = await readDirectoryEntries(entry as KodiakFileSystemDirectoryEntry);
+  const childFiles = await Promise.all(childEntries.map((childEntry) => readDroppedEntry(childEntry)));
+  return childFiles.flat();
+}
+
+async function getFilesFromDataTransfer(dataTransfer: DataTransfer | null) {
+  if (!dataTransfer) {
+    return [];
+  }
+
+  const droppedEntries = [...dataTransfer.items]
+    .map((item) => (item as KodiakDataTransferItem).webkitGetAsEntry?.())
+    .filter((entry): entry is KodiakFileSystemEntry => Boolean(entry));
+
+  if (droppedEntries.length) {
+    const filesByEntry = await Promise.all(droppedEntries.map((entry) => readDroppedEntry(entry)));
+    return filesByEntry.flat();
+  }
+
+  return [...dataTransfer.files];
+}
+
+
+
+type KodiakBrowserWritableFile = {
+  close: () => Promise<void>;
+  write: (data: Blob) => Promise<void>;
+};
+
+type KodiakBrowserFileHandle = {
+  createWritable: () => Promise<KodiakBrowserWritableFile>;
+};
+
+type KodiakBrowserSaveFilePicker = (options?: {
+  suggestedName?: string;
+}) => Promise<KodiakBrowserFileHandle>;
+
+function getBrowserSaveFilePicker() {
+  return (window as Window & { showSaveFilePicker?: KodiakBrowserSaveFilePicker }).showSaveFilePicker ?? null;
+}
+
+async function chooseBrowserSaveFile(suggestedName: string) {
+  const saveFilePicker = getBrowserSaveFilePicker();
+
+  if (!saveFilePicker) {
+    return null;
+  }
+
+  return saveFilePicker({
+    suggestedName,
+  });
+}
+
+async function writeBrowserFile(fileHandle: KodiakBrowserFileHandle, blob: Blob) {
+  const writable = await fileHandle.createWritable();
+  await writable.write(blob);
+  await writable.close();
+}
+async function chooseKodiakSavePath(suggestedName: string) {
+  const { invoke } = await import('@tauri-apps/api/core');
+  return invoke<string | null>('choose_save_path', { suggestedName });
+}
+
+async function writeKodiakFile(savePath: string, blob: Blob) {
+  const { invoke } = await import('@tauri-apps/api/core');
+  const bytes = Array.from(new Uint8Array(await blob.arrayBuffer()));
+  await invoke('write_downloaded_file', {
+    path: savePath,
+    bytes,
+  });
+}
+
+function withTimeout<T>(promise: Promise<T>, timeoutMs: number, message: string) {
+  return new Promise<T>((resolve, reject) => {
+    const timeoutId = window.setTimeout(() => {
+      reject(new Error(message));
+    }, timeoutMs);
+
+    promise
+      .then(resolve)
+      .catch(reject)
+      .finally(() => window.clearTimeout(timeoutId));
+  });
+}
 async function getGifBlob(gifUrl: string) {
   const response = await fetch(gifUrl);
 
@@ -521,6 +668,66 @@ export function KodiakAttachmentBridge({ identity }: KodiakAttachmentBridgeProps
   useEffect(() => clearPreviewUrls, [clearPreviewUrls]);
 
   useEffect(() => {
+    function handleDragOver(event: DragEvent) {
+      if (!event.dataTransfer?.items.length) {
+        return;
+      }
+
+      event.preventDefault();
+      event.dataTransfer.dropEffect = 'copy';
+    }
+
+    function handleDrop(event: DragEvent) {
+      if (!event.dataTransfer?.items.length && !event.dataTransfer?.files.length) {
+        return;
+      }
+
+      event.preventDefault();
+
+      void getFilesFromDataTransfer(event.dataTransfer)
+        .then((files) => {
+          if (!files.length) {
+            setErrorText('No files were found in that drop.');
+            return;
+          }
+
+          console.info('[Kodiak Connect] Files pasted or dropped', files.map((file) => file.name));
+          setIsExpanded(true);
+          setActiveTab('recent');
+          void shareFiles(files);
+        })
+        .catch((error) => {
+          console.warn('[Kodiak Connect] Failed to read dropped files', error);
+          setErrorText('Could not read dropped files.');
+        });
+    }
+
+    function handlePaste(event: ClipboardEvent) {
+      const files = [...(event.clipboardData?.files ?? [])];
+
+      if (!files.length) {
+        return;
+      }
+
+      event.preventDefault();
+      console.info('[Kodiak Connect] Files pasted or dropped', files.map((file) => file.name));
+      setIsExpanded(true);
+      setActiveTab('recent');
+      void shareFiles(files);
+    }
+
+    window.addEventListener('dragover', handleDragOver);
+    window.addEventListener('drop', handleDrop);
+    window.addEventListener('paste', handlePaste);
+
+    return () => {
+      window.removeEventListener('dragover', handleDragOver);
+      window.removeEventListener('drop', handleDrop);
+      window.removeEventListener('paste', handlePaste);
+    };
+  }, [identity]);
+
+  useEffect(() => {
     if (!isExpanded || activeTab !== 'gifs' || !kodiakEnv.giphyApiKey) {
       return undefined;
     }
@@ -553,8 +760,8 @@ export function KodiakAttachmentBridge({ identity }: KodiakAttachmentBridgeProps
     return () => window.clearTimeout(timerId);
   }, [activeTab, gifQuery, isExpanded]);
 
-  async function shareFiles(fileList: FileList | null) {
-    const files = [...(fileList ?? [])];
+  async function shareFiles(fileList: FileList | File[] | null) {
+    const files = Array.isArray(fileList) ? fileList : [...(fileList ?? [])];
 
     if (!files.length) {
       return;
@@ -641,33 +848,51 @@ export function KodiakAttachmentBridge({ identity }: KodiakAttachmentBridgeProps
     }
   }
 
-  async function downloadAttachment(attachment: SharedAttachment) {
+        async function downloadAttachment(attachment: SharedAttachment) {
+    const downloadName = attachment.body.split('/').at(-1) || attachment.body || 'kodiak-file';
+
     try {
-      if (!attachment.url.startsWith('mxc://')) {
-        window.open(attachment.url, '_blank', 'noopener,noreferrer');
+      setErrorText(null);
+      setStatusText(`Choose where to save ${downloadName}...`);
+
+      const savePath = await chooseKodiakSavePath(downloadName);
+
+      if (!savePath) {
+        setStatusText('Download canceled.');
         return;
       }
 
-      const response = await fetch(getMatrixDownloadUrl(identity, attachment.url), {
-        headers: {
-          Authorization: `Bearer ${identity.accessToken}`,
-        },
-      });
+      setStatusText(`Downloading ${downloadName}...`);
+
+      const response = attachment.url.startsWith('mxc://')
+        ? await withTimeout(
+            fetch(getMatrixDownloadUrl(identity, attachment.url), {
+              headers: {
+                Authorization: `Bearer ${identity.accessToken}`,
+              },
+            }),
+            20000,
+            'Download timed out before the file could be fetched.',
+          )
+        : await withTimeout(
+            fetch(attachment.url),
+            20000,
+            'Download timed out before the file could be fetched.',
+          );
 
       if (!response.ok) {
         throw new Error(await readMatrixError(response));
       }
 
       const blob = await response.blob();
-      const objectUrl = URL.createObjectURL(blob);
-      const anchor = document.createElement('a');
-      anchor.href = objectUrl;
-      anchor.download = attachment.body.split('/').at(-1) || attachment.body || 'kodiak-file';
-      document.body.append(anchor);
-      anchor.click();
-      anchor.remove();
-      window.setTimeout(() => URL.revokeObjectURL(objectUrl), 2000);
+
+      setStatusText(`Saving ${downloadName}...`);
+      await writeKodiakFile(savePath, blob);
+
+      setStatusText(`Saved ${downloadName}.`);
     } catch (error) {
+      console.error('[Kodiak Connect] File download failed', error);
+      setStatusText(null);
       setErrorText(error instanceof Error ? error.message : 'Could not download file.');
     }
   }

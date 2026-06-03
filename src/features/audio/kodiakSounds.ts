@@ -1,4 +1,4 @@
-export type KodiakSoundName =
+﻿export type KodiakSoundName =
   | 'messageSent'
   | 'messageReceived'
   | 'notify'
@@ -13,25 +13,59 @@ const SOUND_PATHS: Record<KodiakSoundName, string> = {
   ringingReceiveCall: '/sounds/ringing_receive_call.mp3',
 };
 
-export function unlockKodiakSounds() {
-  // Kept for compatibility with existing imports/calls.
+const SOUND_COOLDOWNS_MS: Partial<Record<KodiakSoundName, number>> = {
+  messageReceived: 1400,
+  notify: 2400,
+  messageSent: 180,
+};
+
+const lastPlayedAtBySound = new Map<KodiakSoundName, number>();
+const audioPool = new Map<KodiakSoundName, HTMLAudioElement>();
+
+function getAudio(soundName: KodiakSoundName) {
+  const existingAudio = audioPool.get(soundName);
+
+  if (existingAudio) {
+    return existingAudio;
+  }
+
+  const audio = new Audio(SOUND_PATHS[soundName]);
+  audio.preload = 'auto';
+  audioPool.set(soundName, audio);
+  return audio;
 }
 
-export function playKodiakSound(soundName: KodiakSoundName, volume = 0.65) {
-  const source = SOUND_PATHS[soundName];
+export function unlockKodiakSounds() {
+  for (const soundName of Object.keys(SOUND_PATHS) as KodiakSoundName[]) {
+    try {
+      getAudio(soundName).load();
+    } catch (error) {
+      console.warn('[Kodiak Connect] sound preload failed', soundName, error);
+    }
+  }
+}
 
-  console.info('[Kodiak Connect] playing sound', { soundName, source, volume });
+export async function playKodiakSound(soundName: KodiakSoundName, volume = 0.65, options?: { force?: boolean }) {
+  const now = Date.now();
+  const cooldownMs = SOUND_COOLDOWNS_MS[soundName] ?? 0;
+  const lastPlayedAt = lastPlayedAtBySound.get(soundName) ?? 0;
+
+  if (!options?.force && cooldownMs && now - lastPlayedAt < cooldownMs) {
+    return false;
+  }
+
+  lastPlayedAtBySound.set(soundName, now);
 
   try {
-    const audio = new Audio(source);
+    const audio = getAudio(soundName);
+    audio.pause();
+    audio.currentTime = 0;
     audio.volume = Math.min(Math.max(volume, 0), 1);
 
-    void audio.play().then(() => {
-      console.info('[Kodiak Connect] sound played', soundName);
-    }).catch((error) => {
-      console.warn('[Kodiak Connect] sound failed', soundName, error);
-    });
+    await audio.play();
+    return true;
   } catch (error) {
-    console.warn('[Kodiak Connect] sound setup failed', soundName, error);
+    console.warn('[Kodiak Connect] sound failed', soundName, error);
+    return false;
   }
 }
