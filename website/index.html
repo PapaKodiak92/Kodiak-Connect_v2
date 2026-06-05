@@ -4,119 +4,156 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="theme-color" content="#070b14" />
-    <meta name="description" content="Kodiak Connect is a Kodiak Holdings project for reliable messaging and clean cross-platform access." />
-    <title>Kodiak Connect | Official Space</title>
+    <meta
+      name="description"
+      content="Kodiak Connect is a Kodiak Holdings project focused on secure communication, reliable messaging, and clean cross-platform access."
+    />
+    <title>Kodiak Connect | Secure messaging built clean</title>
     <link rel="stylesheet" href="./styles.css" />
   </head>
   <body>
-    <div class="window-titlebar">
-      <a class="window-titlebar__brand" href="#top" aria-label="Kodiak Connect home">
+    <header class="site-header">
+      <a class="brand" href="#top" aria-label="Kodiak Connect home">
         <img src="./kodiak-connect-icon.png" alt="" />
         <span>Kodiak Connect</span>
       </a>
-      <div class="window-titlebar__controls" aria-hidden="true"><span>—</span><span>□</span><span>×</span></div>
-    </div>
+      <nav aria-label="Main navigation">
+        <a href="#features">Features</a>
+        <a href="#security">Security</a>
+        <a href="#platforms">Platforms</a>
+        <a href="#beta">Beta</a>
+      </nav>
+      <a class="header-cta" href="mailto:support@kodiak-connect.com?subject=Kodiak%20Connect%20Beta">Join Beta</a>
+    </header>
 
-    <div class="app-shell" id="top">
-      <aside class="server-rail" aria-label="Kodiak Connect spaces">
-        <a class="server-icon server-icon--active" href="#top"><img src="./kodiak-connect-icon.png" alt="" /></a>
-        <a class="server-icon server-icon--add" href="#beta">+</a>
-      </aside>
-
-      <aside class="channel-sidebar" aria-label="Website sections">
-        <section class="space-card">
-          <h1>Official Space</h1>
-          <p>The official Kodiak Connect starting space for updates, safety, and community direction.</p>
-        </section>
-        <nav class="channel-list" aria-label="Main navigation">
-          <p class="channel-label">Official</p>
-          <a href="#announcements">! announcements</a>
-          <a href="#updates">! dev-updates</a>
-          <a class="active" href="#general"># general</a>
-          <p class="channel-label">Product</p>
-          <a href="#security">S safety-center</a>
-          <a href="#platforms">P platforms</a>
-          <a href="#beta">B beta-access</a>
-        </nav>
-        <div class="sidebar-actions">
-          <a href="mailto:support@kodiak-connect.com?subject=Kodiak%20Connect%20Beta">Join Beta</a>
-          <a href="mailto:support@kodiak-connect.com?subject=Kodiak%20Connect%20Support">Support</a>
+    <main id="top">
+      <section class="hero">
+        <div class="hero-copy">
+          <p class="eyebrow">Kodiak Holdings Project</p>
+          <h1>Secure messaging built clean.</h1>
+          <p class="lede">
+            Kodiak Connect is an independent communication platform focused on reliable chat, private account access,
+            clean workspaces, and long-term cross-platform support.
+          </p>
+          <div class="actions">
+            <a class="button button-primary" href="mailto:support@kodiak-connect.com?subject=Kodiak%20Connect%20Beta">Join the Beta</a>
+            <a class="button button-secondary" href="#features">Explore Features</a>
+          </div>
+          <div class="status-pill"><span></span>Active beta development</div>
         </div>
-      </aside>
 
-      <main class="workspace" aria-label="Kodiak Connect website content">
-        <header class="workspace-header">
-          <p>Official Space</p>
-          <h2>#general</h2>
-          <span>The first public community channel for Kodiak Connect.</span>
-        </header>
-
-        <section class="message-feed" id="general">
-          <article class="message message--system" id="announcements">
+        <div class="product-card" aria-label="Kodiak Connect product highlights">
+          <div class="product-card__top">
             <img src="./kodiak-connect-icon.png" alt="" />
-            <div class="message-card message-card--brand">
-              <div class="message-meta"><strong>Kodiak Connect</strong><span>Official</span></div>
-              <h3>Secure communication, built clean.</h3>
-              <p>Kodiak Connect is an independent messaging platform focused on reliable chat, private account access, clean workspaces, and long-term cross-platform support.</p>
-              <div class="message-actions">
-                <a class="button button-primary" href="mailto:support@kodiak-connect.com?subject=Kodiak%20Connect%20Beta">Join Beta</a>
-                <a class="button button-secondary" href="#platforms">View Platforms</a>
-              </div>
+            <div>
+              <strong>Kodiak Connect</strong>
+              <span>Official beta preview</span>
             </div>
-          </article>
-
-          <article class="message message--own" id="updates">
-            <div class="message-card message-card--own">
-              <div class="message-meta message-meta--right"><span>Now</span><strong>Kodiak Holdings</strong></div>
-              <p>The public website explains the product. The app itself stays separate, focused, and stable.</p>
+          </div>
+          <div class="preview-stack">
+            <div class="preview-message preview-message--own">
+              <span>Secure access</span>
+              <p>Account-first communication with a clean workspace foundation.</p>
             </div>
-            <img src="./kodiak-connect-icon.png" alt="" />
-          </article>
-
-          <article class="message">
-            <div class="avatar-letter">KC</div>
-            <div class="message-card">
-              <div class="message-meta"><strong>Product Direction</strong><span>Active beta</span></div>
-              <p>Kodiak Connect is being built around clean workspace messaging, account and profile tools, media support, and a foundation that can grow without clutter.</p>
-              <div class="feature-row"><span>Reliable Chat</span><span>Profiles</span><span>Media Ready</span><span>Clean Workspaces</span></div>
+            <div class="preview-message">
+              <span>Reliable chat</span>
+              <p>Built around stable messaging, media support, and simple navigation.</p>
             </div>
-          </article>
-
-          <article class="message message--own" id="security">
-            <div class="message-card message-card--own">
-              <div class="message-meta message-meta--right"><span>Priority</span><strong>Safety Center</strong></div>
-              <p>Privacy, secure account access, and dependable communication are core parts of the platform direction.</p>
+            <div class="preview-footer">
+              <span class="online-dot"></span>
+              <strong>Server online</strong>
+              <small>Desktop • Mobile • Web</small>
             </div>
-            <div class="avatar-letter avatar-letter--own">S</div>
+          </div>
+        </div>
+      </section>
+
+      <section class="section" id="features">
+        <div class="section-heading">
+          <p class="eyebrow">Product</p>
+          <h2>Messaging without the noise.</h2>
+          <p>Kodiak Connect is designed to feel focused, familiar, and dependable without turning into clutter.</p>
+        </div>
+        <div class="card-grid">
+          <article>
+            <span>01</span>
+            <h3>Reliable Chat</h3>
+            <p>Clean message flow, workspace navigation, and a stable foundation for daily communication.</p>
           </article>
-
-          <section class="info-grid" id="platforms">
-            <article><span>Desktop</span><strong>Windows</strong><p>Native desktop direction with app-style presentation and update flow.</p></article>
-            <article><span>Desktop</span><strong>Linux</strong><p>Linux support remains part of the long-term platform path.</p></article>
-            <article><span>Mobile</span><strong>Android</strong><p>Mobile polish and reliable access are part of the active beta work.</p></article>
-            <article><span>Web</span><strong>Browser Access</strong><p>The public site lives at the root domain. App access can move to app.kodiak-connect.com.</p></article>
-          </section>
-
-          <article class="message" id="beta">
-            <img src="./kodiak-connect-icon.png" alt="" />
-            <div class="message-card beta-card">
-              <div class="message-meta"><strong>Beta Access</strong><span>Invite direction</span></div>
-              <h3>Built carefully before broader release.</h3>
-              <p>Kodiak Connect is currently focused on stability, media reliability, mobile polish, desktop presentation, and preparing the app for broader public use.</p>
-              <a class="button button-primary" href="mailto:support@kodiak-connect.com?subject=Kodiak%20Connect%20Beta">Contact Support</a>
-            </div>
+          <article>
+            <span>02</span>
+            <h3>Profiles & Accounts</h3>
+            <p>Simple account access, profile polish, and identity-focused user experience.</p>
           </article>
-        </section>
-      </main>
+          <article>
+            <span>03</span>
+            <h3>Media Ready</h3>
+            <p>Direction for images, GIFs, screenshots, audio, video, and file sharing.</p>
+          </article>
+          <article>
+            <span>04</span>
+            <h3>Built to Grow</h3>
+            <p>A practical foundation for future features without sacrificing speed or stability.</p>
+          </article>
+        </div>
+      </section>
 
-      <aside class="members-panel" aria-label="Project status">
-        <p class="channel-label">Members</p>
-        <div class="member-row"><img src="./kodiak-connect-icon.png" alt="" /><div><strong>Kodiak Connect</strong><span>Online - Official</span></div></div>
-        <div class="member-row"><div class="avatar-letter">KH</div><div><strong>Kodiak Holdings</strong><span>Active beta</span></div></div>
-        <div class="status-card"><span class="online-dot"></span><strong>Website Online</strong><p>Root domain is the public landing space.</p></div>
-      </aside>
-    </div>
+      <section class="security-band" id="security">
+        <div>
+          <p class="eyebrow">Security</p>
+          <h2>Built around trust.</h2>
+          <p>
+            Kodiak Connect is being developed with privacy, reliable account access, and dependable communication as core
+            priorities. The beta is focused on making the experience stable before broader release.
+          </p>
+        </div>
+        <ul>
+          <li>Secure account access</li>
+          <li>Private workspace-first design</li>
+          <li>Controlled beta rollout</li>
+          <li>Long-term maintainability</li>
+        </ul>
+      </section>
 
-    <footer class="mobile-footer"><span>© 2026 Kodiak Holdings. All rights reserved.</span><a href="mailto:support@kodiak-connect.com?subject=Kodiak%20Connect%20Support">Support</a></footer>
+      <section class="section" id="platforms">
+        <div class="section-heading">
+          <p class="eyebrow">Platforms</p>
+          <h2>One product. Multiple ways in.</h2>
+          <p>Kodiak Connect is being developed for desktop, mobile, and browser access.</p>
+        </div>
+        <div class="platform-grid">
+          <article><strong>Windows Desktop</strong><span>Native desktop direction</span></article>
+          <article><strong>Linux Desktop</strong><span>Linux support path</span></article>
+          <article><strong>Android</strong><span>Mobile polish in beta</span></article>
+          <article><strong>Web Browser</strong><span>Future app portal</span></article>
+        </div>
+      </section>
+
+      <section class="beta" id="beta">
+        <img src="./kodiak-connect-icon.png" alt="" />
+        <div>
+          <p class="eyebrow">Active Beta</p>
+          <h2>Built carefully before broader release.</h2>
+          <p>
+            Current work is focused on stability, media reliability, mobile polish, desktop presentation, and preparing
+            Kodiak Connect for wider use.
+          </p>
+        </div>
+        <a class="button button-primary" href="mailto:support@kodiak-connect.com?subject=Kodiak%20Connect%20Beta">Contact Support</a>
+      </section>
+    </main>
+
+    <footer>
+      <div>
+        <strong>Kodiak Connect</strong>
+        <span>© 2026 Kodiak Holdings. All rights reserved.</span>
+      </div>
+      <nav aria-label="Footer links">
+        <a href="mailto:support@kodiak-connect.com?subject=Kodiak%20Connect%20Support">Support</a>
+        <a href="https://www.facebook.com/PapaKodiak/" target="_blank" rel="noreferrer">Facebook</a>
+        <a href="https://x.com/PapaKodiak92" target="_blank" rel="noreferrer">X</a>
+        <a href="https://www.instagram.com/papakodiak92/" target="_blank" rel="noreferrer">Instagram</a>
+      </nav>
+    </footer>
   </body>
 </html>
