@@ -8,6 +8,7 @@
     "updater:default",
     "opener:default",
     "dialog:default",
+    "notification:default",
     "fs:write-files",
     {
       "identifier": "fs:scope",

@@ -62,3 +62,6 @@ artifacts/
 /backend/data/auth-pending.json
 /backend/data/auth-rate-limits.json
 /backend/data/*.backup.*
+
+# Firebase / Google services - never commit
+android/app/google-services.json
