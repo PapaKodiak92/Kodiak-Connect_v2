@@ -6,6 +6,7 @@ import {
   loadKodiakPresence,
   loadKodiakProfiles,
   loadKodiakReports,
+  notifyKodiakDirectMessage,
   submitKodiakReport,
   saveKodiakProfile,
   sendKodiakPresenceHeartbeat,
@@ -1455,6 +1456,23 @@ export function MatrixChannelPanel({
     setOpenActionMenu(null);
   }
 
+  async function sendDirectMessagePushIfNeeded(targetRoomId: string) {
+    const directMessageTargetUserId = getDirectMessageTargetUserId(activeChannel, identity.userId);
+
+    if (activeChannel.kind !== 'dm' || !directMessageTargetUserId || directMessageTargetUserId === identity.userId) {
+      return;
+    }
+
+    try {
+      await notifyKodiakDirectMessage(identity, {
+        roomId: targetRoomId,
+        targetUserId: directMessageTargetUserId,
+      });
+    } catch (error) {
+      console.warn('[Kodiak Connect] Failed to send direct message push notification', error);
+    }
+  }
+
   function openMessageActionMenu(message: MatrixTextMessage, clientX: number, clientY: number) {
     if (!canPost && !onOpenDirectMessage) {
       return;
@@ -2082,7 +2100,10 @@ export function MatrixChannelPanel({
       }
 
       void sendTextMessage(identity, targetRoomId, buildReplyBody(replyContext, trimmedMessage))
-        .then(() => refreshMessages(targetRoomId))
+        .then(async () => {
+          await refreshMessages(targetRoomId);
+          await sendDirectMessagePushIfNeeded(targetRoomId);
+        })
         .catch((error) => {
           console.error('[Kodiak Connect] Failed to send Matrix message', error);
           setDraftMessage((currentDraft) => currentDraft || trimmedMessage);

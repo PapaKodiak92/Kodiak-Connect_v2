@@ -141,6 +141,14 @@ export async function registerKodiakPushDevice(identity: MatrixLoginIdentity, re
   return data.ok === true;
 }
 
+export async function notifyKodiakDirectMessage(identity: MatrixLoginIdentity, notification: { roomId: string; targetUserId: string }) {
+  await postKodiak<{ ok?: boolean }>(identity, '/api/push/dm', notification);
+}
+
+export async function notifyKodiakCall(identity: MatrixLoginIdentity, notification: { callId: string; callKind: 'voice' | 'video'; roomId: string; targetUserId: string }) {
+  await postKodiak<{ ok?: boolean }>(identity, '/api/push/call', notification);
+}
+
 export async function sendKodiakPresenceHeartbeat(
   identity: MatrixLoginIdentity,
   displayName: string,

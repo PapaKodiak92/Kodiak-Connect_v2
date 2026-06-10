@@ -2,6 +2,7 @@ import { createServer } from "node:http";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { sendPushToUser, sendPushToUsers } from "./pushDelivery.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const DATA_DIR = process.env.KODIAK_DATA_DIR
@@ -263,6 +264,74 @@ function getPushDevicesForUser(pushStore, userId) {
   return Object.values(pushStore).filter((device) => device?.userId === userId && device.enabled !== false);
 }
 
+function getProfileDisplayName(profileStore, userId) {
+  return sanitizeProfile(profileStore[userId], userId).displayName || getDefaultDisplayName(userId);
+}
+
+function getAcceptedFriendUserIds(friendStore, userId) {
+  return Object.values(friendStore)
+    .filter((edge) => edge?.status === "friends" && (edge.requesterUserId === userId || edge.targetUserId === userId))
+    .map((edge) => edge.requesterUserId === userId ? edge.targetUserId : edge.requesterUserId)
+    .filter(Boolean);
+}
+
+async function notifyAcceptedFriends(pushStore, friendStore, blockStore, actorUserId, notification, data) {
+  const friendUserIds = getAcceptedFriendUserIds(friendStore, actorUserId)
+    .filter((friendUserId) => !hasEitherUserBlocked(blockStore, actorUserId, friendUserId));
+
+  if (!friendUserIds.length) {
+    return { enabled: false, attempted: 0, sent: 0, failed: 0, disabledDeviceKeys: [] };
+  }
+
+  return await sendPushToUsers(pushStore, friendUserIds, notification, data);
+}
+
+async function sweepOfflinePresenceNotifications(presenceStore, pushStore, friendStore, blockStore, profileStore) {
+  const cutoffMs = 20 * 60_000;
+
+  for (const [userId, presence] of Object.entries(presenceStore)) {
+    const lastSeenAt = Number(presence?.lastSeenAt ?? 0);
+
+    if (!lastSeenAt) {
+      continue;
+    }
+
+    if (getPresenceState(lastSeenAt) !== "offline") {
+      continue;
+    }
+
+    if (now() - lastSeenAt > cutoffMs) {
+      continue;
+    }
+
+    if (Number(presence?.lastOfflinePushAt ?? 0) >= lastSeenAt) {
+      continue;
+    }
+
+    const displayName = getProfileDisplayName(profileStore, userId);
+
+    await notifyAcceptedFriends(
+      pushStore,
+      friendStore,
+      blockStore,
+      userId,
+      {
+        title: "Kodiak Connect",
+        body: `${displayName} went offline.`,
+      },
+      {
+        type: "friend_offline",
+        friendUserId: userId,
+      },
+    );
+
+    presenceStore[userId] = {
+      ...presence,
+      lastOfflinePushAt: now(),
+    };
+  }
+}
+
 function sanitizeReportForViewer(report, viewerUserId) {
   if (isPlatformModerator(viewerUserId)) {
     return {
@@ -374,14 +443,114 @@ async function handlePushTest(request, response, corsHeaders) {
 
   const pushStore = await readJsonFile(PUSH_SUBSCRIPTIONS_FILE, {});
   const devices = getPushDevicesForUser(pushStore, userId);
+  const delivery = devices.length
+    ? await sendPushToUser(
+        pushStore,
+        userId,
+        {
+          title: "Kodiak Connect",
+          body: "Push notifications are ready.",
+        },
+        {
+          type: "test",
+        },
+      )
+    : { enabled: false, attempted: 0, sent: 0, failed: 0, disabledDeviceKeys: [] };
+
+  await writeJsonFile(PUSH_SUBSCRIPTIONS_FILE, pushStore);
 
   sendJson(response, 200, {
     ok: true,
+    delivery,
     deviceCount: devices.length,
     message: devices.length
-      ? "Push device registration is stored. Firebase delivery is the next checkpoint."
+      ? delivery.enabled
+        ? "Push test sent through Firebase."
+        : "Push device registration is stored, but Firebase delivery is not configured on the server."
       : "No push devices are registered for this user yet.",
   }, corsHeaders);
+}
+
+async function handleDirectMessagePush(request, response, corsHeaders) {
+  const body = await readRequestBody(request);
+  const senderUserId = getCurrentUserId(request, body);
+  const targetUserId = body.targetUserId;
+  const roomId = String(body.roomId ?? "").slice(0, 160);
+
+  if (!isValidMatrixUserId(senderUserId) || !isValidMatrixUserId(targetUserId) || senderUserId === targetUserId) {
+    sendJson(response, 400, { error: "Invalid direct message push request." }, corsHeaders);
+    return;
+  }
+
+  const pushStore = await readJsonFile(PUSH_SUBSCRIPTIONS_FILE, {});
+  const blockStore = await readJsonFile(BLOCKS_FILE, {});
+  const profileStore = await readJsonFile(PROFILES_FILE, {});
+
+  if (hasEitherUserBlocked(blockStore, senderUserId, targetUserId)) {
+    sendJson(response, 200, { ok: true, skipped: true, reason: "blocked" }, corsHeaders);
+    return;
+  }
+
+  const senderDisplayName = getProfileDisplayName(profileStore, senderUserId);
+  const delivery = await sendPushToUser(
+    pushStore,
+    targetUserId,
+    {
+      title: senderDisplayName,
+      body: "New direct message.",
+    },
+    {
+      type: "dm",
+      roomId,
+      senderUserId,
+    },
+  );
+
+  await writeJsonFile(PUSH_SUBSCRIPTIONS_FILE, pushStore);
+  sendJson(response, 200, { ok: true, delivery }, corsHeaders);
+}
+
+async function handleCallPush(request, response, corsHeaders) {
+  const body = await readRequestBody(request);
+  const callerUserId = getCurrentUserId(request, body);
+  const targetUserId = body.targetUserId;
+  const callKind = body.callKind === "video" ? "video" : "voice";
+  const roomId = String(body.roomId ?? "").slice(0, 160);
+  const callId = String(body.callId ?? "").slice(0, 160);
+
+  if (!isValidMatrixUserId(callerUserId) || !isValidMatrixUserId(targetUserId) || callerUserId === targetUserId) {
+    sendJson(response, 400, { error: "Invalid call push request." }, corsHeaders);
+    return;
+  }
+
+  const pushStore = await readJsonFile(PUSH_SUBSCRIPTIONS_FILE, {});
+  const blockStore = await readJsonFile(BLOCKS_FILE, {});
+  const profileStore = await readJsonFile(PROFILES_FILE, {});
+
+  if (hasEitherUserBlocked(blockStore, callerUserId, targetUserId)) {
+    sendJson(response, 200, { ok: true, skipped: true, reason: "blocked" }, corsHeaders);
+    return;
+  }
+
+  const callerDisplayName = getProfileDisplayName(profileStore, callerUserId);
+  const delivery = await sendPushToUser(
+    pushStore,
+    targetUserId,
+    {
+      title: callerDisplayName,
+      body: `Incoming ${callKind} call.`,
+    },
+    {
+      type: "call",
+      callId,
+      callKind,
+      callerUserId,
+      roomId,
+    },
+  );
+
+  await writeJsonFile(PUSH_SUBSCRIPTIONS_FILE, pushStore);
+  sendJson(response, 200, { ok: true, delivery }, corsHeaders);
 }
 
 async function handleBlockState(request, response, corsHeaders, url) {
@@ -917,18 +1086,48 @@ async function handlePresenceHeartbeat(request, response, corsHeaders) {
   }
 
   const presenceStore = await readJsonFile(PRESENCE_FILE, {});
+  const friendStore = await readJsonFile(FRIENDS_FILE, {});
+  const blockStore = await readJsonFile(BLOCKS_FILE, {});
+  const profileStore = await readJsonFile(PROFILES_FILE, {});
+  const pushStore = await readJsonFile(PUSH_SUBSCRIPTIONS_FILE, {});
   const existingPresence = presenceStore[userId] ?? {};
+  const previousPresence = getPresenceState(existingPresence.lastSeenAt);
+  const displayName = typeof body.displayName === "string"
+    ? body.displayName.slice(0, 64)
+    : getProfileDisplayName(profileStore, userId);
 
   presenceStore[userId] = {
     ...existingPresence,
     avatarUrl: typeof body.avatarUrl === "string" ? body.avatarUrl : existingPresence.avatarUrl ?? "",
-    displayName: typeof body.displayName === "string" ? body.displayName.slice(0, 64) : existingPresence.displayName ?? "",
+    displayName,
     lastSeenAt: now(),
     status: body.status === "idle" ? "idle" : "online",
     userId,
   };
 
+  if (previousPresence === "offline") {
+    presenceStore[userId].lastOnlinePushAt = now();
+
+    await notifyAcceptedFriends(
+      pushStore,
+      friendStore,
+      blockStore,
+      userId,
+      {
+        title: "Kodiak Connect",
+        body: `${displayName} is online.`,
+      },
+      {
+        type: "friend_online",
+        friendUserId: userId,
+      },
+    );
+  }
+
+  await sweepOfflinePresenceNotifications(presenceStore, pushStore, friendStore, blockStore, profileStore);
+
   await writeJsonFile(PRESENCE_FILE, presenceStore);
+  await writeJsonFile(PUSH_SUBSCRIPTIONS_FILE, pushStore);
   sendJson(response, 200, { ok: true, presence: { ...presenceStore[userId], presence: "online" } }, corsHeaders);
 }
 
@@ -1115,6 +1314,16 @@ const server = createServer(async (request, response) => {
 
     if (request.method === "POST" && url.pathname === "/api/push/test") {
       await handlePushTest(request, response, corsHeaders);
+      return;
+    }
+
+    if (request.method === "POST" && url.pathname === "/api/push/dm") {
+      await handleDirectMessagePush(request, response, corsHeaders);
+      return;
+    }
+
+    if (request.method === "POST" && url.pathname === "/api/push/call") {
+      await handleCallPush(request, response, corsHeaders);
       return;
     }
 

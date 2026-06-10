@@ -24,6 +24,22 @@ function getPushDeviceId() {
   return nextDeviceId;
 }
 
+async function createKodiakNotificationChannel() {
+  try {
+    await PushNotifications.createChannel({
+      id: 'kodiak_default',
+      name: 'Kodiak Connect',
+      description: 'Kodiak Connect notifications',
+      importance: 4,
+      visibility: 1,
+      sound: 'default',
+      vibration: true,
+    });
+  } catch (error) {
+    console.warn('[Kodiak Connect] Failed to create Android notification channel', error);
+  }
+}
+
 async function installAndroidPushListeners() {
   if (hasInstalledPushListeners) {
     return;
@@ -82,6 +98,7 @@ export async function initializeKodiakPushNotifications(identity: MatrixLoginIde
     return { ok: false, reason: 'permission-denied' };
   }
 
+  await createKodiakNotificationChannel();
   await PushNotifications.register();
 
   return { ok: true };
