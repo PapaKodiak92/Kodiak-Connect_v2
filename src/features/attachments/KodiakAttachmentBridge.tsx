@@ -161,6 +161,17 @@ function getAttachmentLabel(msgtype: string) {
   return 'file';
 }
 
+function getAttachmentDisplayTitle(attachment: SharedAttachment) {
+  if (attachment.msgtype === 'm.image') {
+    return attachment.body.toLowerCase().endsWith('.gif') ? 'GIF' : 'Image';
+  }
+
+  if (attachment.msgtype === 'm.video') return 'Video';
+  if (attachment.msgtype === 'm.audio') return 'Audio';
+
+  return attachment.body || 'File';
+}
+
 function getSafeFileBody(file: File) {
   const maybeRelativePath = (file as File & { webkitRelativePath?: string }).webkitRelativePath;
   return maybeRelativePath || file.name || 'shared-file';
@@ -590,7 +601,7 @@ export function KodiakAttachmentBridge({ identity }: KodiakAttachmentBridgeProps
   const [statusText, setStatusText] = useState<string | null>(null);
   const [isSharing, setIsSharing] = useState(false);
   const [isExpanded, setIsExpanded] = useState(false);
-  const [activeTab, setActiveTab] = useState<'files' | 'gifs' | 'recent'>('files');
+  const [activeTab, setActiveTab] = useState<'home' | 'files' | 'gifs' | 'recent'>('home');
   const [gifQuery, setGifQuery] = useState('');
   const [gifResults, setGifResults] = useState<GiphySearchResult[]>([]);
   const [isSearchingGifs, setIsSearchingGifs] = useState(false);
@@ -898,7 +909,7 @@ export function KodiakAttachmentBridge({ identity }: KodiakAttachmentBridgeProps
   }
 
   return (
-    <aside className={`kodiak-attachment-bridge ${isExpanded ? 'X' : '+'}`} aria-label="File sharing">
+    <aside className={`kodiak-attachment-bridge ${isExpanded ? 'is-open' : 'is-closed'}`} aria-label="File sharing">
       <input ref={imageInputRef} type="file" accept="image/*,.gif" multiple hidden onChange={(event) => void shareFiles(event.currentTarget.files)} />
       <input ref={fileInputRef} type="file" multiple hidden onChange={(event) => void shareFiles(event.currentTarget.files)} />
       <input ref={folderInputRef} type="file" multiple hidden onChange={(event) => void shareFiles(event.currentTarget.files)} />
@@ -906,33 +917,70 @@ export function KodiakAttachmentBridge({ identity }: KodiakAttachmentBridgeProps
       <button
         type="button"
         className="kodiak-attachment-bridge__toggle"
-        onClick={() => setIsExpanded((expanded) => !expanded)}
-        title="GIFs, files, music, and folder sharing"
+        onClick={() => {
+          setIsExpanded((expanded) => {
+            const nextExpanded = !expanded;
+
+            if (nextExpanded) {
+              setActiveTab('home');
+            }
+
+            return nextExpanded;
+          });
+        }}
+        title="Add media, GIFs, files, and recent attachments"
+        aria-label={isExpanded ? 'Close attachment tools' : 'Open attachment tools'}
       >
-        {isExpanded ? 'X' : '+'}
+        <svg aria-hidden="true" className="kodiak-attachment-bridge__icon" viewBox="0 0 24 24">
+          <path d="M12 5v14M5 12h14" />
+        </svg>
       </button>
 
       {isExpanded ? (
         <div className="kodiak-attachment-bridge__panel">
           <header>
             <div>
-              <p className="eyebrow eyebrow--ember">Composer Tools</p>
-              <h2>Share to chat</h2>
+              <p className="eyebrow eyebrow--ember">{activeTab === 'home' ? 'Add to chat' : activeTab === 'gifs' ? 'GIF Search' : 'Recent'}</p>
+              <h2>{activeTab === 'home' ? 'Choose what to add' : activeTab === 'gifs' ? 'Search GIFs' : 'Recent media'}</h2>
             </div>
-            <button type="button" onClick={() => void refreshAttachments()} disabled={isSharing}>Refresh</button>
+            {activeTab === 'home' ? (
+              <button type="button" onClick={() => void refreshAttachments()} disabled={isSharing}>
+                Refresh
+              </button>
+            ) : (
+              <button type="button" onClick={() => setActiveTab('home')} disabled={isSharing}>
+                Back
+              </button>
+            )}
           </header>
 
-          <div className="kodiak-attachment-tabs" role="tablist" aria-label="Transfer tools">
-            <button type="button" className={activeTab === 'files' ? 'is-active' : undefined} onClick={() => setActiveTab('files')}>Files</button>
-            <button type="button" className={activeTab === 'gifs' ? 'is-active' : undefined} onClick={() => setActiveTab('gifs')}>Giphy</button>
-            <button type="button" className={activeTab === 'recent' ? 'is-active' : undefined} onClick={() => setActiveTab('recent')}>Recent</button>
-          </div>
-
-          {activeTab === 'files' ? (
-            <div className="kodiak-attachment-actions">
-              <button type="button" onClick={() => imageInputRef.current?.click()} disabled={isSharing}>Image / GIF</button>
-              <button type="button" onClick={() => fileInputRef.current?.click()} disabled={isSharing}>File / Music</button>
-              <button type="button" onClick={() => folderInputRef.current?.click()} disabled={isSharing}>Folder</button>
+          {activeTab === 'home' ? (
+            <div className="kodiak-attachment-launcher">
+              <button type="button" className="kodiak-attachment-launcher__item" onClick={() => imageInputRef.current?.click()} disabled={isSharing}>
+                <span>🖼️</span>
+                <strong>Photo / GIF</strong>
+                <small>Upload images</small>
+              </button>
+              <button type="button" className="kodiak-attachment-launcher__item" onClick={() => setActiveTab('gifs')} disabled={isSharing}>
+                <span>🎞️</span>
+                <strong>GIF Search</strong>
+                <small>Find a reaction</small>
+              </button>
+              <button type="button" className="kodiak-attachment-launcher__item" onClick={() => fileInputRef.current?.click()} disabled={isSharing}>
+                <span>📎</span>
+                <strong>File</strong>
+                <small>Docs, music, video</small>
+              </button>
+              <button type="button" className="kodiak-attachment-launcher__item" onClick={() => setActiveTab('recent')} disabled={isSharing}>
+                <span>🕘</span>
+                <strong>Recent</strong>
+                <small>Reuse shared media</small>
+              </button>
+              <button type="button" className="kodiak-attachment-launcher__item kodiak-attachment-launcher__item--wide" onClick={() => folderInputRef.current?.click()} disabled={isSharing}>
+                <span>📁</span>
+                <strong>Folder</strong>
+                <small>Share multiple files</small>
+              </button>
             </div>
           ) : null}
 

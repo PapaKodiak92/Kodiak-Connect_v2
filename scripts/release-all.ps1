@@ -168,7 +168,9 @@ try {
 set -e
 export PATH="`$HOME/.cargo/bin:`$PATH"
 if [ -f '/home/kodiak/.tauri/kodiak-connect.env' ]; then
+  set -a
   . '/home/kodiak/.tauri/kodiak-connect.env'
+  set +a
 fi
 if [ -z "`$TAURI_SIGNING_PRIVATE_KEY_PASSWORD" ]; then
   echo 'Missing TAURI_SIGNING_PRIVATE_KEY_PASSWORD on VPS. Create /home/kodiak/.tauri/kodiak-connect.env.' >&2

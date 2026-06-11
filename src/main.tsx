@@ -13,6 +13,9 @@ import './styles/workspace-surfaces.css';
 import './styles/attachment-bridge.css';
 import './styles/layout-repair.css';
 import './styles/client-hotfix.css';
+import './styles/mobile-workspace-overhaul.css';
+import './styles/composer-tools-redesign.css';
+import './styles/mobile-member-panel-slide.css';
 
 function clearStaleAvatarObjectUrls() {
   const cacheKey = 'KC_BACKEND_PROFILE_CACHE';

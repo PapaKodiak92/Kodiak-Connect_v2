@@ -2462,3 +2462,93 @@
   background: rgba(127, 29, 29, 0.26);
   color: #fecaca;
 }
+
+
+.kodiak-call-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  margin-left: auto;
+}
+
+.kodiak-call-button,
+.kodiak-call-panel button {
+  border: 1px solid rgba(34, 211, 238, 0.24);
+  border-radius: 999px;
+  background: rgba(8, 47, 73, 0.44);
+  color: #cffafe;
+  font-weight: 900;
+  letter-spacing: 0.02em;
+  padding: 0.62rem 0.9rem;
+}
+
+.kodiak-call-button:hover:not(:disabled),
+.kodiak-call-panel button:hover:not(:disabled) {
+  border-color: rgba(34, 211, 238, 0.48);
+  background: rgba(8, 47, 73, 0.68);
+}
+
+.kodiak-call-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.48;
+}
+
+.kodiak-call-panel,
+.kodiak-call-status {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  border-bottom: 1px solid rgba(34, 211, 238, 0.16);
+  background: linear-gradient(90deg, rgba(8, 47, 73, 0.82), rgba(15, 23, 42, 0.92));
+  color: #e0f2fe;
+  padding: 0.78rem clamp(1rem, 3vw, 1.5rem);
+}
+
+.kodiak-call-panel strong {
+  display: block;
+  color: #f0f9ff;
+}
+
+.kodiak-call-panel span,
+.kodiak-call-status {
+  color: #bae6fd;
+}
+
+.kodiak-call-panel__actions {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+}
+
+.kodiak-call-panel__end {
+  border-color: rgba(248, 113, 113, 0.28) !important;
+  background: rgba(127, 29, 29, 0.56) !important;
+  color: #fee2e2 !important;
+}
+
+@media (max-width: 760px) {
+  .kodiak-call-actions {
+    width: 100%;
+    margin-left: 0;
+    order: 3;
+  }
+
+  .kodiak-call-button {
+    width: 100%;
+  }
+
+  .kodiak-call-panel,
+  .kodiak-call-status {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .kodiak-call-panel__actions {
+    width: 100%;
+  }
+
+  .kodiak-call-panel__actions button {
+    flex: 1;
+  }
+}

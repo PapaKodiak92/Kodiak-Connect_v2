@@ -67,17 +67,35 @@ async function fetchAuthenticatedBlob(identity: MatrixLoginIdentity, mediaUrl: s
   return response.blob();
 }
 
+function getVisualMediaLabel(media: EncodedMediaMessage, fileName: string) {
+  if (media.msgtype === 'm.video') return 'Video';
+  if (fileName.toLowerCase().endsWith('.gif')) return 'GIF';
+  return 'Image';
+}
+
 function appendDetails(card: HTMLElement, media: EncodedMediaMessage, fileName: string) {
+  const isVisualMedia = media.msgtype === 'm.image' || media.msgtype === 'm.video';
+
+  if (isVisualMedia) {
+    return;
+  }
+
   const details = document.createElement('span');
   details.className = 'matrix-media-message__details';
 
   const name = document.createElement('strong');
   name.textContent = fileName;
 
-  const meta = document.createElement('small');
-  meta.textContent = [media.info?.mimetype, formatSize(media.info?.size)].filter(Boolean).join(' - ');
+  const metaText = [media.info?.mimetype, formatSize(media.info?.size)].filter(Boolean).join(' - ');
 
-  details.append(name, meta);
+  details.append(name);
+
+  if (metaText) {
+    const meta = document.createElement('small');
+    meta.textContent = metaText;
+    details.append(meta);
+  }
+
   card.append(details);
 }
 

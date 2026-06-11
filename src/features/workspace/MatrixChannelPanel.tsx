@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type
 import { createPortal } from 'react-dom';
 import type { MatrixLoginIdentity } from '../auth/matrixLoginService';
 import { playKodiakSound, unlockKodiakSounds } from '../audio/kodiakSounds';
+import { KodiakAttachmentBridge } from '../attachments/KodiakAttachmentBridge';
 import { isKodiakDesktopNotificationAvailable, requestKodiakDesktopNotificationPermission, showKodiakDesktopNotification } from '../notifications/kodiakDesktopNotifications';
 import {
   loadKodiakPresence,
@@ -104,7 +105,8 @@ const REPLY_SENDER_PREFIX = 'KC_REPLY_SENDER=';
 const REPLY_PREVIEW_PREFIX = 'KC_REPLY_PREVIEW=';
 const MENTION_PATTERN = /(^|\s)(@[a-zA-Z0-9._-]{2,32})/g;
 const ACTIVE_MENTION_PATTERN = /(^|\s)@([a-zA-Z0-9._-]{0,32})$/;
-const REACTION_OPTIONS = ['\u{1F44D}', '\u{2764}\u{FE0F}', '\u{1F602}', '\u{1F525}', '\u{1F440}'];
+const URL_PATTERN = /(https?:\/\/[^\s<>"']+|www\.[^\s<>"']+)/gi;
+const REACTION_OPTIONS = ['\u{1F44D}', '\u{2764}\u{FE0F}', '\u{1F602}', '\u{1F525}', '\u{1F440}', '\u{1F389}', '\u{1F62E}', '\u{1F622}', '\u{1F621}', '\u{1F64F}', '\u{1F914}', '\u{1F43B}'];
 const PLATFORM_MODERATOR_IDS = ['@papakodiak:kodiak-connect.com'];
 const MESSAGE_POLL_INTERVAL_MS = 5000;
 const TYPING_POLL_INTERVAL_MS = 2500;
@@ -425,6 +427,54 @@ function getTypingIndicatorText(typingNames: string[]) {
   return `${typingNames[0]} and ${typingNames.length - 1} others are typing`;
 }
 
+function normalizeMessageUrl(rawUrl: string) {
+  return rawUrl.toLowerCase().startsWith('www.') ? 'https://' + rawUrl : rawUrl;
+}
+
+function renderTextSegmentWithLinks(segment: string, keyPrefix: string): ReactNode[] {
+  const parts: ReactNode[] = [];
+  let lastIndex = 0;
+  let match: RegExpExecArray | null;
+
+  URL_PATTERN.lastIndex = 0;
+
+  while ((match = URL_PATTERN.exec(segment)) !== null) {
+    const rawUrl = match[0];
+    const trailingMatch = rawUrl.match(/[),.!?]+$/);
+    const trailingPunctuation = trailingMatch?.[0] ?? '';
+    const cleanUrl = trailingPunctuation ? rawUrl.slice(0, -trailingPunctuation.length) : rawUrl;
+    const cleanUrlEnd = match.index + cleanUrl.length;
+
+    if (match.index > lastIndex) {
+      parts.push(segment.slice(lastIndex, match.index));
+    }
+
+    parts.push(
+      <a
+        key={'url-' + keyPrefix + '-' + match.index}
+        className="matrix-message-link"
+        href={normalizeMessageUrl(cleanUrl)}
+        target="_blank"
+        rel="noreferrer"
+      >
+        {cleanUrl}
+      </a>,
+    );
+
+    if (trailingPunctuation) {
+      parts.push(trailingPunctuation);
+    }
+
+    lastIndex = cleanUrlEnd + trailingPunctuation.length;
+  }
+
+  if (lastIndex < segment.length) {
+    parts.push(segment.slice(lastIndex));
+  }
+
+  return parts;
+}
+
 function renderMessageTextWithMentions(
   body: string,
   currentUserLocalpart: string,
@@ -433,6 +483,7 @@ function renderMessageTextWithMentions(
   const renderedParts: ReactNode[] = [];
   let lastIndex = 0;
   let match: RegExpExecArray | null;
+  let segmentIndex = 0;
 
   MENTION_PATTERN.lastIndex = 0;
 
@@ -443,7 +494,8 @@ function renderMessageTextWithMentions(
     const mentionStart = match.index + leadingWhitespace.length;
 
     if (mentionStart > lastIndex) {
-      renderedParts.push(body.slice(lastIndex, mentionStart));
+      renderedParts.push(...renderTextSegmentWithLinks(body.slice(lastIndex, mentionStart), 'segment-' + segmentIndex));
+      segmentIndex += 1;
     }
 
     const mentionLocalpart = mention.slice(1).toLowerCase();
@@ -451,7 +503,7 @@ function renderMessageTextWithMentions(
     const visibleMentionName = displayNamesByLocalpart[mentionLocalpart] ?? mention.slice(1);
 
     renderedParts.push(
-      <span key={`${mention}-${mentionStart}`} className={`matrix-mention ${isMentioningCurrentUser ? 'matrix-mention--self' : ''}`}>
+      <span key={mention + '-' + mentionStart} className={'matrix-mention ' + (isMentioningCurrentUser ? 'matrix-mention--self' : '')}>
         {visibleMentionName}
       </span>,
     );
@@ -460,7 +512,7 @@ function renderMessageTextWithMentions(
   }
 
   if (lastIndex < body.length) {
-    renderedParts.push(body.slice(lastIndex));
+    renderedParts.push(...renderTextSegmentWithLinks(body.slice(lastIndex), 'segment-' + segmentIndex));
   }
 
   return renderedParts;
@@ -514,7 +566,9 @@ export function MatrixChannelPanel({
   const [typingUserIds, setTypingUserIds] = useState<string[]>([]);
   const [roomMemberUserIds, setRoomMemberUserIds] = useState<string[]>([]);
   const [presenceByUserId, setPresenceByUserId] = useState<Record<string, KodiakPresenceState | 'unavailable'>>({});
-  const [isMemberPanelOpen, setIsMemberPanelOpen] = useState(true);
+  const [isMemberPanelOpen, setIsMemberPanelOpen] = useState(() =>
+    typeof window === 'undefined' ? true : !window.matchMedia('(max-width: 820px)').matches,
+  );
   const [displayNamesByUserId, setDisplayNamesByUserId] = useState<Record<string, string>>(() => readKodiakProfileCache().displayNames ?? {});
   const [avatarUrlsByUserId, setAvatarUrlsByUserId] = useState<Record<string, string>>(() => readKodiakProfileCache().avatars ?? {});
   const [avatarFile, setAvatarFile] = useState<File | null>(null);
@@ -2412,7 +2466,20 @@ export function MatrixChannelPanel({
           <h1>{channelHeadingPrefix}{activeChannel.name}</h1>
           <p>{activeChannel.description}</p>
         </div>
-<button
+        {activeChannel.kind === 'dm' ? (
+          <div className="kodiak-call-actions">
+            <button
+              type="button"
+              className="kodiak-call-button"
+              onClick={() => void startKodiakCall('voice')}
+              disabled={!roomId || !activeDmTargetUserId || Boolean(activeCallSession)}
+              title={activeDmTargetUserId ? 'Start voice call with ' + activeDmTargetDisplayName : 'Open a direct message to start a call'}
+            >
+              Voice Call
+            </button>
+          </div>
+        ) : null}
+        <button
           type="button"
           className="chat-placeholder__user chat-placeholder__user--button"
           onClick={() => {
@@ -2430,6 +2497,38 @@ export function MatrixChannelPanel({
           <span>{headerDisplayName}</span>
         </button>
       </header>
+
+      {activeCallSession ? (
+        <div className={'kodiak-call-panel kodiak-call-panel--' + activeCallSession.direction}>
+          <div>
+            <strong>
+              {activeCallSession.direction === 'incoming'
+                ? 'Incoming ' + getCallKindLabel(activeCallSession.callKind)
+                : activeCallSession.status === 'connected'
+                  ? 'Active ' + getCallKindLabel(activeCallSession.callKind)
+                  : 'Outgoing ' + getCallKindLabel(activeCallSession.callKind)}
+            </strong>
+            <span>{activeCallSession.displayName}</span>
+          </div>
+          <div className="kodiak-call-panel__actions">
+            {activeCallSession.direction === 'incoming' && activeCallSession.status === 'ringing' ? (
+              <>
+                <button type="button" onClick={() => void respondToKodiakCall('accept')}>
+                  Accept
+                </button>
+                <button type="button" onClick={() => void respondToKodiakCall('decline')}>
+                  Decline
+                </button>
+              </>
+            ) : null}
+            <button type="button" className="kodiak-call-panel__end" onClick={() => void endKodiakCall()}>
+              End
+            </button>
+          </div>
+        </div>
+      ) : callStatusText ? (
+        <div className="kodiak-call-status">{callStatusText}</div>
+      ) : null}
 
       <div className={`matrix-channel-content ${isMemberPanelOpen ? '' : 'matrix-channel-content--members-collapsed'}`}>
       <div className="matrix-chat-body">
@@ -2658,7 +2757,9 @@ export function MatrixChannelPanel({
           </div>
         ) : null}
 
-        <input
+        <div className="message-composer-main-row">
+          <KodiakAttachmentBridge identity={identity} />
+          <input
           ref={composerInputRef}
           type="text"
           placeholder={editingMessage ? 'Edit message' : getComposerPlaceholder(activeChannel, canPost, roomId, replyTarget)}
@@ -2666,10 +2767,11 @@ export function MatrixChannelPanel({
           onChange={(event) => setDraftMessage(event.target.value)}
           onKeyDown={handleComposerKeyDown}
           disabled={!roomId || (isSending && Boolean(editingMessage)) || !canPost}
-        />
-        <button type="submit" disabled={!roomId || (isSending && Boolean(editingMessage)) || !canPost || !draftMessage.trim()}>
+          />
+          <button type="submit" disabled={!roomId || (isSending && Boolean(editingMessage)) || !canPost || !draftMessage.trim()}>
           {isSending ? (editingMessage ? 'Saving...' : 'Sending...') : editingMessage ? 'Save' : activeChannel.readOnly ? 'Publish' : 'Send'}
-        </button>
+          </button>
+        </div>
       </form>
 
       {openActionMenu && openActionMenuMessage && openActionMenuParsedMessage ? createPortal(
