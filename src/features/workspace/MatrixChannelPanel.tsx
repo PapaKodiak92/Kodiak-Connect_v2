@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type
 import { createPortal } from 'react-dom';
 import type { MatrixLoginIdentity } from '../auth/matrixLoginService';
 import { playKodiakSound, unlockKodiakSounds } from '../audio/kodiakSounds';
+import { isKodiakDesktopNotificationAvailable, requestKodiakDesktopNotificationPermission } from '../notifications/kodiakDesktopNotifications';
 import {
   loadKodiakPresence,
   loadKodiakProfiles,
@@ -1624,39 +1625,24 @@ export function MatrixChannelPanel({
   }
 
   async function handleBrowserNotificationToggle(enabled: boolean) {
+    setSettingsErrorText(null);
+
     if (!enabled) {
       setAreBrowserNotificationsEnabled(false);
       return;
     }
 
-    if (!('Notification' in window)) {
-      setSettingsErrorText('Browser notifications are not supported in this browser.');
+    if (!isKodiakDesktopNotificationAvailable()) {
+      setSettingsErrorText('Desktop notifications are not supported in this environment.');
       setAreBrowserNotificationsEnabled(false);
       return;
     }
 
-    if (!window.isSecureContext) {
-      setSettingsErrorText('Browser notifications require HTTPS or localhost. Use http://localhost:5173 for local testing, or an HTTPS live URL.');
-      setAreBrowserNotificationsEnabled(false);
-      return;
-    }
+    const hasPermission = await requestKodiakDesktopNotificationPermission();
+    setAreBrowserNotificationsEnabled(hasPermission);
 
-    if (Notification.permission === 'granted') {
-      setAreBrowserNotificationsEnabled(true);
-      return;
-    }
-
-    if (Notification.permission === 'denied') {
-      setSettingsErrorText('Browser notifications are blocked. Enable them in your browser site settings.');
-      setAreBrowserNotificationsEnabled(false);
-      return;
-    }
-
-    const permission = await Notification.requestPermission();
-    setAreBrowserNotificationsEnabled(permission === 'granted');
-
-    if (permission !== 'granted') {
-      setSettingsErrorText('Browser notification permission was not granted.');
+    if (!hasPermission) {
+      setSettingsErrorText('Desktop notification permission was not granted.');
     }
   }
 

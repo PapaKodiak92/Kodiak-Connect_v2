@@ -27,6 +27,7 @@ import {
 } from '../policy/policyAcknowledgementStorage';
 import { playKodiakSound } from '../audio/kodiakSounds';
 import { initializeKodiakPushNotifications } from '../notifications/notificationClient';
+import { showKodiakDesktopNotification } from '../notifications/kodiakDesktopNotifications';
 import { ChannelSidebar, type ChannelActivityById } from './ChannelSidebar';
 import { ChatPlaceholder } from './ChatPlaceholder';
 import { MatrixChannelPanel } from './MatrixChannelPanel';
@@ -232,22 +233,12 @@ function getChannelDisplayTitle(channel: WorkspaceChannel) {
 }
 
 function showKodiakBrowserNotification(channel: WorkspaceChannel, messageBody: string, onOpen?: () => void) {
-  if (!canShowBrowserNotification()) {
-    return;
-  }
-
-  const notification = new Notification(`Kodiak Connect - ${getChannelDisplayTitle(channel)}`, {
-    body: messageBody.length > 120 ? `${messageBody.slice(0, 117)}...` : messageBody,
-    icon: '/favicon.ico',
-    silent: true,
+  void showKodiakDesktopNotification({
+    title: `Kodiak Connect - ${getChannelDisplayTitle(channel)}`,
+    body: messageBody,
     tag: `kodiak-connect-${channel.id}`,
+    onClick: onOpen,
   });
-
-  notification.onclick = () => {
-    window.focus();
-    onOpen?.();
-    notification.close();
-  };
 }
 
 function getDirectMessageTargetUserId(channel: WorkspaceChannel, currentUserId: string) {
