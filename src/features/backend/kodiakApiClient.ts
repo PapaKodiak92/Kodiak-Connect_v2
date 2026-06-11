@@ -149,6 +149,16 @@ export async function notifyKodiakCall(identity: MatrixLoginIdentity, notificati
   await postKodiak<{ ok?: boolean }>(identity, '/api/push/call', notification);
 }
 
+export async function sendKodiakRoomActivity(
+  identity: MatrixLoginIdentity,
+  activity: { isVisible: boolean; roomId?: string | null },
+) {
+  await postKodiak<{ ok?: boolean }>(identity, '/api/activity/room', {
+    activeRoomId: activity.roomId ?? '',
+    isVisible: activity.isVisible,
+  });
+}
+
 export async function sendKodiakPresenceHeartbeat(
   identity: MatrixLoginIdentity,
   displayName: string,

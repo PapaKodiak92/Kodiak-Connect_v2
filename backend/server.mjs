@@ -14,6 +14,8 @@ const PROFILES_FILE = join(DATA_DIR, "profiles.json");
 const BLOCKS_FILE = join(DATA_DIR, "blocks.json");
 const REPORTS_FILE = join(DATA_DIR, "reports.json");
 const PUSH_SUBSCRIPTIONS_FILE = join(DATA_DIR, "push-subscriptions.json");
+const ACTIVE_ROOMS_FILE = join(DATA_DIR, "active-rooms.json");
+const ACTIVE_ROOM_VISIBLE_WINDOW_MS = 20_000;
 
 const PORT = Number(process.env.KODIAK_BACKEND_PORT ?? 8787);
 const DEFAULT_ALLOWED_ORIGINS = [
@@ -264,6 +266,20 @@ function getPushDevicesForUser(pushStore, userId) {
   return Object.values(pushStore).filter((device) => device?.userId === userId && device.enabled !== false);
 }
 
+function isUserActivelyViewingRoom(activeRoomStore, userId, roomId) {
+  if (!roomId) {
+    return false;
+  }
+
+  const activity = activeRoomStore[userId];
+
+  if (!activity?.isVisible || activity.activeRoomId !== roomId) {
+    return false;
+  }
+
+  return now() - Number(activity.updatedAt || 0) <= ACTIVE_ROOM_VISIBLE_WINDOW_MS;
+}
+
 function getProfileDisplayName(profileStore, userId) {
   return sanitizeProfile(profileStore[userId], userId).displayName || getDefaultDisplayName(userId);
 }
@@ -471,6 +487,31 @@ async function handlePushTest(request, response, corsHeaders) {
   }, corsHeaders);
 }
 
+async function handleRoomActivity(request, response, corsHeaders) {
+  const body = await readRequestBody(request);
+  const userId = getCurrentUserId(request, body);
+  const activeRoomId = String(body.activeRoomId ?? "").slice(0, 160);
+  const isVisible = body.isVisible === true;
+
+  if (!isValidMatrixUserId(userId)) {
+    sendJson(response, 400, { error: "Invalid Matrix userId." }, corsHeaders);
+    return;
+  }
+
+  const activeRoomStore = await readJsonFile(ACTIVE_ROOMS_FILE, {});
+  const updatedAt = now();
+
+  activeRoomStore[userId] = {
+    activeRoomId: isVisible ? activeRoomId : "",
+    isVisible,
+    updatedAt,
+    userId,
+  };
+
+  await writeJsonFile(ACTIVE_ROOMS_FILE, activeRoomStore);
+  sendJson(response, 200, { ok: true, activity: activeRoomStore[userId] }, corsHeaders);
+}
+
 async function handleDirectMessagePush(request, response, corsHeaders) {
   const body = await readRequestBody(request);
   const senderUserId = getCurrentUserId(request, body);
@@ -485,9 +526,19 @@ async function handleDirectMessagePush(request, response, corsHeaders) {
   const pushStore = await readJsonFile(PUSH_SUBSCRIPTIONS_FILE, {});
   const blockStore = await readJsonFile(BLOCKS_FILE, {});
   const profileStore = await readJsonFile(PROFILES_FILE, {});
+  const activeRoomStore = await readJsonFile(ACTIVE_ROOMS_FILE, {});
 
   if (hasEitherUserBlocked(blockStore, senderUserId, targetUserId)) {
     sendJson(response, 200, { ok: true, skipped: true, reason: "blocked" }, corsHeaders);
+    return;
+  }
+
+  if (isUserActivelyViewingRoom(activeRoomStore, targetUserId, roomId)) {
+    sendJson(response, 200, {
+      ok: true,
+      skipped: true,
+      reason: "recipient-active-in-room",
+    }, corsHeaders);
     return;
   }
 
@@ -1314,6 +1365,11 @@ const server = createServer(async (request, response) => {
 
     if (request.method === "POST" && url.pathname === "/api/push/test") {
       await handlePushTest(request, response, corsHeaders);
+      return;
+    }
+
+    if (request.method === "POST" && url.pathname === "/api/activity/room") {
+      await handleRoomActivity(request, response, corsHeaders);
       return;
     }
 

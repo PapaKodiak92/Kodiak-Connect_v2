@@ -7,6 +7,7 @@ import {
   loadKodiakProfiles,
   loadKodiakReports,
   notifyKodiakDirectMessage,
+  sendKodiakRoomActivity,
   submitKodiakReport,
   saveKodiakProfile,
   sendKodiakPresenceHeartbeat,
@@ -92,6 +93,7 @@ const MESSAGE_POLL_INTERVAL_MS = 5000;
 const TYPING_POLL_INTERVAL_MS = 2500;
 const TYPING_TIMEOUT_MS = 5000;
 const TYPING_IDLE_STOP_MS = 2500;
+const ROOM_ACTIVITY_INTERVAL_MS = 8_000;
 const STICK_TO_BOTTOM_DISTANCE_PX = 160;
 const SHOW_JUMP_TO_LATEST_DISTANCE_PX = 520;
 const KODIAK_PROFILE_CACHE_KEY = 'KC_BACKEND_PROFILE_CACHE';
@@ -1102,6 +1104,66 @@ export function MatrixChannelPanel({
   }, [activeChannel, activeChannel.matrixAlias, identity, refreshMessages]);
 
   useEffect(() => {
+    if (!roomId) {
+      return undefined;
+    }
+
+    let isActive = true;
+
+    function isRoomVisible() {
+      return document.visibilityState === 'visible' && document.hasFocus();
+    }
+
+    function sendRoomActivity(isVisible = isRoomVisible()) {
+      if (!isActive) {
+        return;
+      }
+
+      void sendKodiakRoomActivity(identity, {
+        isVisible,
+        roomId: isVisible ? roomId : '',
+      }).catch((error) => {
+        console.warn('[Kodiak Connect] Kodiak room activity update failed', error);
+      });
+    }
+
+    function handleVisibilityChange() {
+      sendRoomActivity(isRoomVisible());
+    }
+
+    function handlePageHide() {
+      sendRoomActivity(false);
+    }
+
+    sendRoomActivity();
+
+    const activityIntervalId = window.setInterval(() => {
+      sendRoomActivity();
+    }, ROOM_ACTIVITY_INTERVAL_MS);
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('focus', handleVisibilityChange);
+    window.addEventListener('blur', handleVisibilityChange);
+    window.addEventListener('pagehide', handlePageHide);
+
+    return () => {
+      isActive = false;
+      window.clearInterval(activityIntervalId);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('focus', handleVisibilityChange);
+      window.removeEventListener('blur', handleVisibilityChange);
+      window.removeEventListener('pagehide', handlePageHide);
+
+      void sendKodiakRoomActivity(identity, {
+        isVisible: false,
+        roomId: '',
+      }).catch((error) => {
+        console.warn('[Kodiak Connect] Kodiak room activity cleanup failed', error);
+      });
+    };
+  }, [identity, roomId]);
+
+  useEffect(() => {
     let isActive = true;
 
     function sendPresenceHeartbeat() {
@@ -2101,8 +2163,8 @@ export function MatrixChannelPanel({
 
       void sendTextMessage(identity, targetRoomId, buildReplyBody(replyContext, trimmedMessage))
         .then(async () => {
-          await refreshMessages(targetRoomId);
           await sendDirectMessagePushIfNeeded(targetRoomId);
+          await refreshMessages(targetRoomId);
         })
         .catch((error) => {
           console.error('[Kodiak Connect] Failed to send Matrix message', error);

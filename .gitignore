@@ -66,3 +66,4 @@ artifacts/
 # Firebase / Google services - never commit
 android/app/google-services.json
 /backend/data/push-subscriptions.json
+/backend/data/active-rooms.json

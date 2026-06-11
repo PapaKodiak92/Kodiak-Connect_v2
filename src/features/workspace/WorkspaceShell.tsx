@@ -99,6 +99,10 @@ function getStoredDirectMessagesKey(userId: string) {
   return `KC_DYNAMIC_DMS:${userId}`;
 }
 
+function getHiddenDirectMessagesKey(userId: string) {
+  return `KC_HIDDEN_DMS:${userId}`;
+}
+
 function getDirectMessageChannelId(userId: string) {
   return `dm-${getUserLocalpart(userId)}`;
 }
@@ -143,6 +147,34 @@ function readStoredDirectMessageChannels(userId: string) {
 
 function writeStoredDirectMessageChannels(userId: string, channels: WorkspaceChannel[]) {
   window.localStorage.setItem(getStoredDirectMessagesKey(userId), JSON.stringify(channels));
+}
+
+function readHiddenDirectMessageChannels(userId: string) {
+  try {
+    const storedValue = window.localStorage.getItem(getHiddenDirectMessagesKey(userId));
+
+    if (!storedValue) {
+      return [];
+    }
+
+    return JSON.parse(storedValue) as WorkspaceChannel[];
+  } catch {
+    return [];
+  }
+}
+
+function writeHiddenDirectMessageChannels(userId: string, channels: WorkspaceChannel[]) {
+  window.localStorage.setItem(getHiddenDirectMessagesKey(userId), JSON.stringify(channels));
+}
+
+function mergeUniqueDirectMessageChannels(primaryChannels: WorkspaceChannel[], secondaryChannels: WorkspaceChannel[]) {
+  const channelsById = new Map<string, WorkspaceChannel>();
+
+  for (const channel of [...primaryChannels, ...secondaryChannels]) {
+    channelsById.set(channel.id, channel);
+  }
+
+  return [...channelsById.values()];
 }
 
 function mergeDirectMessagesIntoSpace(space: WorkspaceSpace, directMessageChannels: WorkspaceChannel[]): WorkspaceSpace {
@@ -552,9 +584,16 @@ export function WorkspaceShell({ identity, onLogout }: WorkspaceShellProps) {
     const currentActivity = channelActivityRef.current;
     const currentLastSeenByChannel = lastSeenByChannelRef.current;
     const currentUserMention = `@${getUserLocalpart(identity.userId)}`;
-    const channels = getChannels(activeSpace).filter(
+    const visibleChannels = getChannels(activeSpace);
+    const visibleChannelIds = new Set(visibleChannels.map((channel) => channel.id));
+    const hiddenDirectMessageChannels = readHiddenDirectMessageChannels(identity.userId).filter(
+      (channel) => channel.matrixDmUserId && !visibleChannelIds.has(channel.id),
+    );
+    const hiddenDirectMessageChannelIds = new Set(hiddenDirectMessageChannels.map((channel) => channel.id));
+    const channels = [...visibleChannels, ...hiddenDirectMessageChannels].filter(
       (channel) => !channel.disabled && (channel.matrixAlias || channel.matrixDmUserId),
     );
+    const channelsById = new Map(channels.map((channel) => [channel.id, channel]));
 
     const activityResults = await Promise.all(
       channels.map(async (channel) => {
@@ -606,7 +645,7 @@ export function WorkspaceShell({ identity, onLogout }: WorkspaceShellProps) {
           const shouldNotify =
             !isActiveChannel &&
             Boolean(latestIncomingMessage) &&
-            Boolean(currentActivity[channel.id]?.latestTs) &&
+            (Boolean(currentActivity[channel.id]?.latestTs) || hiddenDirectMessageChannelIds.has(channel.id)) &&
             latestIncomingMessage!.originServerTs > (notifiedLatestTsByChannelRef.current[channel.id] ?? 0);
 
           return [
@@ -633,6 +672,25 @@ export function WorkspaceShell({ identity, onLogout }: WorkspaceShellProps) {
 
     const activityEntries = activityResults.map(([channelId, activity]) => [channelId, activity] as const);
     const notificationEntries = activityResults.map(([, , notification]) => notification).filter(Boolean);
+    const hiddenChannelsToReopen = activityEntries
+      .filter(([channelId, activity]) => hiddenDirectMessageChannelIds.has(channelId) && (activity.unreadCount ?? 0) > 0)
+      .map(([channelId]) => channelsById.get(channelId))
+      .filter((channel): channel is WorkspaceChannel => Boolean(channel));
+
+    if (hiddenChannelsToReopen.length) {
+      const reopenedChannelIds = new Set(hiddenChannelsToReopen.map((channel) => channel.id));
+
+      setDirectMessageChannels((currentChannels) => {
+        const nextChannels = mergeUniqueDirectMessageChannels(hiddenChannelsToReopen, currentChannels);
+        writeStoredDirectMessageChannels(identity.userId, nextChannels);
+        return nextChannels;
+      });
+
+      const remainingHiddenChannels = readHiddenDirectMessageChannels(identity.userId).filter(
+        (channel) => !reopenedChannelIds.has(channel.id),
+      );
+      writeHiddenDirectMessageChannels(identity.userId, remainingHiddenChannels);
+    }
 
     setChannelActivity((currentActivity) => {
       let hasChanged = false;
@@ -730,7 +788,14 @@ export function WorkspaceShell({ identity, onLogout }: WorkspaceShellProps) {
 
   function handleCloseDirectMessage(channelId: string) {
     setDirectMessageChannels((currentChannels) => {
+      const channelToHide = currentChannels.find((channel) => channel.id === channelId);
       const nextChannels = currentChannels.filter((channel) => channel.id !== channelId);
+
+      if (channelToHide?.kind === 'dm') {
+        const hiddenChannels = readHiddenDirectMessageChannels(identity.userId).filter((channel) => channel.id !== channelId);
+        writeHiddenDirectMessageChannels(identity.userId, [channelToHide, ...hiddenChannels]);
+      }
+
       writeStoredDirectMessageChannels(identity.userId, nextChannels);
       return nextChannels;
     });
@@ -742,6 +807,11 @@ export function WorkspaceShell({ identity, onLogout }: WorkspaceShellProps) {
 
   function handleOpenDirectMessage(userId: string, displayName = getDisplayNameFromUserId(userId)) {
     const directMessageChannel = createDirectMessageChannel(userId, dmDisplayNamesByUserId[userId] || displayName);
+
+    writeHiddenDirectMessageChannels(
+      identity.userId,
+      readHiddenDirectMessageChannels(identity.userId).filter((channel) => channel.id !== directMessageChannel.id),
+    );
 
     setDirectMessageChannels((currentChannels) => {
       const withoutDuplicate = currentChannels.filter((channel) => channel.id !== directMessageChannel.id);
