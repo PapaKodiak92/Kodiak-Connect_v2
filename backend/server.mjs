@@ -160,8 +160,8 @@ function getFriendKey(userA, userB) {
 function getPresenceState(lastSeenAt) {
   const ageMs = now() - Number(lastSeenAt || 0);
 
-  if (ageMs <= 90_000) return "online";
-  if (ageMs <= 10 * 60_000) return "idle";
+  if (ageMs <= 45_000) return "online";
+  if (ageMs <= 90_000) return "idle";
   return "offline";
 }
 
@@ -1447,4 +1447,5 @@ const server = createServer(async (request, response) => {
 server.listen(PORT, '127.0.0.1', () => {
   console.log(`[Kodiak Backend] listening on http://localhost:${PORT}`);
 });
+
 
