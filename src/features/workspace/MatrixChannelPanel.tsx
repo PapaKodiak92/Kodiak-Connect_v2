@@ -638,6 +638,7 @@ export function MatrixChannelPanel({
   const kodiakVoiceCallPeerRef = useRef<KodiakVoiceCallPeer | null>(null);
   const pendingCallOfferSdpRef = useRef<string | null>(null);
   const remoteCallAudioRef = useRef<HTMLAudioElement | null>(null);
+  const pendingRemoteCallStreamRef = useRef<MediaStream | null>(null);
   const localCallVideoRef = useRef<HTMLVideoElement | null>(null);
   const remoteCallVideoRef = useRef<HTMLVideoElement | null>(null);
   const handledCallEventIdsRef = useRef<Set<string>>(new Set());
@@ -1857,6 +1858,7 @@ export function MatrixChannelPanel({
   }
 
   function attachKodiakRemoteMediaStream(stream: MediaStream) {
+    pendingRemoteCallStreamRef.current = stream;
     startKodiakSpeakingDetector(stream, 'remote');
 
     const remoteVideoTracks = stream.getVideoTracks();
@@ -1867,6 +1869,7 @@ export function MatrixChannelPanel({
       track.onended = () => setHasRemoteCallVideo(false);
       track.onunmute = () => setHasRemoteCallVideo(true);
     }
+
     const videoElement = remoteCallVideoRef.current;
 
     if (videoElement && stream.getVideoTracks().length > 0) {
@@ -1876,29 +1879,60 @@ export function MatrixChannelPanel({
         console.warn('[Kodiak Connect] Failed to play remote call video', error);
       });
     }
+
     attachKodiakRemoteAudioStream(stream);
   }
 
   function attachKodiakRemoteAudioStream(stream: MediaStream) {
+    pendingRemoteCallStreamRef.current = stream;
+
     const audioElement = remoteCallAudioRef.current;
 
     if (!audioElement) {
       return;
     }
 
-    audioElement.srcObject = stream;
+    if (audioElement.srcObject !== stream) {
+      audioElement.srcObject = stream;
+    }
+
     audioElement.muted = false;
+    audioElement.volume = 1;
 
     void audioElement.play().catch((error) => {
       console.warn('[Kodiak Connect] Failed to play remote call audio', error);
+      setCallStatusText('Tap the call panel if remote audio does not start.');
     });
   }
+
+  useEffect(() => {
+    if (!activeCallSession || !pendingRemoteCallStreamRef.current) {
+      return;
+    }
+
+    attachKodiakRemoteAudioStream(pendingRemoteCallStreamRef.current);
+
+    const videoElement = remoteCallVideoRef.current;
+
+    if (
+      videoElement &&
+      pendingRemoteCallStreamRef.current.getVideoTracks().length > 0 &&
+      videoElement.srcObject !== pendingRemoteCallStreamRef.current
+    ) {
+      videoElement.srcObject = pendingRemoteCallStreamRef.current;
+
+      void videoElement.play().catch((error) => {
+        console.warn('[Kodiak Connect] Failed to replay remote call video', error);
+      });
+    }
+  }, [activeCallSession?.callId, hasRemoteCallVideo]);
 
   function cleanupKodiakVoiceCall() {
     stopKodiakCallSounds();
     kodiakVoiceCallPeerRef.current?.close();
     kodiakVoiceCallPeerRef.current = null;
     pendingCallOfferSdpRef.current = null;
+    pendingRemoteCallStreamRef.current = null;
     setIsCallMuted(false);
     setIsCallCameraEnabled(false);
     setHasRemoteCallVideo(false);
@@ -1928,8 +1962,12 @@ export function MatrixChannelPanel({
           setCallStatusText('Voice call connected.');
         }
 
-        if (state === 'failed' || state === 'disconnected') {
-          setCallStatusText('Voice call connection ' + state + '.');
+        if (state === 'disconnected') {
+          setCallStatusText('Reconnecting voice call...');
+        }
+
+        if (state === 'failed') {
+          setCallStatusText('Voice call connection failed. End the call and try again.');
         }
 
         if (state === 'closed') {
@@ -4179,6 +4217,7 @@ export function MatrixChannelPanel({
     </section>
   );
 }
+
 
 
 

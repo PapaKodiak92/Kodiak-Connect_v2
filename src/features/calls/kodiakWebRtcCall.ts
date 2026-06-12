@@ -51,7 +51,6 @@ function getKodiakRtcIceServers(): RTCIceServer[] {
 
 const KODIAK_RTC_CONFIGURATION: RTCConfiguration = {
   iceServers: getKodiakRtcIceServers(),
-  iceTransportPolicy: 'relay',
 };
 
 export class KodiakVoiceCallPeer {
@@ -307,6 +306,7 @@ export class KodiakVoiceCallPeer {
     }
   }
 }
+
 
 
 
