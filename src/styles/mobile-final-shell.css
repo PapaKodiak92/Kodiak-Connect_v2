@@ -1,7 +1,7 @@
-﻿/* Kodiak Connect mobile shell overhaul.
-   Mobile layout: rail + full content.
-   Left channels are a drawer.
-   Right members are a drawer with its own attached sliding tab. */
+﻿/* Kodiak Connect mobile shell final.
+   Layout: server rail | chat.
+   Channels drawer and members drawer are overlays.
+   Chat/composer never get resized by the member panel. */
 
 @media (max-width: 820px) {
   body:not(:has(.window-titlebar)),
@@ -14,8 +14,9 @@
 
   body:not(:has(.window-titlebar)) .workspace-app-shell {
     --mobile-rail-width: 3.85rem;
-    --mobile-member-drawer-width: min(18.5rem, 82vw);
-    --mobile-member-tab-width: 3rem;
+    --mobile-member-panel-width: min(18rem, 82vw);
+    --mobile-member-tab-width: 2.8rem;
+
     display: grid !important;
     grid-template-columns: var(--mobile-rail-width) minmax(0, 1fr) !important;
     grid-template-rows: minmax(0, 1fr) !important;
@@ -28,13 +29,13 @@
   body:not(:has(.window-titlebar)) .server-rail {
     grid-column: 1 !important;
     grid-row: 1 !important;
-    z-index: 80 !important;
     width: var(--mobile-rail-width) !important;
     min-width: var(--mobile-rail-width) !important;
     height: 100dvh !important;
+    z-index: 100 !important;
     padding: max(0.55rem, env(safe-area-inset-top)) 0.4rem max(0.55rem, env(safe-area-inset-bottom)) !important;
-    border-right: 1px solid rgba(148, 163, 184, 0.14) !important;
     background: rgba(2, 6, 23, 0.98) !important;
+    border-right: 1px solid rgba(148, 163, 184, 0.14) !important;
   }
 
   body:not(:has(.window-titlebar)) .server-rail__item {
@@ -50,20 +51,20 @@
 
   body:not(:has(.window-titlebar)) .channel-sidebar {
     position: fixed !important;
-    left: var(--mobile-rail-width) !important;
     top: 0 !important;
+    left: var(--mobile-rail-width) !important;
     bottom: 0 !important;
-    z-index: 70 !important;
+    z-index: 90 !important;
     width: min(18.5rem, calc(100vw - var(--mobile-rail-width))) !important;
     max-width: calc(100vw - var(--mobile-rail-width)) !important;
     height: 100dvh !important;
     display: grid !important;
     grid-template-rows: auto minmax(0, 1fr) auto !important;
     overflow: hidden !important;
-    border-right: 1px solid rgba(251, 146, 60, 0.18) !important;
     background:
       radial-gradient(circle at 10% 0%, rgba(251, 146, 60, 0.12), transparent 12rem),
       rgba(7, 13, 28, 0.985) !important;
+    border-right: 1px solid rgba(251, 146, 60, 0.18) !important;
     box-shadow: 18px 0 46px rgba(0, 0, 0, 0.42) !important;
     transform: translateX(0) !important;
     opacity: 1 !important;
@@ -81,11 +82,13 @@
     grid-column: 2 !important;
     grid-row: 1 !important;
     width: 100% !important;
-    height: 100dvh !important;
     min-width: 0 !important;
+    max-width: 100% !important;
+    height: 100dvh !important;
     min-height: 0 !important;
-    overflow: hidden !important;
+    display: grid !important;
     grid-template-rows: auto minmax(0, 1fr) auto !important;
+    overflow: hidden !important;
   }
 
   body:not(:has(.window-titlebar)) .chat-placeholder__header {
@@ -99,29 +102,40 @@
   }
 
   body:not(:has(.window-titlebar)) .chat-placeholder__header h1 {
+    margin: 0 !important;
     font-size: clamp(1.08rem, 6.5vw, 1.55rem) !important;
     line-height: 1.05 !important;
     white-space: nowrap !important;
     overflow: hidden !important;
     text-overflow: ellipsis !important;
-    margin: 0 !important;
   }
 
   body:not(:has(.window-titlebar)) .matrix-channel-content,
   body:not(:has(.window-titlebar)) .matrix-channel-content--members-collapsed {
     grid-template-columns: minmax(0, 1fr) !important;
-    min-width: 0 !important;
-    min-height: 0 !important;
     width: 100% !important;
+    min-width: 0 !important;
+    max-width: 100% !important;
+    min-height: 0 !important;
+    overflow: hidden !important;
+  }
+
+  body:not(:has(.window-titlebar)) .matrix-chat-body {
+    width: 100% !important;
+    min-width: 0 !important;
+    max-width: 100% !important;
+    min-height: 0 !important;
     overflow: hidden !important;
   }
 
   body:not(:has(.window-titlebar)) .matrix-message-list {
-    min-width: 0 !important;
     width: 100% !important;
+    min-width: 0 !important;
+    max-width: 100% !important;
     overflow-x: hidden !important;
     overflow-y: auto !important;
-    padding: 0.72rem 0.58rem 0.85rem !important;
+    padding: 0.72rem 0.58rem 5.35rem !important;
+    box-sizing: border-box !important;
     -webkit-overflow-scrolling: touch !important;
   }
 
@@ -143,51 +157,89 @@
   }
 
   body:not(:has(.window-titlebar)) .message-composer-placeholder {
-    position: sticky !important;
+    position: fixed !important;
+    left: var(--mobile-rail-width) !important;
+    right: 0 !important;
     bottom: 0 !important;
-    z-index: 30 !important;
-    padding: 0.55rem 0.58rem max(0.6rem, env(safe-area-inset-bottom)) !important;
-    gap: 0.45rem !important;
+    width: calc(100vw - var(--mobile-rail-width)) !important;
+    max-width: calc(100vw - var(--mobile-rail-width)) !important;
+    min-width: 0 !important;
+    box-sizing: border-box !important;
+    display: block !important;
+    padding: 0.5rem 0.55rem max(0.58rem, env(safe-area-inset-bottom)) !important;
+    margin: 0 !important;
+    background: rgba(10, 18, 35, 0.985) !important;
+    border-top: 1px solid rgba(148, 163, 184, 0.16) !important;
+    z-index: 500 !important;
+    overflow: visible !important;
+    transform: none !important;
+    transition: none !important;
   }
 
-  body:not(:has(.window-titlebar)) .message-composer-placeholder textarea,
-  body:not(:has(.window-titlebar)) .message-composer-placeholder input {
+  body:not(:has(.window-titlebar)) .message-composer-main-row {
+    display: grid !important;
+    grid-template-columns: 2.75rem minmax(0, 1fr) 3.75rem !important;
+    align-items: center !important;
+    gap: 0.45rem !important;
+    width: 100% !important;
+    max-width: 100% !important;
     min-width: 0 !important;
-    min-height: 2.55rem !important;
-    max-height: 7rem !important;
+    box-sizing: border-box !important;
+  }
+
+  body:not(:has(.window-titlebar)) .message-composer-main-row > :first-child {
+    width: 2.75rem !important;
+    min-width: 2.75rem !important;
+    max-width: 2.75rem !important;
+    height: 2.75rem !important;
+    min-height: 2.75rem !important;
+    padding: 0 !important;
+  }
+
+  body:not(:has(.window-titlebar)) .message-composer-main-row textarea,
+  body:not(:has(.window-titlebar)) .message-composer-main-row input {
+    width: 100% !important;
+    min-width: 0 !important;
+    max-width: 100% !important;
+    height: 2.75rem !important;
+    min-height: 2.75rem !important;
+    max-height: 6.5rem !important;
+    box-sizing: border-box !important;
     font-size: 16px !important;
   }
 
-  body:not(:has(.window-titlebar)) .message-composer-placeholder button[type='submit'] {
-    min-width: 3.7rem !important;
-    min-height: 2.55rem !important;
-    border-radius: 16px !important;
-    padding: 0.55rem 0.65rem !important;
-    font-size: 0.74rem !important;
+  body:not(:has(.window-titlebar)) .message-composer-main-row button[type='submit'] {
+    width: 3.75rem !important;
+    min-width: 3.75rem !important;
+    max-width: 3.75rem !important;
+    height: 2.75rem !important;
+    min-height: 2.75rem !important;
+    padding: 0 !important;
+    border-radius: 15px !important;
+    font-size: 0.72rem !important;
   }
 
-  /* Kill the separate bad mobile tab if it still exists. */
-  body:not(:has(.window-titlebar)) .matrix-mobile-member-panel-tab {
+  body:not(:has(.window-titlebar)) .matrix-mobile-member-panel-tab,
+  body:not(:has(.window-titlebar)) .mobile-members-toggle {
     display: none !important;
+    visibility: hidden !important;
+    pointer-events: none !important;
   }
 
-  /* RIGHT MEMBER DRAWER:
-     The whole panel slides. Its own desktop toggle is the attached handle. */
   body:not(:has(.window-titlebar)) .matrix-member-panel {
-    display: flex !important;
     position: fixed !important;
     top: 0 !important;
     right: 0 !important;
     bottom: 0 !important;
+    left: auto !important;
     z-index: 9990 !important;
-    width: var(--mobile-member-drawer-width) !important;
-    min-width: var(--mobile-member-drawer-width) !important;
-    max-width: var(--mobile-member-drawer-width) !important;
+    width: var(--mobile-member-panel-width) !important;
+    min-width: var(--mobile-member-panel-width) !important;
+    max-width: var(--mobile-member-panel-width) !important;
     height: 100dvh !important;
     min-height: 100dvh !important;
-    padding: max(0.85rem, env(safe-area-inset-top)) 0.85rem max(0.85rem, env(safe-area-inset-bottom)) calc(var(--mobile-member-tab-width) + 0.85rem) !important;
-    overflow-x: hidden !important;
-    overflow-y: auto !important;
+    display: block !important;
+    overflow: visible !important;
     opacity: 1 !important;
     visibility: visible !important;
     pointer-events: auto !important;
@@ -201,11 +253,7 @@
   }
 
   body:not(:has(.window-titlebar)) .matrix-member-panel.matrix-member-panel--collapsed {
-    transform: translateX(calc(100% - var(--mobile-member-tab-width))) !important;
-    opacity: 1 !important;
-    visibility: visible !important;
-    pointer-events: auto !important;
-    overflow: visible !important;
+    transform: translateX(100%) !important;
   }
 
   body:not(:has(.window-titlebar)) .matrix-member-panel.matrix-member-panel--collapsed > :not(.matrix-member-panel__toggle) {
@@ -213,13 +261,13 @@
   }
 
   body:not(:has(.window-titlebar)) .matrix-member-panel__toggle {
-    display: inline-flex !important;
     position: absolute !important;
-    left: 0 !important;
+    left: calc(-1 * var(--mobile-member-tab-width)) !important;
     top: 50% !important;
     transform: translateY(-50%) !important;
     width: var(--mobile-member-tab-width) !important;
     height: 3.35rem !important;
+    display: inline-flex !important;
     align-items: center !important;
     justify-content: center !important;
     z-index: 10000 !important;
@@ -228,21 +276,32 @@
     visibility: visible !important;
     pointer-events: auto !important;
     border: 1px solid rgba(251, 146, 60, 0.42) !important;
-    border-left: 0 !important;
-    border-radius: 0 18px 18px 0 !important;
+    border-right: 0 !important;
+    border-radius: 18px 0 0 18px !important;
     color: #fed7aa !important;
     background: rgba(15, 23, 42, 0.96) !important;
-    box-shadow: 10px 0 28px rgba(0, 0, 0, 0.36) !important;
-  }
-
-  body:not(:has(.window-titlebar)) .matrix-member-panel:not(.matrix-member-panel--collapsed) .matrix-member-panel__toggle {
-    background: rgba(30, 20, 18, 0.98) !important;
-    border-color: rgba(251, 146, 60, 0.62) !important;
+    box-shadow: -10px 0 28px rgba(0, 0, 0, 0.36) !important;
   }
 
   body:not(:has(.window-titlebar)) .matrix-member-panel__toggle svg {
     width: 1.25rem !important;
     height: 1.25rem !important;
+  }
+
+  body:not(:has(.window-titlebar)) .matrix-member-panel__inner {
+    height: 100% !important;
+    min-height: 0 !important;
+    display: grid !important;
+    grid-template-rows: auto minmax(0, 1fr) !important;
+    padding: max(0.85rem, env(safe-area-inset-top)) 0.85rem max(0.85rem, env(safe-area-inset-bottom)) !important;
+    overflow: hidden !important;
+  }
+
+  body:not(:has(.window-titlebar)) .matrix-member-list {
+    min-height: 0 !important;
+    overflow-y: auto !important;
+    overflow-x: hidden !important;
+    scrollbar-width: thin !important;
   }
 
   body:not(:has(.window-titlebar)) .music-lounge-panel,
@@ -263,435 +322,98 @@
   }
 }
 
-/* FINAL FIX: member drawer handle sits outside the panel and moves with it. */
+/* Composer lane correction: full width of the chat panel, not shoved inward. */
 @media (max-width: 820px) {
-  body:not(:has(.window-titlebar)) .workspace-app-shell {
-    --mobile-member-tab-width: 3rem;
-    --mobile-member-drawer-width: min(18.5rem, 82vw);
-  }
-
-  body:not(:has(.window-titlebar)) .matrix-member-panel {
-    overflow: visible !important;
-    padding-left: 0.85rem !important;
-    transform: translateX(0) !important;
-    transition: transform 220ms ease !important;
-  }
-
-  body:not(:has(.window-titlebar)) .matrix-member-panel.matrix-member-panel--collapsed {
-    transform: translateX(100%) !important;
-    overflow: visible !important;
-    opacity: 1 !important;
-    visibility: visible !important;
-    pointer-events: auto !important;
-  }
-
-  body:not(:has(.window-titlebar)) .matrix-member-panel__toggle {
-    display: inline-flex !important;
-    position: absolute !important;
-    left: calc(-1 * var(--mobile-member-tab-width)) !important;
-    top: 50% !important;
-    transform: translateY(-50%) !important;
-    width: var(--mobile-member-tab-width) !important;
-    height: 3.35rem !important;
-    align-items: center !important;
-    justify-content: center !important;
-    z-index: 10000 !important;
-    margin: 0 !important;
-    opacity: 1 !important;
-    visibility: visible !important;
-    pointer-events: auto !important;
-
-    border: 1px solid rgba(251, 146, 60, 0.42) !important;
-    border-right: 0 !important;
-    border-radius: 18px 0 0 18px !important;
-
-    color: #fed7aa !important;
-    background: rgba(15, 23, 42, 0.96) !important;
-    box-shadow: -10px 0 28px rgba(0, 0, 0, 0.36) !important;
-  }
-
-  body:not(:has(.window-titlebar)) .matrix-member-panel:not(.matrix-member-panel--collapsed) .matrix-member-panel__toggle {
-    background: rgba(30, 20, 18, 0.98) !important;
-    border-color: rgba(251, 146, 60, 0.62) !important;
-  }
-}
-
-
-/* FIX: member drawer handle sits outside the panel and moves with it. */
-@media (max-width: 820px) {
-  body:not(:has(.window-titlebar)) .matrix-member-panel {
-    overflow: visible !important;
-  }
-
-  body:not(:has(.window-titlebar)) .matrix-member-panel.matrix-member-panel--collapsed {
-    transform: translateX(100%) !important;
-    overflow: visible !important;
-    opacity: 1 !important;
-    visibility: visible !important;
-    pointer-events: auto !important;
-  }
-
-  body:not(:has(.window-titlebar)) .matrix-member-panel__toggle {
-    display: inline-flex !important;
-    position: absolute !important;
-    left: calc(-1 * var(--mobile-member-tab-width)) !important;
-    top: 50% !important;
-    transform: translateY(-50%) !important;
-    width: var(--mobile-member-tab-width) !important;
-    height: 3.35rem !important;
-    align-items: center !important;
-    justify-content: center !important;
-    z-index: 10000 !important;
-    margin: 0 !important;
-    opacity: 1 !important;
-    visibility: visible !important;
-    pointer-events: auto !important;
-    border: 1px solid rgba(251, 146, 60, 0.42) !important;
-    border-right: 0 !important;
-    border-radius: 18px 0 0 18px !important;
-    color: #fed7aa !important;
-    background: rgba(15, 23, 42, 0.96) !important;
-    box-shadow: -10px 0 28px rgba(0, 0, 0, 0.36) !important;
-  }
-}
-
-/* HARD FIX: mobile member panel is an overlay only.
-   It must never resize, push, or move the chat renderer/composer. */
-@media (max-width: 820px) {
-  body:not(:has(.window-titlebar)) .workspace-app-shell {
-    --mobile-rail-width: 3.85rem;
-    --mobile-member-drawer-width: min(18.5rem, 82vw);
-    --mobile-member-tab-width: 3rem;
-  }
-
-  body:not(:has(.window-titlebar)) .chat-placeholder,
-  body:not(:has(.window-titlebar)) .matrix-chat-body,
-  body:not(:has(.window-titlebar)) .matrix-channel-content,
-  body:not(:has(.window-titlebar)) .matrix-channel-content--members-collapsed {
-    grid-column: 2 !important;
-    width: 100% !important;
-    min-width: 0 !important;
-    max-width: 100% !important;
-    grid-template-columns: minmax(0, 1fr) !important;
-    overflow: hidden !important;
-  }
-
-  body:not(:has(.window-titlebar)) .matrix-message-list {
-    width: 100% !important;
-    min-width: 0 !important;
-    max-width: 100% !important;
-    padding-right: 0.58rem !important;
-    transition: none !important;
-  }
-
   body:not(:has(.window-titlebar)) .message-composer-placeholder {
-    position: fixed !important;
-    left: var(--mobile-rail-width) !important;
-    right: 0 !important;
-    bottom: 0 !important;
+    left: calc(var(--mobile-rail-width) + 0.55rem) !important;
+    right: 0.55rem !important;
     width: auto !important;
     max-width: none !important;
-    transform: none !important;
-    transition: none !important;
-    z-index: 120 !important;
+    padding-left: 0 !important;
+    padding-right: 0 !important;
   }
 
-  body:not(:has(.window-titlebar)) .matrix-member-panel {
-    position: fixed !important;
-    top: 0 !important;
-    right: 0 !important;
-    bottom: 0 !important;
-    left: auto !important;
-    width: var(--mobile-member-drawer-width) !important;
-    min-width: var(--mobile-member-drawer-width) !important;
-    max-width: var(--mobile-member-drawer-width) !important;
-    height: 100dvh !important;
-    z-index: 9990 !important;
-    transform: translateX(0) !important;
-    transition: transform 220ms ease !important;
-    opacity: 1 !important;
-    visibility: visible !important;
-    pointer-events: auto !important;
-    overflow: visible !important;
-  }
-
-  body:not(:has(.window-titlebar)) .matrix-member-panel.matrix-member-panel--collapsed {
-    transform: translateX(100%) !important;
-    opacity: 1 !important;
-    visibility: visible !important;
-    pointer-events: auto !important;
-    overflow: visible !important;
-  }
-
-  body:not(:has(.window-titlebar)) .matrix-member-panel.matrix-member-panel--collapsed > :not(.matrix-member-panel__toggle) {
-    display: none !important;
-  }
-
-  body:not(:has(.window-titlebar)) .matrix-member-panel__toggle {
-    position: absolute !important;
-    left: calc(-1 * var(--mobile-member-tab-width)) !important;
-    top: 50% !important;
-    transform: translateY(-50%) !important;
-    width: var(--mobile-member-tab-width) !important;
-    height: 3.35rem !important;
-    display: inline-flex !important;
-    align-items: center !important;
-    justify-content: center !important;
-    z-index: 10000 !important;
-    opacity: 1 !important;
-    visibility: visible !important;
-    pointer-events: auto !important;
-    border: 1px solid rgba(251, 146, 60, 0.42) !important;
-    border-right: 0 !important;
-    border-radius: 18px 0 0 18px !important;
-    color: #fed7aa !important;
-    background: rgba(15, 23, 42, 0.96) !important;
-    box-shadow: -10px 0 28px rgba(0, 0, 0, 0.36) !important;
+  body:not(:has(.window-titlebar)) .message-composer-main-row {
+    grid-template-columns: 2.75rem minmax(0, 1fr) 3.75rem !important;
+    width: 100% !important;
   }
 }
 
-/* FINAL composer correction:
-   Composer stays inside the chat content lane like the second screenshot.
-   No floating card. No fixed overlay. No shifting with member drawer. */
-@media (max-width: 820px) {
-  body:not(:has(.window-titlebar)) .message-composer-placeholder {
-    position: sticky !important;
-    left: auto !important;
-    right: auto !important;
-    bottom: 0 !important;
-    transform: none !important;
-    width: 100% !important;
-    max-width: 100% !important;
-    min-width: 0 !important;
-    box-sizing: border-box !important;
-    display: grid !important;
-    grid-template-columns: 2.75rem minmax(0, 1fr) 3.6rem !important;
-    align-items: center !important;
-    gap: 0.42rem !important;
-    padding: 0.48rem 0.48rem max(0.52rem, env(safe-area-inset-bottom)) !important;
-    margin: 0 !important;
-    border-top: 1px solid rgba(148, 163, 184, 0.16) !important;
-    background: rgba(10, 18, 35, 0.98) !important;
-    z-index: 120 !important;
-    overflow: hidden !important;
-  }
-
-  body:not(:has(.window-titlebar)) .message-composer-placeholder > * {
-    min-width: 0 !important;
-  }
-
-  body:not(:has(.window-titlebar)) .message-composer-placeholder > button:first-child {
-    width: 2.75rem !important;
-    min-width: 2.75rem !important;
-    height: 2.75rem !important;
-    min-height: 2.75rem !important;
-    padding: 0 !important;
-  }
-
-  body:not(:has(.window-titlebar)) .message-composer-placeholder textarea,
-  body:not(:has(.window-titlebar)) .message-composer-placeholder input {
-    width: 100% !important;
-    min-width: 0 !important;
-    max-width: 100% !important;
-    height: 2.75rem !important;
-    min-height: 2.75rem !important;
-    max-height: 6.5rem !important;
-    box-sizing: border-box !important;
-    font-size: 16px !important;
-  }
-
-  body:not(:has(.window-titlebar)) .message-composer-placeholder button[type='submit'] {
-    width: 3.6rem !important;
-    min-width: 3.6rem !important;
-    max-width: 3.6rem !important;
-    height: 2.75rem !important;
-    min-height: 2.75rem !important;
-    padding: 0 !important;
-    border-radius: 15px !important;
-    font-size: 0.72rem !important;
-  }
-
-  body:not(:has(.window-titlebar)) .matrix-message-list {
-    padding-bottom: 0.6rem !important;
-  }
-}
-
-/* EMERGENCY RESTORE: mobile composer must always stay visible at bottom.
-   It does not move when the member drawer opens/closes. */
+/* MOBILE COMPOSER REAL FIX:
+   Composer is the bottom row of the chat panel.
+   Do not fixed-position it. Do not calculate viewport left/right.
+   It fills the chat lane naturally. */
 @media (max-width: 820px) {
   html body .workspace-app-shell {
     --mobile-rail-width: 3.85rem;
+    display: grid !important;
+    grid-template-columns: var(--mobile-rail-width) minmax(0, 1fr) !important;
+    grid-template-rows: minmax(0, 1fr) !important;
+    width: 100vw !important;
+    height: 100dvh !important;
+    overflow: hidden !important;
   }
 
-  html body .workspace-app-shell .chat-placeholder,
+  html body .workspace-app-shell .server-rail {
+    grid-column: 1 !important;
+    grid-row: 1 !important;
+    width: var(--mobile-rail-width) !important;
+    min-width: var(--mobile-rail-width) !important;
+    height: 100dvh !important;
+  }
+
+  html body .workspace-app-shell .chat-placeholder {
+    grid-column: 2 !important;
+    grid-row: 1 !important;
+    width: 100% !important;
+    min-width: 0 !important;
+    max-width: 100% !important;
+    height: 100dvh !important;
+    min-height: 0 !important;
+    display: grid !important;
+    grid-template-rows: auto minmax(0, 1fr) auto !important;
+    overflow: hidden !important;
+  }
+
   html body .workspace-app-shell .matrix-channel-content,
   html body .workspace-app-shell .matrix-channel-content--members-collapsed {
-    width: 100% !important;
-    min-width: 0 !important;
-    max-width: 100% !important;
     grid-template-columns: minmax(0, 1fr) !important;
+    width: 100% !important;
+    min-width: 0 !important;
+    max-width: 100% !important;
+    min-height: 0 !important;
     overflow: hidden !important;
-    transform: none !important;
+  }
+
+  html body .workspace-app-shell .matrix-chat-body {
+    width: 100% !important;
+    min-width: 0 !important;
+    max-width: 100% !important;
+    min-height: 0 !important;
+    overflow: hidden !important;
   }
 
   html body .workspace-app-shell .matrix-message-list {
     width: 100% !important;
     min-width: 0 !important;
     max-width: 100% !important;
-    padding-bottom: 5rem !important;
-    transition: none !important;
-    transform: none !important;
+    min-height: 0 !important;
+    overflow-x: hidden !important;
+    overflow-y: auto !important;
+    padding-bottom: 0.75rem !important;
+    box-sizing: border-box !important;
   }
 
   html body .workspace-app-shell .message-composer-placeholder {
-    position: fixed !important;
-    left: var(--mobile-rail-width) !important;
-    right: 0 !important;
-    bottom: 0 !important;
-    width: calc(100vw - var(--mobile-rail-width)) !important;
-    max-width: calc(100vw - var(--mobile-rail-width)) !important;
-    min-width: 0 !important;
-    box-sizing: border-box !important;
+    position: relative !important;
+    left: auto !important;
+    right: auto !important;
+    bottom: auto !important;
+    grid-row: 3 !important;
 
-    display: grid !important;
-    grid-template-columns: 2.75rem minmax(0, 1fr) 3.75rem !important;
-    align-items: center !important;
-    gap: 0.45rem !important;
-
-    padding: 0.5rem 0.55rem max(0.58rem, env(safe-area-inset-bottom)) !important;
-    margin: 0 !important;
-
-    border-top: 1px solid rgba(148, 163, 184, 0.16) !important;
-    background: rgba(10, 18, 35, 0.985) !important;
-    z-index: 500 !important;
-    overflow: hidden !important;
-    transform: none !important;
-    transition: none !important;
-  }
-
-  html body .workspace-app-shell .message-composer-placeholder > * {
-    min-width: 0 !important;
-  }
-
-  html body .workspace-app-shell .message-composer-placeholder > button:first-child {
-    width: 2.75rem !important;
-    min-width: 2.75rem !important;
-    height: 2.75rem !important;
-    min-height: 2.75rem !important;
-    padding: 0 !important;
-  }
-
-  html body .workspace-app-shell .message-composer-placeholder textarea,
-  html body .workspace-app-shell .message-composer-placeholder input {
     width: 100% !important;
     min-width: 0 !important;
     max-width: 100% !important;
-    height: 2.75rem !important;
-    min-height: 2.75rem !important;
-    max-height: 6.5rem !important;
-    box-sizing: border-box !important;
-    font-size: 16px !important;
-  }
-
-  html body .workspace-app-shell .message-composer-placeholder button[type='submit'] {
-    width: 3.75rem !important;
-    min-width: 3.75rem !important;
-    max-width: 3.75rem !important;
-    height: 2.75rem !important;
-    min-height: 2.75rem !important;
-    padding: 0 !important;
-    border-radius: 15px !important;
-    font-size: 0.72rem !important;
-  }
-}
-
-/* TRUE composer restore: the FORM is the fixed bottom shell,
-   the INNER .message-composer-main-row is the normal message bar. */
-@media (max-width: 820px) {
-  html body .workspace-app-shell {
-    --mobile-rail-width: 3.85rem;
-  }
-
-  html body .workspace-app-shell .matrix-message-list {
-    padding-bottom: 5.35rem !important;
-  }
-
-  html body .workspace-app-shell .message-composer-placeholder {
-    position: fixed !important;
-    left: var(--mobile-rail-width) !important;
-    right: 0 !important;
-    bottom: 0 !important;
-    width: calc(100vw - var(--mobile-rail-width)) !important;
-    max-width: calc(100vw - var(--mobile-rail-width)) !important;
-    min-width: 0 !important;
-
-    display: block !important;
-    box-sizing: border-box !important;
-    padding: 0.5rem 0.55rem max(0.58rem, env(safe-area-inset-bottom)) !important;
-    margin: 0 !important;
-
-    border-top: 1px solid rgba(148, 163, 184, 0.16) !important;
-    background: rgba(10, 18, 35, 0.985) !important;
-    z-index: 500 !important;
-    overflow: visible !important;
-    transform: none !important;
-    transition: none !important;
-  }
-
-  html body .workspace-app-shell .message-composer-main-row {
-    width: 100% !important;
-    max-width: 100% !important;
-    min-width: 0 !important;
-    display: flex !important;
-    flex-direction: row !important;
-    align-items: center !important;
-    gap: 0.45rem !important;
-    box-sizing: border-box !important;
-  }
-
-  html body .workspace-app-shell .message-composer-main-row > :first-child {
-    flex: 0 0 2.75rem !important;
-    width: 2.75rem !important;
-    min-width: 2.75rem !important;
-    max-width: 2.75rem !important;
-  }
-
-  html body .workspace-app-shell .message-composer-main-row textarea,
-  html body .workspace-app-shell .message-composer-main-row input {
-    flex: 1 1 auto !important;
-    width: auto !important;
-    min-width: 0 !important;
-    max-width: none !important;
-    height: 2.75rem !important;
-    min-height: 2.75rem !important;
-    max-height: 6.5rem !important;
-    box-sizing: border-box !important;
-    font-size: 16px !important;
-  }
-
-  html body .workspace-app-shell .message-composer-main-row button[type='submit'] {
-    flex: 0 0 3.75rem !important;
-    width: 3.75rem !important;
-    min-width: 3.75rem !important;
-    max-width: 3.75rem !important;
-    height: 2.75rem !important;
-    min-height: 2.75rem !important;
-    padding: 0 !important;
-    border-radius: 15px !important;
-    font-size: 0.72rem !important;
-  }
-}
-
-/* REAL FINAL: composer fills the mobile chat lane, no double left offset. */
-@media (max-width: 820px) {
-  html body .workspace-app-shell .message-composer-placeholder {
-    position: fixed !important;
-    left: 0 !important;
-    right: 0 !important;
-    bottom: 0 !important;
-    width: 100% !important;
-    max-width: 100% !important;
-    min-width: 0 !important;
     box-sizing: border-box !important;
 
     display: block !important;
@@ -700,10 +422,10 @@
 
     border-top: 1px solid rgba(148, 163, 184, 0.16) !important;
     background: rgba(10, 18, 35, 0.985) !important;
-    z-index: 500 !important;
     overflow: visible !important;
     transform: none !important;
     transition: none !important;
+    z-index: 40 !important;
   }
 
   html body .workspace-app-shell .message-composer-main-row {
@@ -712,8 +434,8 @@
     align-items: center !important;
     gap: 0.45rem !important;
     width: 100% !important;
-    max-width: 100% !important;
     min-width: 0 !important;
+    max-width: 100% !important;
     box-sizing: border-box !important;
   }
 
@@ -747,9 +469,5 @@
     padding: 0 !important;
     border-radius: 15px !important;
     font-size: 0.72rem !important;
-  }
-
-  html body .workspace-app-shell .matrix-message-list {
-    padding-bottom: 5.35rem !important;
   }
 }
