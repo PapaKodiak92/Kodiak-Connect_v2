@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+﻿import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { MatrixLoginIdentity } from '../auth/matrixLoginService';
 import {
   acceptKodiakFriendRequest,
@@ -259,6 +259,12 @@ function getDirectMessageTargetUserId(channel: WorkspaceChannel, currentUserId: 
 export function WorkspaceShell({ identity, onLogout }: WorkspaceShellProps) {
   const [activeSpaceId, setActiveSpaceId] = useState(officialSpace.id);
   const [activeChannelId, setActiveChannelId] = useState('general');
+  const [isChannelSidebarOpen, setIsChannelSidebarOpen] = useState(() =>
+    typeof window === 'undefined' ? true : !window.matchMedia('(max-width: 820px)').matches,
+  );
+  const [isMemberPanelOpen, setIsMemberPanelOpen] = useState(() =>
+    typeof window === 'undefined' ? true : !window.matchMedia('(max-width: 820px)').matches,
+  );
   const [directMessageChannels, setDirectMessageChannels] = useState<WorkspaceChannel[]>(() =>
     readStoredDirectMessageChannels(identity.userId),
   );
@@ -938,8 +944,14 @@ export function WorkspaceShell({ identity, onLogout }: WorkspaceShellProps) {
   }
 
   return (
-    <main className="workspace-app-shell">
-      <ServerRail spaces={spaces} activeSpaceId={activeSpace.id} onSelectSpace={handleSelectSpace} />
+    <main className={`workspace-app-shell ${isChannelSidebarOpen ? '' : 'workspace-app-shell--left-collapsed'} ${isMemberPanelOpen ? '' : 'workspace-app-shell--right-collapsed'}`}>
+      <ServerRail
+        spaces={spaces}
+        activeSpaceId={activeSpace.id}
+        isChannelSidebarOpen={isChannelSidebarOpen}
+        onSelectSpace={handleSelectSpace}
+        onToggleChannelSidebar={() => setIsChannelSidebarOpen((isOpen) => !isOpen)}
+      />
       <ChannelSidebar
         activeSpace={activeSpace}
         activeChannelId={activeChannel.id}
@@ -960,6 +972,8 @@ export function WorkspaceShell({ identity, onLogout }: WorkspaceShellProps) {
           blockedUserIds={blockedUserIds}
           restrictedUserIds={restrictedBlockUserIds}
           friendStatusByUserId={friendStatusByUserId}
+          isMemberPanelOpen={isMemberPanelOpen}
+          onToggleMemberPanel={() => setIsMemberPanelOpen((isOpen) => !isOpen)}
           isFriendCenterOpen={isFriendCenterOpen}
           onCloseFriendCenter={() => setIsFriendCenterOpen(false)}
           onOpenDirectMessage={handleOpenDirectMessage}
@@ -1038,3 +1052,9 @@ export function WorkspaceShell({ identity, onLogout }: WorkspaceShellProps) {
     </main>
   );
 }
+
+
+
+
+
+

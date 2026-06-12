@@ -58,6 +58,8 @@ interface MatrixChannelPanelProps {
   blockedUserIds?: string[];
   restrictedUserIds?: string[];
   friendStatusByUserId?: Record<string, FriendStatus>;
+  isMemberPanelOpen: boolean;
+  onToggleMemberPanel: () => void;
   isFriendCenterOpen?: boolean;
   onCloseFriendCenter?: () => void;
   onOpenDirectMessage?: (userId: string, displayName: string) => void;
@@ -548,6 +550,8 @@ export function MatrixChannelPanel({
   blockedUserIds = [],
   restrictedUserIds = [],
   friendStatusByUserId = {},
+  isMemberPanelOpen,
+  onToggleMemberPanel,
   isFriendCenterOpen = false,
   onCloseFriendCenter,
   onOpenDirectMessage,
@@ -570,9 +574,7 @@ export function MatrixChannelPanel({
   const [typingUserIds, setTypingUserIds] = useState<string[]>([]);
   const [roomMemberUserIds, setRoomMemberUserIds] = useState<string[]>([]);
   const [presenceByUserId, setPresenceByUserId] = useState<Record<string, KodiakPresenceState | 'unavailable'>>({});
-  const [isMemberPanelOpen, setIsMemberPanelOpen] = useState(() =>
-    typeof window === 'undefined' ? true : !window.matchMedia('(max-width: 820px)').matches,
-  );
+
   const [displayNamesByUserId, setDisplayNamesByUserId] = useState<Record<string, string>>(() => readKodiakProfileCache().displayNames ?? {});
   const [avatarUrlsByUserId, setAvatarUrlsByUserId] = useState<Record<string, string>>(() => readKodiakProfileCache().avatars ?? {});
   const [avatarFile, setAvatarFile] = useState<File | null>(null);
@@ -3144,7 +3146,7 @@ export function MatrixChannelPanel({
             onClick={scrollToLatestMessages}
             aria-label="Jump to latest message"
           >
-            <span aria-hidden="true">â†“</span>
+            <span aria-hidden="true">&darr;</span>
             <strong>Latest</strong>
           </button>
         ) : null}
@@ -3159,13 +3161,13 @@ export function MatrixChannelPanel({
           onPointerDown={(event) => {
             event.preventDefault();
             event.stopPropagation();
-            setIsMemberPanelOpen((isOpen) => !isOpen);
+            onToggleMemberPanel();
           }}
           onKeyDown={(event) => {
             if (event.key === 'Enter' || event.key === ' ') {
               event.preventDefault();
               event.stopPropagation();
-              setIsMemberPanelOpen((isOpen) => !isOpen);
+              onToggleMemberPanel();
             }
           }}
         >
@@ -4155,6 +4157,9 @@ export function MatrixChannelPanel({
     </section>
   );
 }
+
+
+
 
 
 

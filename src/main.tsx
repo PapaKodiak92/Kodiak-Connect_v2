@@ -64,3 +64,6 @@ createRoot(document.getElementById('root')!).render(
 );
 
 
+
+import './styles/collapsible-layout.css';
+

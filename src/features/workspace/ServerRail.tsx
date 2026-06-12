@@ -1,12 +1,14 @@
-import type { WorkspaceSpace } from './workspaceTypes';
+﻿import type { WorkspaceSpace } from './workspaceTypes';
 
 interface ServerRailProps {
   spaces: WorkspaceSpace[];
   activeSpaceId: string;
+  isChannelSidebarOpen: boolean;
   onSelectSpace: (spaceId: string) => void;
+  onToggleChannelSidebar: () => void;
 }
 
-export function ServerRail({ spaces, activeSpaceId, onSelectSpace }: ServerRailProps) {
+export function ServerRail({ spaces, activeSpaceId, isChannelSidebarOpen, onToggleChannelSidebar }: ServerRailProps) {
   return (
     <aside className="server-rail" aria-label="Servers and spaces">
       {spaces.map((space) => (
@@ -14,9 +16,10 @@ export function ServerRail({ spaces, activeSpaceId, onSelectSpace }: ServerRailP
           key={space.id}
           type="button"
           className={`server-rail__item ${space.id === activeSpaceId ? 'server-rail__item--active' : ''}`}
-          aria-label={space.name}
-          title={space.name}
-          onClick={() => onSelectSpace(space.id)}
+          aria-label={isChannelSidebarOpen ? 'Collapse channel panel' : 'Open channel panel'}
+          aria-pressed={isChannelSidebarOpen}
+          title={isChannelSidebarOpen ? 'Collapse channel panel' : 'Open channel panel'}
+          onClick={onToggleChannelSidebar}
         >
           <img src={space.iconSrc} alt="" />
         </button>

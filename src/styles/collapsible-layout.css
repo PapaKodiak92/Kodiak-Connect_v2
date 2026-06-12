@@ -1,0 +1,88 @@
+﻿.workspace-app-shell {
+  --kodiak-rail-width: 4.75rem;
+  --kodiak-member-tab-width: 3.25rem;
+  transition: grid-template-columns 180ms ease;
+}
+
+/* LEFT PANEL COLLAPSE */
+.workspace-app-shell--left-collapsed {
+  grid-template-columns: var(--kodiak-rail-width) 0 minmax(0, 1fr) !important;
+}
+
+.workspace-app-shell--left-collapsed .channel-sidebar {
+  width: 0 !important;
+  min-width: 0 !important;
+  max-width: 0 !important;
+  opacity: 0;
+  overflow: hidden;
+  pointer-events: none;
+  border-right-width: 0 !important;
+  padding-left: 0 !important;
+  padding-right: 0 !important;
+}
+
+/* RIGHT PANEL COLLAPSE:
+   Keep a small visible rail so the arrow never disappears. */
+.workspace-app-shell--right-collapsed .matrix-channel-content {
+  grid-template-columns: minmax(0, 1fr) var(--kodiak-member-tab-width) !important;
+}
+
+.workspace-app-shell--right-collapsed .matrix-member-panel,
+.workspace-app-shell--right-collapsed .matrix-member-panel.matrix-member-panel--collapsed {
+  width: var(--kodiak-member-tab-width) !important;
+  min-width: var(--kodiak-member-tab-width) !important;
+  max-width: var(--kodiak-member-tab-width) !important;
+  transform: none !important;
+  translate: none !important;
+  opacity: 1 !important;
+  visibility: visible !important;
+  overflow: visible !important;
+  pointer-events: auto !important;
+  padding: 0 !important;
+  border-left: 1px solid rgba(148, 163, 184, 0.16) !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+}
+
+/* Hide member content only, not the toggle. */
+.workspace-app-shell--right-collapsed .matrix-member-panel > :not(.matrix-member-panel__toggle) {
+  display: none !important;
+}
+
+/* Force the arrow tab to stay visible inside the tiny rail. */
+.workspace-app-shell--right-collapsed .matrix-member-panel__toggle {
+  display: inline-flex !important;
+  position: static !important;
+  inset: auto !important;
+  transform: none !important;
+  translate: none !important;
+  margin: 0 !important;
+  opacity: 1 !important;
+  visibility: visible !important;
+  pointer-events: auto !important;
+  z-index: 100 !important;
+}
+
+/* MOBILE: left panel overlays when open, disappears when collapsed. */
+@media (max-width: 820px) {
+  .workspace-app-shell {
+    grid-template-columns: var(--kodiak-rail-width) minmax(0, 1fr) !important;
+  }
+
+  .workspace-app-shell .channel-sidebar {
+    position: absolute;
+    left: var(--kodiak-rail-width);
+    top: 0;
+    bottom: 0;
+    z-index: 35;
+    width: min(18rem, calc(100vw - var(--kodiak-rail-width)));
+    max-width: calc(100vw - var(--kodiak-rail-width));
+    transition: transform 180ms ease, opacity 180ms ease;
+  }
+
+  .workspace-app-shell--left-collapsed .channel-sidebar {
+    transform: translateX(-105%);
+  }
+}
+
