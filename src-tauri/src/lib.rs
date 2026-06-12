@@ -11,7 +11,7 @@ static SHOULD_QUIT: AtomicBool = AtomicBool::new(false);
 #[cfg(target_os = "linux")]
 fn enable_linux_webrtc(window: &tauri::WebviewWindow) {
     if let Err(error) = window.with_webview(|webview| {
-        use webkit2gtk::prelude::{SettingsExt, WebViewExt};
+        use webkit2gtk::{SettingsExt, WebViewExt};
 
         let settings = webview.inner().settings();
 
