@@ -202,7 +202,7 @@ export function AppShell() {
   }, []);
 
   const handleUpdateRequired = useCallback(() => {
-    setAppState('update-required');
+    setAppState('login');
   }, []);
 
   const handleUpdateCheckFailed = useCallback(() => {
