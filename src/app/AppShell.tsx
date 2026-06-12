@@ -206,13 +206,8 @@ export function AppShell() {
   }, []);
 
   const handleUpdateCheckFailed = useCallback(() => {
-    if (isWeb) {
-      setAppState('login');
-      return;
-    }
-
-    setAppState('update-required');
-  }, [isWeb]);
+    setAppState('login');
+  }, []);
 
   const handleLoginSuccess = useCallback((identity: MatrixLoginIdentity) => {
     storeMatrixLoginIdentity(identity);
@@ -233,7 +228,7 @@ export function AppShell() {
       onUpToDate={handleUpToDate}
       onUpdateRequired={handleUpdateRequired}
       onUpdateCheckFailed={handleUpdateCheckFailed}
-      allowContinueOnFailure={false}
+      allowContinueOnFailure={true}
     />
   ) : null;
 
