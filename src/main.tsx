@@ -1,4 +1,4 @@
-﻿import { StrictMode } from 'react';
+import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { App } from './app/App';
 import './styles/global.css';
@@ -21,6 +21,67 @@ import './styles/music-lounge.css';
 import './styles/message-formatting.css';
 import './styles/mobile-member-panel-slide.css';
 
+const DEFAULT_KODIAK_WEB_APP_URL = 'https://kodiak-connect.com';
+const KODIAK_LINUX_WEBRTC_ORIGIN_KEY = 'KC_LINUX_WEBRTC_ORIGIN';
+
+type KodiakLinuxRtcGlobal = typeof globalThis & {
+  __TAURI__?: unknown;
+  __TAURI_INTERNALS__?: unknown;
+  RTCPeerConnection?: typeof RTCPeerConnection;
+  webkitRTCPeerConnection?: typeof RTCPeerConnection;
+};
+
+type KodiakLinuxRtcWindow = Window &
+  typeof globalThis & {
+    __TAURI__?: unknown;
+    __TAURI_INTERNALS__?: unknown;
+    webkitRTCPeerConnection?: typeof RTCPeerConnection;
+  };
+
+function isKodiakLinuxTauriRuntimeMissingPeerConnection() {
+  const rtcGlobal = globalThis as KodiakLinuxRtcGlobal;
+  const rtcWindow = window as KodiakLinuxRtcWindow;
+
+  const isTauriRuntime = Boolean(
+    rtcGlobal.__TAURI__ ||
+      rtcGlobal.__TAURI_INTERNALS__ ||
+      rtcWindow.__TAURI__ ||
+      rtcWindow.__TAURI_INTERNALS__,
+  );
+
+  const hasPeerConnection = Boolean(
+    rtcGlobal.RTCPeerConnection ??
+      rtcGlobal.webkitRTCPeerConnection ??
+      rtcWindow.RTCPeerConnection ??
+      rtcWindow.webkitRTCPeerConnection,
+  );
+
+  return (
+    isTauriRuntime &&
+    /Linux/i.test(navigator.userAgent) &&
+    window.location.protocol === 'tauri:' &&
+    !hasPeerConnection
+  );
+}
+
+function getKodiakLinuxWebRtcOrigin() {
+  const savedOrigin = window.localStorage.getItem(KODIAK_LINUX_WEBRTC_ORIGIN_KEY)?.trim();
+  const envOrigin = import.meta.env.VITE_KODIAK_WEB_APP_URL?.trim();
+
+  return savedOrigin || envOrigin || DEFAULT_KODIAK_WEB_APP_URL;
+}
+
+function redirectLinuxTauriToHttpsRtcOrigin() {
+  if (!isKodiakLinuxTauriRuntimeMissingPeerConnection()) {
+    return false;
+  }
+
+  const targetUrl = new URL(getKodiakLinuxWebRtcOrigin());
+  targetUrl.searchParams.set('kcLinuxTauriRtc', '1');
+
+  window.location.replace(targetUrl.toString());
+  return true;
+}
 function clearStaleAvatarObjectUrls() {
   const cacheKey = 'KC_BACKEND_PROFILE_CACHE';
 
@@ -55,13 +116,15 @@ function clearStaleAvatarObjectUrls() {
   }
 }
 
-clearStaleAvatarObjectUrls();
+if (!redirectLinuxTauriToHttpsRtcOrigin()) {
+  clearStaleAvatarObjectUrls();
 
-createRoot(document.getElementById('root')!).render(
-  <StrictMode>
-    <App />
-  </StrictMode>,
-);
+  createRoot(document.getElementById('root')!).render(
+    <StrictMode>
+      <App />
+    </StrictMode>,
+  );
+}
 
 
 
