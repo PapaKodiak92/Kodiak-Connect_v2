@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import type { MatrixLoginIdentity } from '../auth/matrixLoginService';
 import { playKodiakSound, stopKodiakCallSounds, unlockKodiakSounds } from '../audio/kodiakSounds';
 import { getKodiakWebRtcUnsupportedMessage, isKodiakWebRtcSupported, KodiakVoiceCallPeer } from '../calls/kodiakWebRtcCall';
+import { openKodiakCallInSystemBrowser, shouldUseKodiakBrowserCallFallback } from '../calls/linuxCallBrowserFallback';
 import { KodiakAttachmentBridge } from '../attachments/KodiakAttachmentBridge';
 import { isKodiakDesktopNotificationAvailable, requestKodiakDesktopNotificationPermission, showKodiakDesktopNotification } from '../notifications/kodiakDesktopNotifications';
 import {
@@ -2186,6 +2187,17 @@ export function MatrixChannelPanel({
     });
   }
 
+  async function openLinuxCallFallbackInBrowser() {
+    setCallStatusText('Linux desktop WebRTC is not available in this app runtime. Opening Kodiak Connect in your browser for calls...');
+
+    try {
+      await openKodiakCallInSystemBrowser();
+    } catch (error) {
+      console.warn('[Kodiak Connect] Failed to open browser call fallback', error);
+      setCallStatusText(getKodiakWebRtcUnsupportedMessage());
+    }
+  }
+
   async function startKodiakCall(callKind: MatrixCallKind) {
     if (!roomId || !activeDmTargetUserId) {
       setCallStatusText('Open a direct message before starting a call.');
@@ -2193,6 +2205,11 @@ export function MatrixChannelPanel({
     }
 
     if (!isKodiakWebRtcSupported()) {
+      if (shouldUseKodiakBrowserCallFallback()) {
+        await openLinuxCallFallbackInBrowser();
+        return;
+      }
+
       setCallStatusText(getKodiakWebRtcUnsupportedMessage());
       return;
     }
@@ -2267,6 +2284,11 @@ export function MatrixChannelPanel({
     }
 
     if (status === 'accept' && !isKodiakWebRtcSupported()) {
+      if (shouldUseKodiakBrowserCallFallback()) {
+        await openLinuxCallFallbackInBrowser();
+        return;
+      }
+
       setCallStatusText(getKodiakWebRtcUnsupportedMessage());
 
       try {
