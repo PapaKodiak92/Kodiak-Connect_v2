@@ -8,6 +8,24 @@ use tauri::{
 
 static SHOULD_QUIT: AtomicBool = AtomicBool::new(false);
 
+#[cfg(target_os = "linux")]
+fn enable_linux_webrtc(window: &tauri::WebviewWindow) {
+    if let Err(error) = window.with_webview(|webview| {
+        use webkit2gtk::prelude::{SettingsExt, WebViewExt};
+
+        let settings = webview.inner().settings();
+
+        settings.set_enable_media(true);
+        settings.set_enable_media_stream(true);
+        settings.set_enable_webrtc(true);
+        settings.set_enable_mediasource(true);
+        settings.set_enable_webaudio(true);
+        settings.set_media_playback_requires_user_gesture(false);
+    }) {
+        eprintln!("[Kodiak Connect] failed to enable Linux WebKitGTK WebRTC settings: {error}");
+    }
+}
+
 #[derive(Debug, Default, Deserialize, Serialize)]
 struct KodiakWindowPrefs {
     start_minimized: bool,
@@ -100,6 +118,14 @@ pub fn run() {
             set_start_minimized
         ])
         .setup(|app| {
+            #[cfg(target_os = "linux")]
+            {
+                if let Some(window) = app.get_webview_window("main") {
+                    enable_linux_webrtc(&window);
+                    let _ = window.reload();
+                }
+            }
+
             let open_item = MenuItem::with_id(app, "open", "Open Kodiak Connect", true, None::<&str>)?;
             let start_minimized_item = MenuItem::with_id(
                 app,
