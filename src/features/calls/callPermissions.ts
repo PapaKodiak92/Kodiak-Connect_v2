@@ -1,4 +1,4 @@
-﻿export type KodiakMicrophonePermissionStatus =
+export type KodiakMicrophonePermissionStatus =
   | 'unknown'
   | 'granted'
   | 'denied'
@@ -35,6 +35,14 @@ function getKodiakMicrophonePermissionMessage(error: unknown) {
 
 export function isKodiakMicrophoneSecureContext() {
   return window.isSecureContext || isLocalhostHost(window.location.hostname);
+}
+
+export function isKodiakRtcAvailable() {
+  const rtcGlobal = globalThis as typeof globalThis & {
+    webkitRTCPeerConnection?: typeof RTCPeerConnection;
+  };
+
+  return Boolean(rtcGlobal.RTCPeerConnection ?? rtcGlobal.webkitRTCPeerConnection);
 }
 
 export function readKodiakMicrophonePermission(): KodiakMicrophonePermissionState {
@@ -82,6 +90,16 @@ export async function requestKodiakMicrophonePermission(): Promise<KodiakMicroph
   if (!navigator.mediaDevices?.getUserMedia) {
     const state: KodiakMicrophonePermissionState = {
       message: 'Microphone access is not available in this browser or app container.',
+      status: 'unavailable',
+    };
+
+    saveKodiakMicrophonePermission(state);
+    return state;
+  }
+
+  if (!isKodiakRtcAvailable()) {
+    const state: KodiakMicrophonePermissionState = {
+      message: 'Voice calls are not available in this browser or app container. Update Kodiak Connect or use a modern browser.',
       status: 'unavailable',
     };
 
