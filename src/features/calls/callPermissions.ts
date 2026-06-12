@@ -16,7 +16,28 @@ export interface KodiakMicrophonePermissionState {
 }
 
 function isLocalhostHost(hostname: string) {
-  return hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '[::1]' || hostname === '::1';
+  const normalizedHostname = hostname.toLowerCase();
+
+  return (
+    normalizedHostname === 'localhost' ||
+    normalizedHostname.endsWith('.localhost') ||
+    normalizedHostname === '127.0.0.1' ||
+    normalizedHostname === '[::1]' ||
+    normalizedHostname === '::1'
+  );
+}
+
+function isKodiakInstalledAppRuntime() {
+  const kodiakGlobal = globalThis as typeof globalThis & {
+    __TAURI__?: unknown;
+    __TAURI_INTERNALS__?: unknown;
+  };
+
+  return Boolean(kodiakGlobal.__TAURI__ || kodiakGlobal.__TAURI_INTERNALS__);
+}
+
+function isKodiakTrustedAppProtocol(protocol: string) {
+  return protocol === 'tauri:' || protocol === 'asset:' || protocol === 'app:';
 }
 
 function getKodiakMicrophonePermissionMessage(error: unknown) {
@@ -27,14 +48,19 @@ function getKodiakMicrophonePermissionMessage(error: unknown) {
   }
 
   if (errorName === 'NotFoundError' || errorName === 'DevicesNotFoundError') {
-    return 'No usable microphone was found. Check Windows Sound > Input, browser microphone settings, or plug in a mic.';
+    return 'No usable microphone was found. Check your system input device, app permissions, browser microphone settings, or plug in a mic.';
   }
 
   return error instanceof Error ? error.message : 'Microphone permission failed.';
 }
 
 export function isKodiakMicrophoneSecureContext() {
-  return window.isSecureContext || isLocalhostHost(window.location.hostname);
+  return (
+    window.isSecureContext ||
+    isKodiakTrustedAppProtocol(window.location.protocol) ||
+    isLocalhostHost(window.location.hostname) ||
+    isKodiakInstalledAppRuntime()
+  );
 }
 
 export function isKodiakRtcAvailable() {
