@@ -1,8 +1,8 @@
-﻿import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent, type MouseEvent, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent, type MouseEvent, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import type { MatrixLoginIdentity } from '../auth/matrixLoginService';
 import { playKodiakSound, stopKodiakCallSounds, unlockKodiakSounds } from '../audio/kodiakSounds';
-import { KodiakVoiceCallPeer } from '../calls/kodiakWebRtcCall';
+import { isKodiakWebRtcSupported, KodiakVoiceCallPeer } from '../calls/kodiakWebRtcCall';
 import { KodiakAttachmentBridge } from '../attachments/KodiakAttachmentBridge';
 import { isKodiakDesktopNotificationAvailable, requestKodiakDesktopNotificationPermission, showKodiakDesktopNotification } from '../notifications/kodiakDesktopNotifications';
 import {
@@ -2011,7 +2011,7 @@ export function MatrixChannelPanel({
   }
 
   async function prepareKodiakWebRtcOffer(session: KodiakCallSession) {
-    const peer = createKodiakVoiceCallPeer(session);
+    const peer = kodiakVoiceCallPeerRef.current ?? createKodiakVoiceCallPeer(session);
     setCallStatusText('Starting microphone...');
 
     const offerSdp = await peer.createOffer();
@@ -2022,7 +2022,7 @@ export function MatrixChannelPanel({
   }
 
   async function answerKodiakWebRtcOffer(session: KodiakCallSession, offerSdp: string) {
-    const peer = createKodiakVoiceCallPeer(session);
+    const peer = kodiakVoiceCallPeerRef.current ?? createKodiakVoiceCallPeer(session);
     setCallStatusText('Starting microphone...');
 
     const answerSdp = await peer.createAnswer(offerSdp);
@@ -2168,6 +2168,11 @@ export function MatrixChannelPanel({
       return;
     }
 
+    if (!isKodiakWebRtcSupported()) {
+      setCallStatusText('Voice calls are not supported in this browser or app container. Update Kodiak Connect or use Chrome, Edge, Firefox, or Safari.');
+      return;
+    }
+
     unlockKodiakSounds();
 
     const callId = 'kc-' + Date.now() + '-' + Math.random().toString(36).slice(2);
@@ -2234,6 +2239,36 @@ export function MatrixChannelPanel({
     const session = activeCallSessionRef.current;
 
     if (!session) {
+      return;
+    }
+
+    if (status === 'accept' && !isKodiakWebRtcSupported()) {
+      setCallStatusText('Voice calls are not supported in this browser or app container. Update Kodiak Connect or use Chrome, Edge, Firefox, or Safari.');
+
+      try {
+        await sendKodiakCallSignal(session, 'decline');
+      } catch (error) {
+        console.warn('[Kodiak Connect] Failed to decline unsupported call', error);
+      }
+
+      cleanupKodiakVoiceCall();
+      activeCallSessionRef.current = null;
+      setActiveCallSession(null);
+      return;
+    }
+
+    if (status === 'accept' && !isKodiakWebRtcSupported()) {
+      setCallStatusText('Voice calls are not supported in this browser or app container. Update Kodiak Connect or use Chrome, Edge, Firefox, or Safari.');
+
+      try {
+        await sendKodiakCallSignal(session, 'decline');
+      } catch (error) {
+        console.warn('[Kodiak Connect] Failed to decline unsupported call', error);
+      }
+
+      cleanupKodiakVoiceCall();
+      activeCallSessionRef.current = null;
+      setActiveCallSession(null);
       return;
     }
 

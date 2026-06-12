@@ -1,4 +1,4 @@
-﻿import { isKodiakMicrophoneSecureContext } from './callPermissions';
+import { isKodiakMicrophoneSecureContext } from './callPermissions';
 import type { MatrixCallKind } from '../matrix/matrixRestClient';
 
 export interface KodiakVoiceCallPeerOptions {
@@ -8,6 +8,13 @@ export interface KodiakVoiceCallPeerOptions {
   onLocalStream?: (stream: MediaStream) => void;
   onRemoteStream?: (stream: MediaStream) => void;
 }
+
+type KodiakRtcPeerConnectionConstructor = new (configuration?: RTCConfiguration) => RTCPeerConnection;
+
+type KodiakRtcGlobal = typeof globalThis & {
+  RTCPeerConnection?: KodiakRtcPeerConnectionConstructor;
+  webkitRTCPeerConnection?: KodiakRtcPeerConnectionConstructor;
+};
 
 function getKodiakMediaErrorMessage(error: unknown, callKind: MatrixCallKind) {
   const errorName = error instanceof DOMException ? error.name : '';
@@ -25,6 +32,25 @@ function getKodiakMediaErrorMessage(error: unknown, callKind: MatrixCallKind) {
   }
 
   return error instanceof Error ? error.message : 'Media access failed.';
+}
+
+function getKodiakRtcPeerConnectionConstructor() {
+  const rtcGlobal = globalThis as KodiakRtcGlobal;
+  const rtcConstructor = rtcGlobal.RTCPeerConnection ?? rtcGlobal.webkitRTCPeerConnection;
+
+  if (!rtcConstructor) {
+    throw new Error(
+      'Voice calls are not supported in this browser or app container. Update Kodiak Connect or use Chrome, Edge, Firefox, or Safari.',
+    );
+  }
+
+  return rtcConstructor;
+}
+
+export function isKodiakWebRtcSupported() {
+  const rtcGlobal = globalThis as KodiakRtcGlobal;
+
+  return Boolean(rtcGlobal.RTCPeerConnection ?? rtcGlobal.webkitRTCPeerConnection);
 }
 
 function getKodiakRtcIceServers(): RTCIceServer[] {
@@ -57,11 +83,13 @@ export class KodiakVoiceCallPeer {
   private readonly peerConnection: RTCPeerConnection;
   private readonly pendingIceCandidates: RTCIceCandidateInit[] = [];
   private localStream: MediaStream | null = null;
+  private remoteFallbackStream: MediaStream | null = null;
   private videoSender: RTCRtpSender | null = null;
   private localVideoTrack: MediaStreamTrack | null = null;
 
   constructor(private readonly options: KodiakVoiceCallPeerOptions) {
-    this.peerConnection = new RTCPeerConnection(KODIAK_RTC_CONFIGURATION);
+    const RtcPeerConnection = getKodiakRtcPeerConnectionConstructor();
+    this.peerConnection = new RtcPeerConnection(KODIAK_RTC_CONFIGURATION);
 
     this.peerConnection.onicecandidate = (event) => {
       if (event.candidate) {
@@ -74,7 +102,18 @@ export class KodiakVoiceCallPeer {
 
       if (stream) {
         this.options.onRemoteStream?.(stream);
+        return;
       }
+
+      if (!this.remoteFallbackStream) {
+        this.remoteFallbackStream = new MediaStream();
+      }
+
+      if (!this.remoteFallbackStream.getTracks().some((track) => track.id === event.track.id)) {
+        this.remoteFallbackStream.addTrack(event.track);
+      }
+
+      this.options.onRemoteStream?.(this.remoteFallbackStream);
     };
 
     this.peerConnection.onconnectionstatechange = () => {
@@ -83,11 +122,15 @@ export class KodiakVoiceCallPeer {
   }
 
   async createOffer() {
-    await this.attachLocalMedia();
+    await this.attachLocalAudioMedia();
+
+    if (this.options.callKind === 'video') {
+      await this.enableCameraTrackOnly();
+    }
 
     const offer = await this.peerConnection.createOffer({
       offerToReceiveAudio: true,
-      offerToReceiveVideo: this.options.callKind === 'video',
+      offerToReceiveVideo: true,
     });
 
     await this.peerConnection.setLocalDescription(offer);
@@ -100,7 +143,7 @@ export class KodiakVoiceCallPeer {
   }
 
   async createAnswer(offerSdp: string) {
-    await this.attachLocalMedia();
+    await this.attachLocalAudioMedia();
     await this.peerConnection.setRemoteDescription({ type: 'offer', sdp: offerSdp });
     await this.flushPendingIceCandidates();
 
@@ -144,9 +187,117 @@ export class KodiakVoiceCallPeer {
     return Boolean(this.localVideoTrack && this.localVideoTrack.readyState === 'live' && this.localVideoTrack.enabled);
   }
 
+  setMuted(isMuted: boolean) {
+    for (const track of this.localStream?.getAudioTracks() ?? []) {
+      track.enabled = !isMuted;
+    }
+  }
+
+  close() {
+    for (const track of this.localStream?.getTracks() ?? []) {
+      track.stop();
+    }
+
+    this.localStream = null;
+    this.remoteFallbackStream = null;
+    this.videoSender = null;
+    this.localVideoTrack = null;
+    this.pendingIceCandidates.length = 0;
+    this.peerConnection.close();
+  }
+
+  private async createRenegotiationOffer() {
+    const offer = await this.peerConnection.createOffer({
+      offerToReceiveAudio: true,
+      offerToReceiveVideo: true,
+    });
+
+    await this.peerConnection.setLocalDescription(offer);
+
+    if (!offer.sdp) {
+      throw new Error('WebRTC renegotiation offer did not include SDP.');
+    }
+
+    return offer.sdp;
+  }
+
   private async enableCamera() {
     if (this.hasCameraEnabled()) {
       return null;
+    }
+
+    await this.enableCameraTrackOnly();
+    return await this.createRenegotiationOffer();
+  }
+
+  private async disableCamera() {
+    if (!this.localVideoTrack && !this.videoSender) {
+      return null;
+    }
+
+    if (this.videoSender) {
+      this.peerConnection.removeTrack(this.videoSender);
+    }
+
+    if (this.localVideoTrack) {
+      this.localVideoTrack.stop();
+      this.localStream?.removeTrack(this.localVideoTrack);
+    }
+
+    this.videoSender = null;
+    this.localVideoTrack = null;
+    this.options.onLocalStream?.(this.localStream ?? new MediaStream());
+
+    return await this.createRenegotiationOffer();
+  }
+
+  private async attachLocalAudioMedia() {
+    const hasLiveAudioTrack = this.localStream
+      ?.getAudioTracks()
+      .some((track) => track.readyState === 'live');
+
+    if (hasLiveAudioTrack) {
+      return;
+    }
+
+    if (!isKodiakMicrophoneSecureContext()) {
+      throw new Error('Media access requires HTTPS, localhost, or the installed Kodiak Connect app.');
+    }
+
+    if (!navigator.mediaDevices?.getUserMedia) {
+      throw new Error('Media access is not available in this browser or app container.');
+    }
+
+    let audioStream: MediaStream;
+
+    try {
+      audioStream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          autoGainControl: true,
+          echoCancellation: true,
+          noiseSuppression: true,
+        },
+        video: false,
+      });
+    } catch (error) {
+      throw new Error(getKodiakMediaErrorMessage(error, 'voice'));
+    }
+
+    if (!this.localStream) {
+      this.localStream = new MediaStream();
+    }
+
+    for (const track of audioStream.getAudioTracks()) {
+      this.localStream.addTrack(track);
+      this.peerConnection.addTrack(track, this.localStream);
+    }
+
+    this.options.onLocalStream?.(this.localStream);
+  }
+
+  private async enableCameraTrackOnly() {
+    if (this.hasCameraEnabled()) {
+      return;
     }
 
     if (!isKodiakMicrophoneSecureContext()) {
@@ -186,114 +337,6 @@ export class KodiakVoiceCallPeer {
     this.localVideoTrack = videoTrack;
     this.videoSender = this.peerConnection.addTrack(videoTrack, this.localStream);
     this.options.onLocalStream?.(this.localStream);
-
-    const offer = await this.peerConnection.createOffer({
-      offerToReceiveAudio: true,
-      offerToReceiveVideo: true,
-    });
-
-    await this.peerConnection.setLocalDescription(offer);
-
-    if (!offer.sdp) {
-      throw new Error('WebRTC camera offer did not include SDP.');
-    }
-
-    return offer.sdp;
-  }
-
-  private async disableCamera() {
-    if (!this.localVideoTrack && !this.videoSender) {
-      return null;
-    }
-
-    if (this.videoSender) {
-      this.peerConnection.removeTrack(this.videoSender);
-    }
-
-    if (this.localVideoTrack) {
-      this.localVideoTrack.stop();
-      this.localStream?.removeTrack(this.localVideoTrack);
-    }
-
-    this.videoSender = null;
-    this.localVideoTrack = null;
-    this.options.onLocalStream?.(this.localStream ?? new MediaStream());
-
-    const offer = await this.peerConnection.createOffer({
-      offerToReceiveAudio: true,
-      offerToReceiveVideo: true,
-    });
-
-    await this.peerConnection.setLocalDescription(offer);
-
-    if (!offer.sdp) {
-      throw new Error('WebRTC camera-off offer did not include SDP.');
-    }
-
-    return offer.sdp;
-  }
-
-  setMuted(isMuted: boolean) {
-    for (const track of this.localStream?.getAudioTracks() ?? []) {
-      track.enabled = !isMuted;
-    }
-  }
-
-  close() {
-    for (const track of this.localStream?.getTracks() ?? []) {
-      track.stop();
-    }
-
-    this.localStream = null;
-    this.videoSender = null;
-    this.localVideoTrack = null;
-    this.pendingIceCandidates.length = 0;
-    this.peerConnection.close();
-  }
-
-  private async attachLocalMedia() {
-    if (this.localStream) {
-      return;
-    }
-
-    if (!isKodiakMicrophoneSecureContext()) {
-      throw new Error('Media access requires HTTPS, localhost, or the installed Kodiak Connect app.');
-    }
-
-    if (!navigator.mediaDevices?.getUserMedia) {
-      throw new Error('Media access is not available in this browser or app container.');
-    }
-
-    try {
-      this.localStream = await navigator.mediaDevices.getUserMedia({
-        audio: {
-          autoGainControl: true,
-          echoCancellation: true,
-          noiseSuppression: true,
-        },
-        video:
-          this.options.callKind === 'video'
-            ? {
-                facingMode: 'user',
-                height: { ideal: 720 },
-                width: { ideal: 1280 },
-              }
-            : false,
-      });
-    } catch (error) {
-      throw new Error(getKodiakMediaErrorMessage(error, this.options.callKind));
-    }
-
-    for (const track of this.localStream.getTracks()) {
-      const sender = this.peerConnection.addTrack(track, this.localStream);
-
-      if (track.kind === 'video') {
-        this.videoSender = sender;
-        this.localVideoTrack = track;
-      }
-    }
-
-    this.options.onLocalStream?.(this.localStream);
   }
 
   private async flushPendingIceCandidates() {
@@ -306,8 +349,3 @@ export class KodiakVoiceCallPeer {
     }
   }
 }
-
-
-
-
-
