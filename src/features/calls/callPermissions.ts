@@ -40,6 +40,59 @@ function isKodiakTrustedAppProtocol(protocol: string) {
   return protocol === 'tauri:' || protocol === 'asset:' || protocol === 'app:';
 }
 
+type KodiakLegacyMediaNavigator = Navigator & {
+  getUserMedia?: (
+    constraints: MediaStreamConstraints,
+    successCallback: (stream: MediaStream) => void,
+    errorCallback: (error: DOMException) => void,
+  ) => void;
+  mozGetUserMedia?: (
+    constraints: MediaStreamConstraints,
+    successCallback: (stream: MediaStream) => void,
+    errorCallback: (error: DOMException) => void,
+  ) => void;
+  webkitGetUserMedia?: (
+    constraints: MediaStreamConstraints,
+    successCallback: (stream: MediaStream) => void,
+    errorCallback: (error: DOMException) => void,
+  ) => void;
+};
+
+function getKodiakLegacyMediaNavigator() {
+  return navigator as KodiakLegacyMediaNavigator;
+}
+
+export function hasKodiakUserMedia() {
+  const legacyNavigator = getKodiakLegacyMediaNavigator();
+
+  return Boolean(
+    navigator.mediaDevices?.getUserMedia ||
+      legacyNavigator.getUserMedia ||
+      legacyNavigator.webkitGetUserMedia ||
+      legacyNavigator.mozGetUserMedia,
+  );
+}
+
+export function requestKodiakUserMedia(constraints: MediaStreamConstraints) {
+  const modernGetUserMedia = navigator.mediaDevices?.getUserMedia?.bind(navigator.mediaDevices);
+
+  if (modernGetUserMedia) {
+    return modernGetUserMedia(constraints);
+  }
+
+  const legacyNavigator = getKodiakLegacyMediaNavigator();
+  const legacyGetUserMedia =
+    legacyNavigator.getUserMedia ?? legacyNavigator.webkitGetUserMedia ?? legacyNavigator.mozGetUserMedia;
+
+  if (!legacyGetUserMedia) {
+    return Promise.reject(new Error('Media access is not available in this browser or app container.'));
+  }
+
+  return new Promise<MediaStream>((resolve, reject) => {
+    legacyGetUserMedia.call(legacyNavigator, constraints, resolve, reject);
+  });
+}
+
 function getKodiakMicrophonePermissionMessage(error: unknown) {
   const errorName = error instanceof DOMException ? error.name : '';
 
@@ -67,8 +120,16 @@ export function isKodiakRtcAvailable() {
   const rtcGlobal = globalThis as typeof globalThis & {
     webkitRTCPeerConnection?: typeof RTCPeerConnection;
   };
+  const rtcWindow = window as typeof window & {
+    webkitRTCPeerConnection?: typeof RTCPeerConnection;
+  };
 
-  return Boolean(rtcGlobal.RTCPeerConnection ?? rtcGlobal.webkitRTCPeerConnection);
+  return Boolean(
+    rtcGlobal.RTCPeerConnection ??
+      rtcGlobal.webkitRTCPeerConnection ??
+      rtcWindow.RTCPeerConnection ??
+      rtcWindow.webkitRTCPeerConnection,
+  );
 }
 
 export function readKodiakMicrophonePermission(): KodiakMicrophonePermissionState {
@@ -113,7 +174,7 @@ export async function requestKodiakMicrophonePermission(): Promise<KodiakMicroph
     return state;
   }
 
-  if (!navigator.mediaDevices?.getUserMedia) {
+  if (!hasKodiakUserMedia()) {
     const state: KodiakMicrophonePermissionState = {
       message: 'Microphone access is not available in this browser or app container.',
       status: 'unavailable',
@@ -134,7 +195,7 @@ export async function requestKodiakMicrophonePermission(): Promise<KodiakMicroph
   }
 
   try {
-    const stream = await navigator.mediaDevices.getUserMedia({
+    const stream = await requestKodiakUserMedia({
       audio: {
         autoGainControl: true,
         echoCancellation: true,
@@ -203,7 +264,7 @@ export async function requestKodiakCameraPermission(): Promise<KodiakMicrophoneP
     return state;
   }
 
-  if (!navigator.mediaDevices?.getUserMedia) {
+  if (!hasKodiakUserMedia()) {
     const state: KodiakMicrophonePermissionState = {
       message: 'Camera access is not available in this browser or app container.',
       status: 'unavailable',
@@ -214,7 +275,7 @@ export async function requestKodiakCameraPermission(): Promise<KodiakMicrophoneP
   }
 
   try {
-    const stream = await navigator.mediaDevices.getUserMedia({
+    const stream = await requestKodiakUserMedia({
       audio: false,
       video: {
         facingMode: 'user',

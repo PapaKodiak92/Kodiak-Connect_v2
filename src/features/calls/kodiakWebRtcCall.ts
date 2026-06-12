@@ -1,4 +1,4 @@
-import { isKodiakMicrophoneSecureContext } from './callPermissions';
+import { isKodiakMicrophoneSecureContext, requestKodiakUserMedia } from './callPermissions';
 import type { MatrixCallKind } from '../matrix/matrixRestClient';
 
 export interface KodiakVoiceCallPeerOptions {
@@ -21,8 +21,8 @@ function getKodiakMediaErrorMessage(error: unknown, callKind: MatrixCallKind) {
 
   if (errorName === 'NotFoundError' || errorName === 'DevicesNotFoundError') {
     return callKind === 'video'
-      ? 'No usable camera or microphone was found. Check Windows Sound/Input and Camera settings.'
-      : 'No usable microphone was found. Check Windows Sound > Input, browser microphone settings, or plug in a mic.';
+      ? 'No usable camera or microphone was found. Check your system camera, microphone, and app permissions.'
+      : 'No usable microphone was found. Check your system input device, app permissions, browser microphone settings, or plug in a mic.';
   }
 
   if (errorName === 'NotAllowedError') {
@@ -36,7 +36,14 @@ function getKodiakMediaErrorMessage(error: unknown, callKind: MatrixCallKind) {
 
 function getKodiakRtcPeerConnectionConstructor() {
   const rtcGlobal = globalThis as KodiakRtcGlobal;
-  const rtcConstructor = rtcGlobal.RTCPeerConnection ?? rtcGlobal.webkitRTCPeerConnection;
+  const rtcWindow = window as typeof window & {
+    webkitRTCPeerConnection?: KodiakRtcPeerConnectionConstructor;
+  };
+  const rtcConstructor =
+    rtcGlobal.RTCPeerConnection ??
+    rtcGlobal.webkitRTCPeerConnection ??
+    rtcWindow.RTCPeerConnection ??
+    rtcWindow.webkitRTCPeerConnection;
 
   if (!rtcConstructor) {
     throw new Error(
@@ -49,8 +56,16 @@ function getKodiakRtcPeerConnectionConstructor() {
 
 export function isKodiakWebRtcSupported() {
   const rtcGlobal = globalThis as KodiakRtcGlobal;
+  const rtcWindow = window as typeof window & {
+    webkitRTCPeerConnection?: KodiakRtcPeerConnectionConstructor;
+  };
 
-  return Boolean(rtcGlobal.RTCPeerConnection ?? rtcGlobal.webkitRTCPeerConnection);
+  return Boolean(
+    rtcGlobal.RTCPeerConnection ??
+      rtcGlobal.webkitRTCPeerConnection ??
+      rtcWindow.RTCPeerConnection ??
+      rtcWindow.webkitRTCPeerConnection,
+  );
 }
 
 function getKodiakRtcIceServers(): RTCIceServer[] {
@@ -264,14 +279,10 @@ export class KodiakVoiceCallPeer {
       throw new Error('Media access requires HTTPS, localhost, or the installed Kodiak Connect app.');
     }
 
-    if (!navigator.mediaDevices?.getUserMedia) {
-      throw new Error('Media access is not available in this browser or app container.');
-    }
-
     let audioStream: MediaStream;
 
     try {
-      audioStream = await navigator.mediaDevices.getUserMedia({
+      audioStream = await requestKodiakUserMedia({
         audio: {
           autoGainControl: true,
           echoCancellation: true,
@@ -304,14 +315,10 @@ export class KodiakVoiceCallPeer {
       throw new Error('Camera access requires HTTPS, localhost, or the installed Kodiak Connect app.');
     }
 
-    if (!navigator.mediaDevices?.getUserMedia) {
-      throw new Error('Camera access is not available in this browser or app container.');
-    }
-
     let cameraStream: MediaStream;
 
     try {
-      cameraStream = await navigator.mediaDevices.getUserMedia({
+      cameraStream = await requestKodiakUserMedia({
         audio: false,
         video: {
           facingMode: 'user',
