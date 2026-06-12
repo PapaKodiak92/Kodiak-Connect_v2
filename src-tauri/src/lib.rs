@@ -13,14 +13,16 @@ fn enable_linux_webrtc(window: &tauri::WebviewWindow) {
     if let Err(error) = window.with_webview(|webview| {
         use webkit2gtk::{SettingsExt, WebViewExt};
 
-        let settings = webview.inner().settings();
-
-        settings.set_enable_media(true);
-        settings.set_enable_media_stream(true);
-        settings.set_enable_webrtc(true);
-        settings.set_enable_mediasource(true);
-        settings.set_enable_webaudio(true);
-        settings.set_media_playback_requires_user_gesture(false);
+        if let Some(settings) = webview.inner().settings() {
+            settings.set_enable_media(true);
+            settings.set_enable_media_stream(true);
+            settings.set_enable_webrtc(true);
+            settings.set_enable_mediasource(true);
+            settings.set_enable_webaudio(true);
+            settings.set_media_playback_requires_user_gesture(false);
+        } else {
+            eprintln!("[Kodiak Connect] Linux WebKitGTK settings object was unavailable.");
+        }
     }) {
         eprintln!("[Kodiak Connect] failed to enable Linux WebKitGTK WebRTC settings: {error}");
     }
