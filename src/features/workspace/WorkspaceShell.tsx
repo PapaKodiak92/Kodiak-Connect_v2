@@ -719,10 +719,19 @@ export function WorkspaceShell({ identity, onLogout }: WorkspaceShellProps) {
 
     const activityEntries = activityResults.map(([channelId, activity]) => [channelId, activity] as const);
     const notificationEntries = activityResults.map(([, , notification]) => notification).filter(Boolean);
-    const hiddenChannelsToReopen = activityEntries
+    const hiddenChannelsToReopenFromActivity = activityEntries
       .filter(([channelId, activity]) => hiddenDirectMessageChannelIds.has(channelId) && (activity.unreadCount ?? 0) > 0)
       .map(([channelId]) => channelsById.get(channelId))
       .filter((channel): channel is WorkspaceChannel => Boolean(channel));
+
+    const hiddenChannelsToReopenFromNotifications = notificationEntries
+      .map((notification) => notification?.channel)
+      .filter((channel): channel is WorkspaceChannel => Boolean(channel?.id && hiddenDirectMessageChannelIds.has(channel.id)));
+
+    const hiddenChannelsToReopen = mergeUniqueDirectMessageChannels(
+      hiddenChannelsToReopenFromActivity,
+      hiddenChannelsToReopenFromNotifications,
+    );
 
     if (hiddenChannelsToReopen.length) {
       const reopenedChannelIds = new Set(hiddenChannelsToReopen.map((channel) => channel.id));
@@ -1076,6 +1085,7 @@ export function WorkspaceShell({ identity, onLogout }: WorkspaceShellProps) {
     </main>
   );
 }
+
 
 
 

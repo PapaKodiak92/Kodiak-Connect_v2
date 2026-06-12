@@ -1117,16 +1117,18 @@ export function MatrixChannelPanel({
 
         if (callEvent.status === 'decline') {
           cleanupKodiakVoiceCall();
+          activeCallSessionRef.current = null;
           setActiveCallSession(null);
-          setCallStatusText(callerDisplayName + ' declined the call.');
+          setCallStatusText(null);
           void playKodiakSound('notify', 0.45, { force: true });
           continue;
         }
 
         if (callEvent.status === 'end') {
           cleanupKodiakVoiceCall();
+          activeCallSessionRef.current = null;
           setActiveCallSession(null);
-          setCallStatusText(callerDisplayName + ' ended the call.');
+          setCallStatusText(null);
           void playKodiakSound('notify', 0.45, { force: true });
         }
       }
@@ -1931,7 +1933,9 @@ export function MatrixChannelPanel({
         }
 
         if (state === 'closed') {
-          setCallStatusText('Voice call ended.');
+          activeCallSessionRef.current = null;
+          setActiveCallSession(null);
+          setCallStatusText(null);
         }
       },
       onIceCandidate: (candidate) => {
@@ -2139,10 +2143,20 @@ export function MatrixChannelPanel({
       targetUserId: activeDmTargetUserId,
     };
 
+    console.info('[Kodiak Connect] Starting call UI session', nextCall);
+
+    activeCallSessionRef.current = nextCall;
+    setActiveCallSession(nextCall);
+    setCallStatusText('Starting microphone...');
+
     try {
       const offerSdp = await prepareKodiakWebRtcOffer(nextCall);
 
-      setActiveCallSession(nextCall);
+      activeCallSessionRef.current = nextCall;
+      setActiveCallSession((currentCall) =>
+        currentCall?.callId === callId ? { ...currentCall, status: 'ringing' } : currentCall,
+      );
+
       void playKodiakSound('ringingSendCall', 0.68, { force: true });
 
       await sendKodiakCallEvent(identity, getRequiredCallRoomId(), {
@@ -2153,22 +2167,28 @@ export function MatrixChannelPanel({
         targetUserId: activeDmTargetUserId,
       });
 
-      await notifyKodiakCall(identity, {
-        callId,
-        callKind,
-        roomId,
-        targetUserId: activeDmTargetUserId,
-      });
+      setCallStatusText('Calling ' + nextCall.displayName + '...');
     } catch (error) {
       console.warn('[Kodiak Connect] Failed to start call', error);
       cleanupKodiakVoiceCall();
+      activeCallSessionRef.current = null;
       setActiveCallSession(null);
       setCallStatusText(
         error instanceof Error
           ? error.message
           : 'Call could not be started.',
       );
+      return;
     }
+
+    void notifyKodiakCall(identity, {
+      callId,
+      callKind,
+      roomId,
+      targetUserId: activeDmTargetUserId,
+    }).catch((error) => {
+      console.warn('[Kodiak Connect] Failed to send call push notification', error);
+    });
   }
 
   async function respondToKodiakCall(status: 'accept' | 'decline') {
@@ -2213,8 +2233,9 @@ export function MatrixChannelPanel({
     }
 
     cleanupKodiakVoiceCall();
+    activeCallSessionRef.current = null;
     setActiveCallSession(null);
-    setCallStatusText('Call ended.');
+    setCallStatusText(null);
 
     try {
       await sendKodiakCallSignal(session, 'end');
@@ -4157,6 +4178,9 @@ export function MatrixChannelPanel({
     </section>
   );
 }
+
+
+
 
 
 
