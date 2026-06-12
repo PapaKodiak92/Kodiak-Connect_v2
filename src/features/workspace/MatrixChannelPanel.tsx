@@ -2146,6 +2146,7 @@ export function MatrixChannelPanel({
     console.info('[Kodiak Connect] Starting call UI session', nextCall);
 
     activeCallSessionRef.current = nextCall;
+    setCallStatusText(null);
     setActiveCallSession(nextCall);
     setCallStatusText('Starting microphone...');
 
@@ -2216,7 +2217,7 @@ export function MatrixChannelPanel({
       } else {
         cleanupKodiakVoiceCall();
         setActiveCallSession(null);
-        setCallStatusText('Call declined.');
+        setCallStatusText(null);
         void playKodiakSound('notify', 0.45, { force: true });
       }
     } catch (error) {
@@ -4178,6 +4179,7 @@ export function MatrixChannelPanel({
     </section>
   );
 }
+
 
 
 
