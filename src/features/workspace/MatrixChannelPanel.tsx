@@ -1166,14 +1166,12 @@ export function MatrixChannelPanel({
     async (targetRoomId: string) => {
       const recentMessages = await loadRecentMessages(identity, targetRoomId);
 
-      if (activeChannel.kind === 'dm') {
-        const recentCallEvents = await loadRecentKodiakCallEvents(identity, targetRoomId, 40).catch((error) => {
-          console.warn('[Kodiak Connect] Failed to refresh call events', error);
-          return [];
-        });
+      const recentCallEvents = await loadRecentKodiakCallEvents(identity, targetRoomId, 40).catch((error) => {
+        console.warn('[Kodiak Connect] Failed to refresh call events', error);
+        return [];
+      });
 
-        processRecentCallEvents(recentCallEvents);
-      }
+      processRecentCallEvents(recentCallEvents);
 
       const latestMessageTs = recentMessages.reduce((latestTs, message) => Math.max(latestTs, message.originServerTs), 0);
 
@@ -2211,9 +2209,23 @@ export function MatrixChannelPanel({
     });
   }
 
-  async function startKodiakCall(callKind: MatrixCallKind) {
-    if (!roomId || !activeDmTargetUserId) {
-      setCallStatusText('Open a direct message before starting a call.');
+  async function startKodiakCall(
+    callKind: MatrixCallKind,
+    targetUserId = activeDmTargetUserId,
+    targetDisplayName = targetUserId ? getKnownDisplayName(targetUserId) : '',
+  ) {
+    if (!roomId || !targetUserId) {
+      setCallStatusText('Select a friend before starting a call.');
+      return;
+    }
+
+    if (targetUserId === identity.userId) {
+      setCallStatusText('You cannot call yourself.');
+      return;
+    }
+
+    if (getFriendStatus(targetUserId) !== 'friends' || isUserRestricted(targetUserId)) {
+      setCallStatusText('You can only call friends.');
       return;
     }
 
@@ -2234,13 +2246,13 @@ export function MatrixChannelPanel({
       callId,
       callKind,
       direction: 'outgoing',
-      displayName: activeDmTargetDisplayName || getKnownDisplayName(activeDmTargetUserId),
+      displayName: targetDisplayName || getKnownDisplayName(targetUserId),
       startedAt: Date.now(),
       status: 'ringing',
-      targetUserId: activeDmTargetUserId,
+      targetUserId,
     };
 
-    console.info('[Kodiak Connect] Starting call UI session', nextCall);
+    console.info('[Kodiak Connect] Starting friend call UI session', nextCall);
 
     activeCallSessionRef.current = nextCall;
     setCallStatusText(null);
@@ -2262,12 +2274,12 @@ export function MatrixChannelPanel({
         callKind,
         sdp: offerSdp,
         status: 'invite',
-        targetUserId: activeDmTargetUserId,
+        targetUserId,
       });
 
       setCallStatusText('Calling ' + nextCall.displayName + '...');
     } catch (error) {
-      console.warn('[Kodiak Connect] Failed to start call', error);
+      console.warn('[Kodiak Connect] Failed to start friend call', error);
       cleanupKodiakVoiceCall();
       activeCallSessionRef.current = null;
       setActiveCallSession(null);
@@ -2279,7 +2291,7 @@ export function MatrixChannelPanel({
       callId,
       callKind,
       roomId,
-      targetUserId: activeDmTargetUserId,
+      targetUserId,
     }).catch((error) => {
       console.warn('[Kodiak Connect] Failed to send call push notification', error);
     });
@@ -3533,6 +3545,30 @@ export function MatrixChannelPanel({
                   Message
                 </button>
               ) : null}
+              {openProfileUserId !== identity.userId && getFriendStatus(openProfileUserId) === 'friends' && !isUserBlocked(openProfileUserId) ? (
+                <>
+                  <button
+                    type="button"
+                    disabled={!roomId || Boolean(activeCallSession)}
+                    onClick={() => {
+                      void startKodiakCall('voice', openProfileUserId, getKnownDisplayName(openProfileUserId));
+                      setOpenProfileUserId(null);
+                    }}
+                  >
+                    Voice Call
+                  </button>
+                  <button
+                    type="button"
+                    disabled={!roomId || Boolean(activeCallSession) || isNativeLinuxRtc}
+                    onClick={() => {
+                      void startKodiakCall('video', openProfileUserId, getKnownDisplayName(openProfileUserId));
+                      setOpenProfileUserId(null);
+                    }}
+                  >
+                    Video Call
+                  </button>
+                </>
+              ) : null}
               {openProfileUserId !== identity.userId ? (
                 isUserBlocked(openProfileUserId) ? (
                   <button type="button" disabled>Blocked</button>
@@ -3561,6 +3597,30 @@ export function MatrixChannelPanel({
                     {friendActionUserId === openProfileUserId ? 'Sending...' : 'Add Friend'}
                   </button>
                 )
+              ) : null}
+              {openProfileUserId !== identity.userId && getFriendStatus(openProfileUserId) === 'friends' && !isUserBlocked(openProfileUserId) ? (
+                <>
+                  <button
+                    type="button"
+                    disabled={!roomId || Boolean(activeCallSession)}
+                    onClick={() => {
+                      void startKodiakCall('voice', openProfileUserId, getKnownDisplayName(openProfileUserId));
+                      setOpenProfileUserId(null);
+                    }}
+                  >
+                    Voice Call
+                  </button>
+                  <button
+                    type="button"
+                    disabled={!roomId || Boolean(activeCallSession) || isNativeLinuxRtc}
+                    onClick={() => {
+                      void startKodiakCall('video', openProfileUserId, getKnownDisplayName(openProfileUserId));
+                      setOpenProfileUserId(null);
+                    }}
+                  >
+                    Video Call
+                  </button>
+                </>
               ) : null}
               {openProfileUserId !== identity.userId ? (
                 isUserBlocked(openProfileUserId) ? (
