@@ -11,6 +11,7 @@ function createMainWindow() {
     minHeight: 640,
     backgroundColor: '#080b10',
     title: 'Kodiak Connect',
+    icon: path.join(__dirname, 'icon.png'),
     webPreferences: {
       preload: path.join(__dirname, 'preload.cjs'),
       contextIsolation: true,
