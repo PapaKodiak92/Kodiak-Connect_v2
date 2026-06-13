@@ -135,11 +135,7 @@ export function isKodiakMicrophoneSecureContext() {
   );
 }
 
-export function isKodiakRtcAvailable() {
-  if (isKodiakLinuxTauriRuntime()) {
-    return true;
-  }
-
+function isKodiakBrowserRtcAvailable() {
   const rtcGlobal = globalThis as typeof globalThis & {
     webkitRTCPeerConnection?: typeof RTCPeerConnection;
   };
@@ -153,6 +149,10 @@ export function isKodiakRtcAvailable() {
       rtcWindow.RTCPeerConnection ??
       rtcWindow.webkitRTCPeerConnection,
   );
+}
+
+export function isKodiakRtcAvailable() {
+  return isKodiakBrowserRtcAvailable() || isKodiakLinuxTauriRuntime();
 }
 
 export function readKodiakMicrophonePermission(): KodiakMicrophonePermissionState {
@@ -197,17 +197,17 @@ export async function requestKodiakMicrophonePermission(): Promise<KodiakMicroph
     return state;
   }
 
-  if (isKodiakLinuxTauriRuntime()) {
-    const state: KodiakMicrophonePermissionState = {
-      message: 'Linux desktop voice calls use Kodiak Connect native audio. No browser microphone permission is required.',
-      status: 'granted',
-    };
-
-    saveKodiakMicrophonePermission(state);
-    return state;
-  }
-
   if (!hasKodiakUserMedia()) {
+    if (isKodiakLinuxTauriRuntime()) {
+      const state: KodiakMicrophonePermissionState = {
+        message: 'Linux desktop voice calls use Kodiak Connect native audio. No browser microphone permission is required.',
+        status: 'granted',
+      };
+
+      saveKodiakMicrophonePermission(state);
+      return state;
+    }
+
     const state: KodiakMicrophonePermissionState = {
       message: 'Microphone access is not available in this browser or app container.',
       status: 'unavailable',
@@ -296,17 +296,17 @@ export async function requestKodiakCameraPermission(): Promise<KodiakMicrophoneP
     return state;
   }
 
-  if (isKodiakLinuxTauriRuntime()) {
-    const state: KodiakMicrophonePermissionState = {
-      message: 'Linux desktop native calling is voice-only right now. Camera support is not enabled in the Linux app yet.',
-      status: 'unavailable',
-    };
-
-    saveKodiakCameraPermission(state);
-    return state;
-  }
-
   if (!hasKodiakUserMedia()) {
+    if (isKodiakLinuxTauriRuntime()) {
+      const state: KodiakMicrophonePermissionState = {
+        message: 'Linux desktop native calling is voice-only right now. Camera support is not enabled in this Linux WebView.',
+        status: 'unavailable',
+      };
+
+      saveKodiakCameraPermission(state);
+      return state;
+    }
+
     const state: KodiakMicrophonePermissionState = {
       message: 'Camera access is not available in this browser or app container.',
       status: 'unavailable',
