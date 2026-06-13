@@ -1,4 +1,4 @@
-﻿import { randomBytes } from "node:crypto";
+import { randomBytes } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -301,8 +301,15 @@ export async function handleSpotifyCallback(request, response, corsHeaders, url)
   <head><title>Spotify connected</title></head>
   <body style="background:#020617;color:#fff7ed;font-family:system-ui;padding:2rem;">
     <h1>Spotify connected.</h1>
-    <p>You can close this window and return to Kodiak Connect.</p>
-    <script>setTimeout(() => window.close(), 1200);</script>
+    <p>Kodiak Connect is refreshing your Spotify connection.</p>
+    <script>
+      try {
+        if (window.opener && !window.opener.closed) {
+          window.opener.postMessage({ type: "kodiak:spotify-connected" }, "*");
+        }
+      } catch {}
+      setTimeout(() => window.close(), 700);
+    </script>
   </body>
 </html>`,
       corsHeaders,

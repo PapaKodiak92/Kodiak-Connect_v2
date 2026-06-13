@@ -205,12 +205,22 @@ export function MusicLoungePanel({ identity }: MusicLoungePanelProps) {
       }
     }
 
+    function handleSpotifyMessage(event: MessageEvent) {
+      if (event.data?.type !== 'kodiak:spotify-connected') {
+        return;
+      }
+
+      void refreshSpotifyStatus();
+    }
+
     void refreshSpotifyStatus();
     window.addEventListener('focus', refreshSpotifyStatus);
+    window.addEventListener('message', handleSpotifyMessage);
 
     return () => {
       isMounted = false;
       window.removeEventListener('focus', refreshSpotifyStatus);
+      window.removeEventListener('message', handleSpotifyMessage);
     };
   }, [identity]);
   useEffect(() => {
@@ -248,8 +258,8 @@ export function MusicLoungePanel({ identity }: MusicLoungePanelProps) {
   }, [identity]);
 
   function openSpotifyConnect() {
-    window.open(getKodiakSpotifyLoginUrl(identity), '_blank', 'noopener,noreferrer');
-    setSpotifyMessage('Finish the Spotify connection in the browser, then return here.');
+    window.open(getKodiakSpotifyLoginUrl(identity), 'kodiak-spotify-connect', 'popup,width=520,height=720');
+    setSpotifyMessage('Finish the Spotify connection in the browser. Kodiak will refresh automatically.');
   }
 
   async function disconnectSpotify() {
