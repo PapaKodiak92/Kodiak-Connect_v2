@@ -962,7 +962,7 @@ export function KodiakAttachmentBridge({ identity }: KodiakAttachmentBridgeProps
                   </div>
                 </>
               ) : (
-                <p className="kodiak-attachment-error">Add VITE_GIPHY_API_KEY to enable Giphy search.</p>
+                <p className="kodiak-attachment-error">Giphy search is not configured for this build.</p>
               )}
             </div>
           ) : null}

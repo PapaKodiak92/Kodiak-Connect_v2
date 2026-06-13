@@ -4,6 +4,10 @@ import {
   type DesktopUpdateInfo,
   type DesktopUpdateProgress,
 } from './desktop/desktopUpdaterService';
+import {
+  checkForElectronUpdate,
+  installElectronUpdate,
+} from './desktop/electronUpdaterService';
 import { detectPlatformInfo } from './detectPlatformInfo';
 import type { KodiakPlatformInfo } from './platformTypes';
 
@@ -54,6 +58,13 @@ function createUpdaterAdapter(platformInfo: KodiakPlatformInfo): KodiakUpdaterAd
     return {
       check: checkForDesktopUpdate,
       install: installDesktopUpdate,
+    };
+  }
+
+  if (platformInfo.runtime === 'electron-desktop') {
+    return {
+      check: checkForElectronUpdate,
+      install: installElectronUpdate,
     };
   }
 

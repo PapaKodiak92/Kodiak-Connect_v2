@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { kodiakEnv } from '../../config/env';
 
 declare global {
   interface Window {
@@ -42,7 +43,7 @@ export function TurnstileWidget({ onTokenChange }: TurnstileWidgetProps) {
   const widgetIdRef = useRef<string | null>(null);
   const [isReady, setIsReady] = useState(false);
 
-  const siteKey = import.meta.env.VITE_TURNSTILE_SITE_KEY as string | undefined;
+  const siteKey = kodiakEnv.turnstileSiteKey;
 
   useEffect(() => {
     if (!siteKey) {
@@ -87,7 +88,7 @@ export function TurnstileWidget({ onTokenChange }: TurnstileWidgetProps) {
   if (!siteKey) {
     return (
       <div className="turnstile-placeholder">
-        Cloudflare verification will appear here after the site key is configured.
+        Cloudflare verification is not configured for this build.
       </div>
     );
   }
