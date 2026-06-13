@@ -55,12 +55,17 @@ CREATE TABLE IF NOT EXISTS kodiak_music_uploads (
   status text NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'indexed', 'uploaded', 'failed', 'skipped')),
   track_id uuid REFERENCES kodiak_music_tracks(id) ON DELETE SET NULL,
   error_message text NOT NULL DEFAULT '',
+  sync_metadata jsonb NOT NULL DEFAULT '{}'::jsonb,
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now()
 );
 
+ALTER TABLE kodiak_music_uploads
+  ADD COLUMN IF NOT EXISTS sync_metadata jsonb NOT NULL DEFAULT '{}'::jsonb;
+
 CREATE INDEX IF NOT EXISTS kodiak_music_uploads_hash_idx ON kodiak_music_uploads (file_sha256);
 CREATE INDEX IF NOT EXISTS kodiak_music_uploads_uploader_idx ON kodiak_music_uploads (uploader_user_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS kodiak_music_uploads_status_idx ON kodiak_music_uploads (status, created_at DESC);
 
 CREATE TABLE IF NOT EXISTS kodiak_music_song_requests (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
