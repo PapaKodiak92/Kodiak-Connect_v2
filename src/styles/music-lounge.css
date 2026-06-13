@@ -366,3 +366,75 @@
     text-align: center;
   }
 }
+.music-lounge-spotify {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  align-items: center;
+  border: 1px solid rgba(34, 197, 94, 0.22);
+  border-radius: 24px;
+  background:
+    radial-gradient(circle at 8% 0%, rgba(34, 197, 94, 0.16), transparent 22rem),
+    linear-gradient(135deg, rgba(15, 23, 42, 0.94), rgba(7, 12, 27, 0.96));
+  box-shadow: 0 22px 55px rgba(0, 0, 0, 0.2);
+  padding: 1rem;
+}
+
+.music-lounge-spotify h3 {
+  margin: 0.2rem 0 0.35rem;
+  color: #fff7ed;
+}
+
+.music-lounge-spotify p {
+  margin: 0;
+  color: #cbd5e1;
+}
+
+.music-lounge-spotify small {
+  display: block;
+  margin-top: 0.55rem;
+  color: #86efac;
+  font-weight: 800;
+}
+
+.music-lounge-spotify__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+  justify-content: flex-end;
+}
+
+.music-lounge-spotify__actions span {
+  border: 1px solid rgba(34, 197, 94, 0.22);
+  border-radius: 999px;
+  background: rgba(34, 197, 94, 0.1);
+  color: #dcfce7;
+  font-weight: 900;
+  padding: 0.65rem 0.9rem;
+}
+
+.music-lounge-spotify__actions button {
+  border: 1px solid rgba(34, 197, 94, 0.28);
+  border-radius: 999px;
+  background: rgba(34, 197, 94, 0.12);
+  color: #dcfce7;
+  font-weight: 900;
+  padding: 0.7rem 0.9rem;
+}
+
+@media (max-width: 760px) {
+  .music-lounge-spotify {
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+
+  .music-lounge-spotify__actions {
+    justify-content: stretch;
+  }
+
+  .music-lounge-spotify__actions button,
+  .music-lounge-spotify__actions span {
+    text-align: center;
+  }
+}

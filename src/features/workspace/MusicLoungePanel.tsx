@@ -3,12 +3,16 @@ import type { MatrixLoginIdentity } from '../auth/matrixLoginService';
 import {
   addKodiakMusicLoungeQueueTrack,
   clearKodiakMusicLoungeNowPlaying,
+  disconnectKodiakSpotify,
   clearKodiakMusicLoungeQueue,
+  getKodiakSpotifyLoginUrl,
   loadKodiakMusicLoungeState,
+  loadKodiakSpotifyStatus,
   removeKodiakMusicLoungeQueueTrack,
   setKodiakMusicLoungeNowPlaying,
   setKodiakMusicLoungeVibe,
   type KodiakMusicLoungeState,
+  type KodiakSpotifyStatus,
   voteKodiakMusicLoungeQueueTrack,
   voteKodiakMusicLoungeVibe,
 } from '../backend/kodiakApiClient';
@@ -135,8 +139,11 @@ export function MusicLoungePanel({ identity }: MusicLoungePanelProps) {
   const [queueTitleDraft, setQueueTitleDraft] = useState('');
   const [queueUrlDraft, setQueueUrlDraft] = useState('');
   const [loungeState, setLoungeState] = useState<KodiakMusicLoungeState | null>(null);
+  const [spotifyStatus, setSpotifyStatus] = useState<KodiakSpotifyStatus | null>(null);
+  const [isSpotifyChecking, setIsSpotifyChecking] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
   const [statusMessage, setStatusMessage] = useState('Loading shared lounge state...');
+  const [spotifyMessage, setSpotifyMessage] = useState('Checking Spotify connection...');
 
   const activeVibe = MUSIC_VIBES.find((vibe) => vibe.id === activeVibeId) ?? MUSIC_VIBES[0];
 
@@ -161,6 +168,51 @@ export function MusicLoungePanel({ identity }: MusicLoungePanelProps) {
     setStatusMessage('Shared lounge synced.');
   }
 
+  useEffect(() => {
+    let isMounted = true;
+
+    async function refreshSpotifyStatus() {
+      setIsSpotifyChecking(true);
+
+      try {
+        const nextStatus = await loadKodiakSpotifyStatus(identity);
+
+        if (!isMounted) {
+          return;
+        }
+
+        setSpotifyStatus(nextStatus);
+
+        if (!nextStatus.configured) {
+          setSpotifyMessage('Spotify is not configured on this backend yet.');
+        } else if (nextStatus.connected) {
+          const name = nextStatus.profile?.displayName || nextStatus.profile?.id || 'Spotify';
+          setSpotifyMessage(`Connected as ${name}.`);
+        } else {
+          setSpotifyMessage('Connect Spotify to enable real lounge playback.');
+        }
+      } catch (error) {
+        if (!isMounted) {
+          return;
+        }
+
+        console.error('[Kodiak Music Lounge] Failed to load Spotify status.', error);
+        setSpotifyMessage('Could not check Spotify connection.');
+      } finally {
+        if (isMounted) {
+          setIsSpotifyChecking(false);
+        }
+      }
+    }
+
+    void refreshSpotifyStatus();
+    window.addEventListener('focus', refreshSpotifyStatus);
+
+    return () => {
+      isMounted = false;
+      window.removeEventListener('focus', refreshSpotifyStatus);
+    };
+  }, [identity]);
   useEffect(() => {
     let isMounted = true;
 
@@ -195,6 +247,48 @@ export function MusicLoungePanel({ identity }: MusicLoungePanelProps) {
     };
   }, [identity]);
 
+  function openSpotifyConnect() {
+    window.open(getKodiakSpotifyLoginUrl(identity), '_blank', 'noopener,noreferrer');
+    setSpotifyMessage('Finish the Spotify connection in the browser, then return here.');
+  }
+
+  async function disconnectSpotify() {
+    setIsSpotifyChecking(true);
+    setSpotifyMessage('Disconnecting Spotify...');
+
+    try {
+      await disconnectKodiakSpotify(identity);
+      const nextStatus = await loadKodiakSpotifyStatus(identity);
+      setSpotifyStatus(nextStatus);
+      setSpotifyMessage('Spotify disconnected.');
+    } catch (error) {
+      console.error('[Kodiak Music Lounge] Failed to disconnect Spotify.', error);
+      setSpotifyMessage('Could not disconnect Spotify.');
+    } finally {
+      setIsSpotifyChecking(false);
+    }
+  }
+
+  async function refreshSpotifyConnection() {
+    setIsSpotifyChecking(true);
+
+    try {
+      const nextStatus = await loadKodiakSpotifyStatus(identity);
+      setSpotifyStatus(nextStatus);
+
+      if (nextStatus.connected) {
+        const name = nextStatus.profile?.displayName || nextStatus.profile?.id || 'Spotify';
+        setSpotifyMessage(`Connected as ${name}.`);
+      } else {
+        setSpotifyMessage('Spotify is not connected.');
+      }
+    } catch (error) {
+      console.error('[Kodiak Music Lounge] Failed to refresh Spotify status.', error);
+      setSpotifyMessage('Could not refresh Spotify connection.');
+    } finally {
+      setIsSpotifyChecking(false);
+    }
+  }
   async function selectSharedVibe(vibeId: string) {
     setActiveVibeId(vibeId);
     setLocalVote(null);
@@ -339,6 +433,9 @@ export function MusicLoungePanel({ identity }: MusicLoungePanelProps) {
   const selectedAt = formatSyncTime(loungeState?.selectedAt ?? 0);
   const queue = loungeState?.queue ?? [];
   const nowPlaying = loungeState?.nowPlaying ?? null;
+  const spotifyConnected = Boolean(spotifyStatus?.connected);
+  const spotifyPremium = spotifyStatus?.profile?.product === 'premium';
+  const spotifyName = spotifyStatus?.profile?.displayName || spotifyStatus?.profile?.id || 'Spotify';
   const canModerate = Boolean(loungeState?.canModerate);
   const canClearQueue = canModerate && queue.length > 0;
 
@@ -359,6 +456,40 @@ export function MusicLoungePanel({ identity }: MusicLoungePanelProps) {
           <strong>{activeVibe.title}</strong>
           <small>Picked by {selectedBy} at {selectedAt}</small>
         </aside>
+      </section>
+
+      <section className="music-lounge-spotify" aria-label="Spotify connection">
+        <div>
+          <p className="eyebrow eyebrow--ember">Spotify Playback</p>
+          <h3>{spotifyConnected ? 'Spotify connected' : 'Connect Spotify'}</h3>
+          <p>
+            {spotifyConnected
+              ? spotifyPremium
+                ? 'Premium detected. Next step is creating a Kodiak Connect playback device.'
+                : 'Connected, but Spotify Premium is required for in-app playback.'
+              : 'Connect Spotify so this lounge can become a real playback room instead of just shared links.'}
+          </p>
+          <small>{isSpotifyChecking ? 'Checking Spotify...' : spotifyMessage}</small>
+        </div>
+
+        <div className="music-lounge-spotify__actions">
+          {spotifyConnected ? (
+            <>
+              <span>{spotifyName}</span>
+              <button type="button" onClick={() => void disconnectSpotify()} disabled={isSpotifyChecking}>
+                Disconnect
+              </button>
+            </>
+          ) : (
+            <button type="button" onClick={openSpotifyConnect} disabled={isSpotifyChecking}>
+              Connect Spotify
+            </button>
+          )}
+
+          <button type="button" onClick={() => void refreshSpotifyConnection()} disabled={isSpotifyChecking}>
+            Refresh
+          </button>
+        </div>
       </section>
 
       <section className="music-lounge-current" aria-label="Current music vibe">
