@@ -14,12 +14,25 @@ export interface KodiakCallPeer {
   setMuted(isMuted: boolean): void;
   close(): void;
 }
+export interface KodiakCallMediaToken {
+  roomName: string;
+  token: string;
+  wsUrl: string;
+}
+
 export interface KodiakVoiceCallPeerOptions {
+  callId?: string;
   callKind: MatrixCallKind;
   onConnectionStateChange?: (state: RTCPeerConnectionState) => void;
   onIceCandidate?: (candidate: RTCIceCandidateInit) => void;
   onLocalStream?: (stream: MediaStream) => void;
   onRemoteStream?: (stream: MediaStream) => void;
+  requestMediaToken?: (request: {
+    callId: string;
+    callKind: MatrixCallKind;
+    targetUserId: string;
+  }) => Promise<KodiakCallMediaToken>;
+  targetUserId?: string;
 }
 
 export function shouldUseKodiakNativeLinuxRtcPeer() {

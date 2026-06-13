@@ -13,6 +13,7 @@ import {
   notifyKodiakDirectMessage,
   notifyKodiakCall,
   loadKodiakBackendCallEvents,
+  requestKodiakCallMediaToken,
   sendKodiakBackendCallEvent,
   sendKodiakRoomActivity,
   submitKodiakReport,
@@ -2038,7 +2039,10 @@ export function MatrixChannelPanel({
     cleanupKodiakVoiceCall();
 
     const peer = createKodiakCallPeer({
+      callId: session.callId,
       callKind: session.callKind,
+      requestMediaToken: (request) => requestKodiakCallMediaToken(identity, request),
+      targetUserId: session.targetUserId,
       onConnectionStateChange: (state) => {
         if (state === 'connected') {
           setActiveCallSession((current) => current?.callId === session.callId ? { ...current, connectedAt: current.connectedAt ?? Date.now(), status: 'connected' } : current);

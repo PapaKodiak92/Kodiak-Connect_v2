@@ -1,6 +1,7 @@
 import { kodiakPlatform } from '../currentPlatform';
 import type { KodiakCallPeer, KodiakVoiceCallPeerOptions } from '../../features/calls/kodiakCallPeer';
 import { getKodiakWebRtcUnsupportedMessage, isKodiakWebRtcSupported, KodiakVoiceCallPeer } from './browserWebRtcCall';
+import { KodiakLiveKitCallPeer } from './liveKitCall';
 import { KodiakNativeLinuxRtcCallPeer } from './kodiakNativeLinuxRtcCall';
 
 export function shouldUsePlatformNativeCallPeer() {
@@ -20,6 +21,10 @@ export function getPlatformCallUnsupportedMessage() {
 }
 
 export function createPlatformCallPeer(options: KodiakVoiceCallPeerOptions): KodiakCallPeer {
+  if (options.callId && options.targetUserId && options.requestMediaToken && isKodiakWebRtcSupported()) {
+    return new KodiakLiveKitCallPeer(options);
+  }
+
   if (options.callKind === 'voice' && shouldUsePlatformNativeCallPeer()) {
     return new KodiakNativeLinuxRtcCallPeer(options);
   }
