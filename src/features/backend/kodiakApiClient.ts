@@ -1,4 +1,4 @@
-﻿import type { MatrixLoginIdentity } from '../auth/matrixLoginService';
+import type { MatrixLoginIdentity } from '../auth/matrixLoginService';
 
 export type KodiakPresenceState = 'online' | 'idle' | 'offline';
 export type KodiakFriendStatus = 'none' | 'incoming' | 'outgoing' | 'friends';
@@ -12,12 +12,15 @@ export interface KodiakMusicLoungeTrack {
   addedAt: number;
   addedByUserId: string;
   id: string;
+  playedAt?: number;
+  playedByUserId?: string;
   title: string;
   url: string;
 }
 
 export interface KodiakMusicLoungeState {
   myVote: 'up' | 'down' | null;
+  nowPlaying: KodiakMusicLoungeTrack | null;
   selectedAt: number;
   selectedByUserId: string;
   queue: KodiakMusicLoungeTrack[];
@@ -576,6 +579,25 @@ export async function clearKodiakMusicLoungeQueue(identity: MatrixLoginIdentity)
   const data = await postKodiak<{ state?: KodiakMusicLoungeState; ok?: boolean }>(
     identity,
     '/api/music-lounge/queue/clear',
+    {},
+  );
+
+  return data.state ?? null;
+}
+export async function setKodiakMusicLoungeNowPlaying(identity: MatrixLoginIdentity, trackId: string) {
+  const data = await postKodiak<{ state?: KodiakMusicLoungeState; ok?: boolean }>(
+    identity,
+    '/api/music-lounge/now-playing',
+    { trackId },
+  );
+
+  return data.state ?? null;
+}
+
+export async function clearKodiakMusicLoungeNowPlaying(identity: MatrixLoginIdentity) {
+  const data = await postKodiak<{ state?: KodiakMusicLoungeState; ok?: boolean }>(
+    identity,
+    '/api/music-lounge/now-playing/clear',
     {},
   );
 

@@ -1,4 +1,4 @@
-﻿import { createServer } from "node:http";
+import { createServer } from "node:http";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -189,6 +189,7 @@ function getDefaultMusicLoungeState() {
     selectedVibeId: "random-hits",
     selectedByUserId: "",
     selectedAt: 0,
+    nowPlaying: null,
     queue: [],
     votes: {},
     updatedAt: 0,
@@ -239,6 +240,20 @@ function sanitizeMusicQueueTrack(track) {
     url: sanitizeMusicUrl(track?.url),
   };
 }
+function sanitizeMusicNowPlayingTrack(track) {
+  const sanitized = sanitizeMusicQueueTrack(track);
+
+  if (!sanitized) {
+    return null;
+  }
+
+  return {
+    ...sanitized,
+    playedAt: Number(track?.playedAt || 0),
+    playedByUserId: isValidMatrixUserId(track?.playedByUserId) ? track.playedByUserId : '',
+  };
+}
+
 function sanitizeMusicLoungeState(state) {
   const fallback = getDefaultMusicLoungeState();
 
@@ -248,6 +263,7 @@ function sanitizeMusicLoungeState(state) {
     selectedVibeId: sanitizeMusicVibeId(state?.selectedVibeId) || fallback.selectedVibeId,
     selectedByUserId: isValidMatrixUserId(state?.selectedByUserId) ? state.selectedByUserId : "",
     selectedAt: Number(state?.selectedAt || 0),
+    nowPlaying: sanitizeMusicNowPlayingTrack(state?.nowPlaying),
     updatedAt: Number(state?.updatedAt || 0),
     queue: Array.isArray(state?.queue) ? state.queue.map(sanitizeMusicQueueTrack).filter(Boolean).slice(0, 25) : [],
     votes: typeof state?.votes === "object" && state.votes ? state.votes : {},
@@ -270,6 +286,7 @@ function getPublicMusicLoungeState(state, userId) {
     selectedByUserId: state.selectedByUserId,
     selectedAt: state.selectedAt,
     updatedAt: state.updatedAt,
+    nowPlaying: state.nowPlaying ?? null,
     queue: state.queue ?? [],
     voteCounts: getMusicVoteCounts(state.votes),
     myVote: state.votes[userId] ?? null,
@@ -426,6 +443,66 @@ async function handleMusicLoungeQueueClear(request, response, corsHeaders) {
 
   const state = sanitizeMusicLoungeState(await readJsonFile(MUSIC_LOUNGE_FILE, getDefaultMusicLoungeState()));
   state.queue = [];
+  state.updatedAt = now();
+
+  await writeJsonFile(MUSIC_LOUNGE_FILE, state);
+
+  sendJson(response, 200, {
+    ok: true,
+    state: getPublicMusicLoungeState(state, userId),
+  }, corsHeaders);
+}
+
+async function handleMusicLoungeNowPlaying(request, response, corsHeaders) {
+  const body = await readRequestBody(request);
+  const userId = getCurrentUserId(request, body);
+  const trackId = sanitizeMusicText(body.trackId, 96);
+
+  if (!isValidMatrixUserId(userId)) {
+    sendJson(response, 400, { error: "Invalid Matrix userId." }, corsHeaders);
+    return;
+  }
+
+  if (!trackId) {
+    sendJson(response, 400, { error: "Track id is required." }, corsHeaders);
+    return;
+  }
+
+  const state = sanitizeMusicLoungeState(await readJsonFile(MUSIC_LOUNGE_FILE, getDefaultMusicLoungeState()));
+  const track = (state.queue ?? []).find((candidate) => candidate.id === trackId);
+
+  if (!track) {
+    sendJson(response, 404, { error: "Track was not found in the queue." }, corsHeaders);
+    return;
+  }
+
+  state.nowPlaying = {
+    ...track,
+    playedAt: now(),
+    playedByUserId: userId,
+  };
+  state.queue = (state.queue ?? []).filter((candidate) => candidate.id !== trackId);
+  state.updatedAt = now();
+
+  await writeJsonFile(MUSIC_LOUNGE_FILE, state);
+
+  sendJson(response, 200, {
+    ok: true,
+    state: getPublicMusicLoungeState(state, userId),
+  }, corsHeaders);
+}
+
+async function handleMusicLoungeNowPlayingClear(request, response, corsHeaders) {
+  const body = await readRequestBody(request);
+  const userId = getCurrentUserId(request, body);
+
+  if (!isValidMatrixUserId(userId)) {
+    sendJson(response, 400, { error: "Invalid Matrix userId." }, corsHeaders);
+    return;
+  }
+
+  const state = sanitizeMusicLoungeState(await readJsonFile(MUSIC_LOUNGE_FILE, getDefaultMusicLoungeState()));
+  state.nowPlaying = null;
   state.updatedAt = now();
 
   await writeJsonFile(MUSIC_LOUNGE_FILE, state);
@@ -1856,6 +1933,16 @@ const server = createServer(async (request, response) => {
 
     if (request.method === "POST" && url.pathname === "/api/music-lounge/queue/clear") {
       await handleMusicLoungeQueueClear(request, response, corsHeaders);
+      return;
+    }
+
+    if (request.method === "POST" && url.pathname === "/api/music-lounge/now-playing") {
+      await handleMusicLoungeNowPlaying(request, response, corsHeaders);
+      return;
+    }
+
+    if (request.method === "POST" && url.pathname === "/api/music-lounge/now-playing/clear") {
+      await handleMusicLoungeNowPlayingClear(request, response, corsHeaders);
       return;
     }
 
