@@ -94,6 +94,21 @@ export interface KodiakPushRegistration {
   token: string;
   userAgent?: string;
 }
+export type KodiakBackendCallKind = 'voice' | 'video';
+export type KodiakBackendCallStatus = 'invite' | 'accept' | 'decline' | 'end' | 'offer' | 'answer' | 'ice';
+
+export interface KodiakBackendCallEvent {
+  callId: string;
+  callKind: KodiakBackendCallKind;
+  candidate?: RTCIceCandidateInit | null;
+  createdAt: number;
+  eventId: string;
+  roomId?: string;
+  sdp?: string;
+  senderUserId: string;
+  status: KodiakBackendCallStatus;
+  targetUserId: string;
+}
 
 interface KodiakPushRegisterResponse {
   deviceCount?: number;
@@ -147,6 +162,40 @@ export async function notifyKodiakDirectMessage(identity: MatrixLoginIdentity, n
 
 export async function notifyKodiakCall(identity: MatrixLoginIdentity, notification: { callId: string; callKind: 'voice' | 'video'; roomId: string; targetUserId: string }) {
   await postKodiak<{ ok?: boolean }>(identity, '/api/push/call', notification);
+}
+export async function sendKodiakBackendCallEvent(
+  identity: MatrixLoginIdentity,
+  event: {
+    callId: string;
+    callKind: KodiakBackendCallKind;
+    candidate?: RTCIceCandidateInit | null;
+    roomId?: string | null;
+    sdp?: string | null;
+    status: KodiakBackendCallStatus;
+    targetUserId: string;
+  },
+) {
+  const data = await postKodiak<{ event?: KodiakBackendCallEvent; ok?: boolean }>(identity, '/api/calls/events', event as unknown as Record<string, unknown>);
+  return data.event ?? null;
+}
+
+export async function loadKodiakBackendCallEvents(identity: MatrixLoginIdentity, since = 0) {
+  const response = await fetch(
+    `${KODIAK_API_BASE_URL}/api/calls/events?userId=${encodeURIComponent(identity.userId)}&since=${encodeURIComponent(String(since))}`,
+    {
+      headers: getHeaders(identity),
+    },
+  );
+
+  if (!response.ok) {
+    throw new Error('Kodiak call event request failed.');
+  }
+
+  const data = (await response.json()) as { events?: KodiakBackendCallEvent[]; nextSince?: number };
+  return {
+    events: data.events ?? [],
+    nextSince: Number(data.nextSince ?? since),
+  };
 }
 
 export async function sendKodiakRoomActivity(

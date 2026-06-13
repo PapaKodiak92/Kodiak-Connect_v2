@@ -1,4 +1,4 @@
-﻿import { createServer } from "node:http";
+import { createServer } from "node:http";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -15,7 +15,9 @@ const BLOCKS_FILE = join(DATA_DIR, "blocks.json");
 const REPORTS_FILE = join(DATA_DIR, "reports.json");
 const PUSH_SUBSCRIPTIONS_FILE = join(DATA_DIR, "push-subscriptions.json");
 const ACTIVE_ROOMS_FILE = join(DATA_DIR, "active-rooms.json");
+const CALL_EVENTS_FILE = join(DATA_DIR, "call-events.json");
 const ACTIVE_ROOM_VISIBLE_WINDOW_MS = 20_000;
+const CALL_EVENT_RETENTION_MS = 10 * 60_000;
 
 const PORT = Number(process.env.KODIAK_BACKEND_PORT ?? 8787);
 const DEFAULT_ALLOWED_ORIGINS = [
@@ -228,6 +230,25 @@ function createReportId() {
 
 function createReportActionId() {
   return `action_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
+}
+function createCallEventId() {
+  return `call_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
+}
+
+function sanitizeCallKind(callKind) {
+  return callKind === "video" ? "video" : "voice";
+}
+
+function sanitizeCallStatus(status) {
+  const allowedStatuses = new Set(["invite", "accept", "decline", "end", "offer", "answer", "ice"]);
+  return allowedStatuses.has(status) ? status : null;
+}
+
+function pruneCallEvents(callEvents) {
+  const cutoff = now() - CALL_EVENT_RETENTION_MS;
+  return callEvents
+    .filter((event) => Number(event.createdAt ?? 0) >= cutoff)
+    .slice(-1000);
 }
 
 function sanitizeReportCategory(category) {
@@ -604,6 +625,82 @@ async function handleCallPush(request, response, corsHeaders) {
   sendJson(response, 200, { ok: true, delivery }, corsHeaders);
 }
 
+async function handleCallEventPost(request, response, corsHeaders) {
+  const body = await readRequestBody(request);
+  const senderUserId = getCurrentUserId(request, body);
+  const targetUserId = body.targetUserId;
+  const callId = String(body.callId ?? "").trim().slice(0, 160);
+  const callKind = sanitizeCallKind(body.callKind);
+  const status = sanitizeCallStatus(body.status);
+  const roomId = String(body.roomId ?? "").slice(0, 160);
+  const sdp = typeof body.sdp === "string" ? body.sdp.slice(0, 200_000) : "";
+  const candidate = typeof body.candidate === "object" && body.candidate ? body.candidate : null;
+
+  if (!isValidMatrixUserId(senderUserId) || !isValidMatrixUserId(targetUserId) || senderUserId === targetUserId || !callId || !status) {
+    sendJson(response, 400, { error: "Invalid call event." }, corsHeaders);
+    return;
+  }
+
+  const friendStore = await readJsonFile(FRIENDS_FILE, {});
+  const blockStore = await readJsonFile(BLOCKS_FILE, {});
+  const friendEdge = friendStore[getFriendKey(senderUserId, targetUserId)];
+
+  if (friendEdge?.status !== "friends") {
+    sendJson(response, 403, { error: "Calls are only available between friends." }, corsHeaders);
+    return;
+  }
+
+  if (hasEitherUserBlocked(blockStore, senderUserId, targetUserId)) {
+    sendJson(response, 403, { error: "Calls are not available while a block is active." }, corsHeaders);
+    return;
+  }
+
+  const callEvents = pruneCallEvents(await readJsonFile(CALL_EVENTS_FILE, []));
+  const event = {
+    callId,
+    callKind,
+    candidate,
+    createdAt: now(),
+    eventId: createCallEventId(),
+    roomId,
+    sdp,
+    senderUserId,
+    status,
+    targetUserId,
+  };
+
+  callEvents.push(event);
+  await writeJsonFile(CALL_EVENTS_FILE, pruneCallEvents(callEvents));
+
+  sendJson(response, 200, { event, ok: true }, corsHeaders);
+}
+
+async function handleCallEventsList(request, response, corsHeaders, url) {
+  const userId = url.searchParams.get("userId") || getHeaderValue(request, "x-kodiak-user-id");
+  const since = Number(url.searchParams.get("since") ?? 0);
+
+  if (!isValidMatrixUserId(userId)) {
+    sendJson(response, 400, { error: "Invalid Matrix userId." }, corsHeaders);
+    return;
+  }
+
+  const blockStore = await readJsonFile(BLOCKS_FILE, {});
+  const callEvents = pruneCallEvents(await readJsonFile(CALL_EVENTS_FILE, []));
+  const visibleEvents = callEvents
+    .filter((event) => event.senderUserId === userId || event.targetUserId === userId)
+    .filter((event) => Number(event.createdAt ?? 0) > since)
+    .filter((event) => !hasEitherUserBlocked(blockStore, event.senderUserId, event.targetUserId))
+    .slice(-100);
+
+  if (visibleEvents.length !== callEvents.length) {
+    await writeJsonFile(CALL_EVENTS_FILE, callEvents);
+  }
+
+  sendJson(response, 200, {
+    events: visibleEvents,
+    nextSince: visibleEvents.reduce((latest, event) => Math.max(latest, Number(event.createdAt ?? 0)), since),
+  }, corsHeaders);
+}
 async function handleBlockState(request, response, corsHeaders, url) {
   const userId = url.searchParams.get("userId") || getHeaderValue(request, "x-kodiak-user-id");
 
@@ -1380,6 +1477,16 @@ const server = createServer(async (request, response) => {
 
     if (request.method === "POST" && url.pathname === "/api/push/call") {
       await handleCallPush(request, response, corsHeaders);
+      return;
+    }
+
+    if (request.method === "POST" && url.pathname === "/api/calls/events") {
+      await handleCallEventPost(request, response, corsHeaders);
+      return;
+    }
+
+    if (request.method === "GET" && url.pathname === "/api/calls/events") {
+      await handleCallEventsList(request, response, corsHeaders, url);
       return;
     }
 
