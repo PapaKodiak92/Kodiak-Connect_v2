@@ -36,6 +36,25 @@ function isKodiakInstalledAppRuntime() {
   return Boolean(kodiakGlobal.__TAURI__ || kodiakGlobal.__TAURI_INTERNALS__);
 }
 
+function isKodiakLinuxTauriRuntime() {
+  const kodiakGlobal = globalThis as typeof globalThis & {
+    __TAURI__?: unknown;
+    __TAURI_INTERNALS__?: unknown;
+  };
+  const kodiakWindow = window as typeof window & {
+    __TAURI__?: unknown;
+    __TAURI_INTERNALS__?: unknown;
+  };
+
+  return Boolean(
+    /Linux/i.test(navigator.userAgent) &&
+      (kodiakGlobal.__TAURI__ ||
+        kodiakGlobal.__TAURI_INTERNALS__ ||
+        kodiakWindow.__TAURI__ ||
+        kodiakWindow.__TAURI_INTERNALS__),
+  );
+}
+
 function isKodiakTrustedAppProtocol(protocol: string) {
   return protocol === 'tauri:' || protocol === 'asset:' || protocol === 'app:';
 }
@@ -117,6 +136,10 @@ export function isKodiakMicrophoneSecureContext() {
 }
 
 export function isKodiakRtcAvailable() {
+  if (isKodiakLinuxTauriRuntime()) {
+    return true;
+  }
+
   const rtcGlobal = globalThis as typeof globalThis & {
     webkitRTCPeerConnection?: typeof RTCPeerConnection;
   };
@@ -168,6 +191,16 @@ export async function requestKodiakMicrophonePermission(): Promise<KodiakMicroph
     const state: KodiakMicrophonePermissionState = {
       message: 'Microphone access requires HTTPS, localhost, or the installed Kodiak Connect app.',
       status: 'blocked',
+    };
+
+    saveKodiakMicrophonePermission(state);
+    return state;
+  }
+
+  if (isKodiakLinuxTauriRuntime()) {
+    const state: KodiakMicrophonePermissionState = {
+      message: 'Linux desktop voice calls use Kodiak Connect native audio. No browser microphone permission is required.',
+      status: 'granted',
     };
 
     saveKodiakMicrophonePermission(state);
@@ -228,7 +261,6 @@ export async function requestKodiakMicrophonePermission(): Promise<KodiakMicroph
   }
 }
 
-
 export function readKodiakCameraPermission(): KodiakMicrophonePermissionState {
   try {
     const storedValue = window.localStorage.getItem(CAMERA_PERMISSION_STORAGE_KEY);
@@ -258,6 +290,16 @@ export async function requestKodiakCameraPermission(): Promise<KodiakMicrophoneP
     const state: KodiakMicrophonePermissionState = {
       message: 'Camera access requires HTTPS, localhost, or the installed Kodiak Connect app.',
       status: 'blocked',
+    };
+
+    saveKodiakCameraPermission(state);
+    return state;
+  }
+
+  if (isKodiakLinuxTauriRuntime()) {
+    const state: KodiakMicrophonePermissionState = {
+      message: 'Linux desktop native calling is voice-only right now. Camera support is not enabled in the Linux app yet.',
+      status: 'unavailable',
     };
 
     saveKodiakCameraPermission(state);
