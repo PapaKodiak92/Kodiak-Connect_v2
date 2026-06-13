@@ -1,3 +1,4 @@
+import { readKodiakBuildTarget } from './buildTarget';
 import type { KodiakDesktopOs, KodiakPlatformInfo } from './platformTypes';
 
 type KodiakWindowRuntime = typeof window & {
@@ -42,7 +43,7 @@ export function detectPlatformInfo(): KodiakPlatformInfo {
   const runtimeWindow = window as KodiakWindowRuntime;
   const userAgent = navigator.userAgent;
   const normalizedUserAgent = userAgent.toLowerCase();
-  const buildTarget = 'auto';
+  const buildTarget = readKodiakBuildTarget();
 
   if (hasTauriRuntime(runtimeWindow)) {
     return {
