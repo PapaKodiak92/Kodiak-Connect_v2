@@ -1,11 +1,12 @@
 import { createHash } from 'node:crypto';
-import { createWriteStream } from 'node:fs';
+import { createReadStream, createWriteStream } from 'node:fs';
 import { mkdir, rename, rm, stat } from 'node:fs/promises';
-import { basename, extname, join } from 'node:path';
+import { basename, extname, join, normalize, resolve, sep } from 'node:path';
 import { once } from 'node:events';
 
 const DEFAULT_LIBRARY_DIR = join(process.cwd(), 'backend', 'data', 'kodiak-music-library');
 const MUSIC_LIBRARY_DIR = String(process.env.KODIAK_MUSIC_LIBRARY_DIR || DEFAULT_LIBRARY_DIR).trim();
+const MUSIC_LIBRARY_ROOT = resolve(MUSIC_LIBRARY_DIR);
 const MAX_UPLOAD_BYTES = Math.max(Number(process.env.KODIAK_MUSIC_MAX_UPLOAD_BYTES ?? 157286400), 1024 * 1024);
 const ALLOWED_AUDIO_EXTENSIONS = new Set(['.aac', '.flac', '.m4a', '.mp3', '.ogg', '.opus', '.wav']);
 
@@ -62,6 +63,22 @@ async function ensureMusicStorageDirs() {
   await mkdir(audioDir, { recursive: true });
 
   return { audioDir, incomingDir };
+}
+
+function resolveLibraryFileKey(fileKey) {
+  const cleanKey = normalize(String(fileKey ?? '').replace(/^[/\\]+/, ''));
+
+  if (!cleanKey || cleanKey.startsWith('..') || cleanKey.includes(`..${sep}`)) {
+    throw new Error('Invalid Kodiak-Music file key.');
+  }
+
+  const absolutePath = resolve(MUSIC_LIBRARY_ROOT, cleanKey);
+
+  if (absolutePath !== MUSIC_LIBRARY_ROOT && !absolutePath.startsWith(`${MUSIC_LIBRARY_ROOT}${sep}`)) {
+    throw new Error('Kodiak-Music file key escaped the library directory.');
+  }
+
+  return absolutePath;
 }
 
 export async function writeKodiakMusicUploadStream({ request, uploadId, expectedSha256, fileName, requestMimeType = '' }) {
@@ -130,4 +147,78 @@ export async function writeKodiakMusicUploadStream({ request, uploadId, expected
     await rm(tempPath, { force: true });
     throw error;
   }
+}
+
+export async function streamKodiakMusicFile({ response, fileKey, mimeType = '', rangeHeader = '', downloadName = '' }) {
+  const filePath = resolveLibraryFileKey(fileKey);
+  const fileStats = await stat(filePath);
+  const totalBytes = fileStats.size;
+
+  if (!totalBytes) {
+    response.writeHead(416, {
+      'Content-Range': 'bytes */0',
+    });
+    response.end();
+    return;
+  }
+
+  const headers = {
+    'Accept-Ranges': 'bytes',
+    'Cache-Control': 'private, max-age=3600',
+    'Content-Type': mimeType || getMimeTypeForExtension(extname(filePath).toLowerCase(), 'application/octet-stream'),
+  };
+
+  if (downloadName) {
+    headers['Content-Disposition'] = `inline; filename="${sanitizeFileName(downloadName)}"`;
+  }
+
+  const range = String(rangeHeader ?? '').trim();
+
+  if (range) {
+    const match = range.match(/^bytes=(\d*)-(\d*)$/);
+
+    if (!match) {
+      response.writeHead(416, {
+        ...headers,
+        'Content-Range': `bytes */${totalBytes}`,
+      });
+      response.end();
+      return;
+    }
+
+    let start = match[1] ? Number(match[1]) : 0;
+    let end = match[2] ? Number(match[2]) : totalBytes - 1;
+
+    if (!match[1] && match[2]) {
+      const suffixLength = Number(match[2]);
+      start = Math.max(totalBytes - suffixLength, 0);
+      end = totalBytes - 1;
+    }
+
+    if (!Number.isFinite(start) || !Number.isFinite(end) || start < 0 || end < start || start >= totalBytes) {
+      response.writeHead(416, {
+        ...headers,
+        'Content-Range': `bytes */${totalBytes}`,
+      });
+      response.end();
+      return;
+    }
+
+    end = Math.min(end, totalBytes - 1);
+
+    response.writeHead(206, {
+      ...headers,
+      'Content-Length': String(end - start + 1),
+      'Content-Range': `bytes ${start}-${end}/${totalBytes}`,
+    });
+
+    createReadStream(filePath, { start, end }).pipe(response);
+    return;
+  }
+
+  response.writeHead(200, {
+    ...headers,
+    'Content-Length': String(totalBytes),
+  });
+  createReadStream(filePath).pipe(response);
 }
