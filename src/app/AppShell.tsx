@@ -20,9 +20,6 @@ import { usePlatformInfo } from '../platform/usePlatformInfo';
 
 type AppState = 'booting' | 'checking-update' | 'update-required' | 'login' | 'workspace';
 
-const KODIAK_API_BASE_URL =
-  (import.meta.env.VITE_KODIAK_API_BASE_URL as string | undefined)?.trim().replace(/\/+$/, '') || 'https://api.kodiak-connect.com';
-
 const launcherLinks = [
   {
     href: 'mailto:support@kodiak-connect.com?subject=Kodiak%20Connect%20Support',
@@ -96,7 +93,7 @@ async function checkEndpointHealth(url: string) {
 async function checkServerHealth() {
   await Promise.all([
     checkEndpointHealth(`${kodiakEnv.authApiBaseUrl}/api/auth/health`),
-    checkEndpointHealth(`${KODIAK_API_BASE_URL}/api/health`),
+    checkEndpointHealth(`${kodiakEnv.apiBaseUrl}/api/health`),
   ]);
 }
 
@@ -108,7 +105,11 @@ export function AppShell() {
   const updaterOnline = true;
   const isMobile = platform.kind === 'android';
   const isWeb = platform.kind === 'web';
-  const platformLabel = isMobile ? 'Mobile' : platform.kind === 'desktop' ? 'Desktop' : 'Web';
+  const platformLabel = isMobile
+    ? 'Android'
+    : platform.kind === 'desktop'
+      ? `Desktop${platform.desktopOs ? ` / ${platform.desktopOs}` : ''}`
+      : 'Web';
   const hasCheckedStoredLoginRef = useRef(false);
 
   useEffect(() => {
