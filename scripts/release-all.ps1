@@ -232,8 +232,28 @@ test -f '$RemoteLinuxDir/$RemoteLinuxDeb.sig'
   }
 
   Invoke-Step "Verify all remote artifacts before manifest" {
+    $VerifyScript = @"
+set -e
+for artifact in \
+  '$RemoteWindowsDir/$RemoteWindowsMsi' \
+  '$RemoteWindowsDir/$RemoteWindowsMsi.sig' \
+  '$RemoteLinuxDir/$RemoteLinuxDeb' \
+  '$RemoteLinuxDir/$RemoteLinuxDeb.sig' \
+  '$RemoteAndroidDir/$RemoteAndroidApk'
+do
+  if [ ! -f "`$artifact" ]; then
+    echo "Missing remote artifact: `$artifact" >&2
+    exit 1
+  fi
+
+  echo "Verified remote artifact: `$artifact"
+done
+"@
+
+    $VerifyScript = ($VerifyScript -replace "`r`n", "`n").TrimStart() + "`n"
+
     Invoke-NativeChecked -ErrorMessage 'Remote release artifact verification failed' -Command {
-      ssh $VpsHost "test -f '$RemoteWindowsDir/$RemoteWindowsMsi' && test -f '$RemoteWindowsDir/$RemoteWindowsMsi.sig' && test -f '$RemoteLinuxDir/$RemoteLinuxDeb' && test -f '$RemoteLinuxDir/$RemoteLinuxDeb.sig' && test -f '$RemoteAndroidDir/$RemoteAndroidApk'"
+      ssh $VpsHost $VerifyScript
     }
   }
 
