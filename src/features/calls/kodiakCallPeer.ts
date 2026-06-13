@@ -43,12 +43,16 @@ function isLinuxTauriRuntime() {
 }
 
 export function shouldUseKodiakNativeLinuxRtcPeer() {
-  return isLinuxTauriRuntime() && !isKodiakWebRtcSupported();
+  return isLinuxTauriRuntime();
 }
 
 export function createKodiakCallPeer(options: KodiakVoiceCallPeerOptions): KodiakCallPeer {
-  if (shouldUseKodiakNativeLinuxRtcPeer()) {
+  if (options.callKind === 'voice' && shouldUseKodiakNativeLinuxRtcPeer()) {
     return new KodiakNativeLinuxRtcCallPeer(options);
+  }
+
+  if (!isKodiakWebRtcSupported()) {
+    throw new Error('Kodiak Connect WebRTC is not available in this app runtime.');
   }
 
   return new KodiakVoiceCallPeer(options);
