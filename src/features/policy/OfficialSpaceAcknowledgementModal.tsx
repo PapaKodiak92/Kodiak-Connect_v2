@@ -10,7 +10,7 @@ export function OfficialSpaceAcknowledgementModal({ onAcknowledge }: OfficialSpa
       <section className="policy-modal" role="dialog" aria-modal="true" aria-labelledby="official-space-rules-title">
         <div className="policy-modal__brand">
           <div className="brand-orb">
-            <img src="/kodiak-connect-icon.png" alt="" />
+            <img src="kodiak-connect-icon.png" alt="" />
           </div>
 
           <div>

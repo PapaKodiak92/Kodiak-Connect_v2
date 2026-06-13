@@ -1,4 +1,4 @@
-﻿import { useEffect, useMemo, useState, type FormEvent } from 'react';
+import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import type { MatrixLoginIdentity } from '../auth/matrixLoginService';
 import {
   addKodiakReportNote,
@@ -503,7 +503,7 @@ export function ChatPlaceholder({ activeChannel, activeSpace, identity }: ChatPl
           <>
             <article className={`welcome-message ${activeChannel.id === 'general' ? '' : 'welcome-message--compact'}`}>
               <div className="brand-orb">
-                <img src="/kodiak-connect-icon.png" alt="" />
+                <img src="kodiak-connect-icon.png" alt="" />
               </div>
 
               <div>

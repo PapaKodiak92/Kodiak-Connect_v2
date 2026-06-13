@@ -267,7 +267,7 @@ export function AppShell() {
 
           <div className="launcher-card__intro">
             <div className="brand-orb">
-              <img src="/kodiak-connect-icon.png" alt="" />
+              <img src="kodiak-connect-icon.png" alt="" />
             </div>
 
             <div>

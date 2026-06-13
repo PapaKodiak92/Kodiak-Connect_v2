@@ -109,7 +109,7 @@ export function WindowTitleBar({ platformKind }: WindowTitleBarProps) {
     <>
       <header className="window-titlebar" onMouseDown={handleTitleBarMouseDown} onDoubleClick={() => void toggleMaximizeWindow()}>
         <div className="window-titlebar__brand">
-          <img src="/kodiak-connect-icon.png" alt="" />
+          <img src="kodiak-connect-icon.png" alt="" />
           <span>Kodiak Connect</span>
         </div>
 

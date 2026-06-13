@@ -93,7 +93,7 @@ export async function showKodiakDesktopNotification(options: KodiakDesktopNotifi
 
   const notification = new Notification(options.title, {
     body,
-    icon: '/favicon.ico',
+    icon: 'favicon.ico',
     silent: true,
     tag: options.tag,
   });

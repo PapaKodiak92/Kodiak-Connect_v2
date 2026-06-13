@@ -391,7 +391,7 @@ export function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
       <section className={`login-card login-card--${mode}`} aria-label="Kodiak Connect login">
         <div className="login-card__brand">
           <div className="brand-orb brand-orb--large">
-            <img src="/kodiak-connect-icon.png" alt="" />
+            <img src="kodiak-connect-icon.png" alt="" />
           </div>
 
           <div>

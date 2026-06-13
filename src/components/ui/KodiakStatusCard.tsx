@@ -30,7 +30,7 @@ export function KodiakStatusCard({
       <div className="kodiak-status-card__header">
         {showIcon ? (
           <div className="brand-orb" aria-hidden="true">
-            <img src="/kodiak-connect-icon.png" alt="" />
+            <img src="kodiak-connect-icon.png" alt="" />
           </div>
         ) : null}
         <div>
