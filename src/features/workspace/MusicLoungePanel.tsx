@@ -17,6 +17,60 @@ interface MusicLoungePanelProps {
   identity: MatrixLoginIdentity;
 }
 
+
+interface KodiakMusicLibraryTrack {
+  albumTitle: string;
+  artistName: string;
+  durationMs: number;
+  explicit: boolean;
+  genreNames: string[];
+  id: string;
+  sourceKind: string;
+  streamPath: string;
+  title: string;
+}
+
+const KODIAK_API_BASE_URL =
+  (import.meta.env.VITE_KODIAK_API_BASE_URL as string | undefined)?.trim() || 'https://api.kodiak-connect.com';
+
+function getMusicHeaders(identity: MatrixLoginIdentity) {
+  return {
+    'Content-Type': 'application/json',
+    'X-Kodiak-User-Id': identity.userId,
+  };
+}
+
+async function searchKodiakMusicLibrary(identity: MatrixLoginIdentity, query: string, limit = 8) {
+  const response = await fetch(
+    `${KODIAK_API_BASE_URL}/api/music/library/search?userId=${encodeURIComponent(identity.userId)}&q=${encodeURIComponent(query)}&limit=${encodeURIComponent(String(limit))}`,
+    { headers: getMusicHeaders(identity) },
+  );
+
+  if (!response.ok) {
+    throw new Error('Kodiak-Music library search failed.');
+  }
+
+  const data = (await response.json()) as { tracks?: KodiakMusicLibraryTrack[] };
+  return data.tracks ?? [];
+}
+
+async function createKodiakMusicSongRequest(
+  identity: MatrixLoginIdentity,
+  request: { artistName?: string; note?: string; referenceUrl?: string; title: string },
+) {
+  const response = await fetch(`${KODIAK_API_BASE_URL}/api/music/requests`, {
+    method: 'POST',
+    headers: getMusicHeaders(identity),
+    body: JSON.stringify({ ...request, userId: identity.userId }),
+  });
+
+  if (!response.ok) {
+    throw new Error('Kodiak-Music song request failed.');
+  }
+
+  return await response.json();
+}
+
 interface MusicVibe {
   id: string;
   title: string;
@@ -31,7 +85,7 @@ const MUSIC_VIBES: MusicVibe[] = [
     id: 'open-library',
     title: 'Open Library',
     subtitle: 'The default Kodiak-Music mix.',
-    description: 'A broad room mix pulled from approved library tracks, requests, and community-safe picks.',
+    description: 'A broad room mix pulled from Lupercus-curated library tracks, requests, and community-safe picks.',
     accent: 'Library Mode',
     tags: ['library', 'mixed', 'community'],
   },
@@ -86,7 +140,7 @@ const MUSIC_VIBES: MusicVibe[] = [
 ];
 
 const LOUNGE_GUIDELINES = [
-  'Library-first playback.',
+  'Library curated by Lupercus.',
   'YouTube links stay external for now.',
   'Requests need moderator/library review.',
 ];
@@ -132,12 +186,16 @@ function getSourceLabel(url: string | undefined) {
       return 'YouTube link';
     }
 
-    if (hostname.includes('spotify.com')) {
-      return 'External link';
+    if (url.includes('/api/music/stream/')) {
+      return 'Kodiak-Music library';
     }
 
     return 'External link';
   } catch {
+    if (url.startsWith('/api/music/stream/')) {
+      return 'Kodiak-Music library';
+    }
+
     return 'Library candidate';
   }
 }
@@ -156,10 +214,15 @@ function getOpenTrackLabel(url: string | undefined) {
   return 'Open source';
 }
 
+function getLibraryTrackTitle(track: KodiakMusicLibraryTrack) {
+  return [track.title, track.artistName].filter(Boolean).join(' - ');
+}
+
 export function MusicLoungePanel({ identity }: MusicLoungePanelProps) {
   const [activeVibeId, setActiveVibeId] = useState(getDefaultVibeId);
   const [localVote, setLocalVote] = useState<'up' | 'down' | null>(null);
   const [searchDraft, setSearchDraft] = useState('');
+  const [searchResults, setSearchResults] = useState<KodiakMusicLibraryTrack[]>([]);
   const [queueTitleDraft, setQueueTitleDraft] = useState('');
   const [queueUrlDraft, setQueueUrlDraft] = useState('');
   const [requestTitleDraft, setRequestTitleDraft] = useState('');
@@ -167,7 +230,7 @@ export function MusicLoungePanel({ identity }: MusicLoungePanelProps) {
   const [loungeState, setLoungeState] = useState<KodiakMusicLoungeState | null>(null);
   const [isSyncing, setIsSyncing] = useState(false);
   const [statusMessage, setStatusMessage] = useState('Loading shared lounge state...');
-  const [libraryMessage, setLibraryMessage] = useState('Kodiak-Music library search will connect to the VPS catalog next.');
+  const [libraryMessage, setLibraryMessage] = useState('Kodiak-Music library search is ready once the VPS catalog is configured.');
 
   const activeVibe = MUSIC_VIBES.find((vibe) => vibe.id === activeVibeId) ?? MUSIC_VIBES[0];
 
@@ -285,11 +348,24 @@ export function MusicLoungePanel({ identity }: MusicLoungePanelProps) {
       return;
     }
 
-    setLibraryMessage('Sending request into the shared lounge queue...');
-    await addSharedQueueTrack(`Request: ${title}`, url);
-    setRequestTitleDraft('');
-    setRequestUrlDraft('');
-    setLibraryMessage('Request added. Dedicated request review storage comes with the Kodiak-Music catalog backend.');
+    setLibraryMessage('Sending request for Lupercus/library review...');
+
+    try {
+      await createKodiakMusicSongRequest(identity, {
+        referenceUrl: url,
+        title,
+      });
+
+      setRequestTitleDraft('');
+      setRequestUrlDraft('');
+      setLibraryMessage('Request sent for Lupercus/library review.');
+    } catch (error) {
+      console.error('[Kodiak Music Lounge] Failed to store song request.', error);
+      await addSharedQueueTrack(`Request: ${title}`, url);
+      setRequestTitleDraft('');
+      setRequestUrlDraft('');
+      setLibraryMessage('Request storage is not online yet, so it was added to the shared queue instead.');
+    }
   }
 
   async function removeSharedQueueTrack(trackId: string) {
@@ -371,7 +447,7 @@ export function MusicLoungePanel({ identity }: MusicLoungePanelProps) {
     }
   }
 
-  function stageLibrarySearch() {
+  async function stageLibrarySearch() {
     const query = searchDraft.trim();
 
     if (!query) {
@@ -379,9 +455,27 @@ export function MusicLoungePanel({ identity }: MusicLoungePanelProps) {
       return;
     }
 
-    setQueueTitleDraft(query);
-    setQueueUrlDraft('');
-    setLibraryMessage('Staged as a library candidate. Real VPS catalog search is the next backend step.');
+    setLibraryMessage('Searching the Kodiak-Music catalog...');
+
+    try {
+      const tracks = await searchKodiakMusicLibrary(identity, query, 8);
+      setSearchResults(tracks);
+
+      if (tracks.length > 0) {
+        setLibraryMessage(`Found ${tracks.length} Lupercus-curated library match${tracks.length === 1 ? '' : 'es'}.`);
+        return;
+      }
+
+      setQueueTitleDraft(query);
+      setQueueUrlDraft('');
+      setLibraryMessage('No hosted match yet. Staged as a library candidate for the shared queue.');
+    } catch (error) {
+      console.error('[Kodiak Music Lounge] Failed to search library.', error);
+      setSearchResults([]);
+      setQueueTitleDraft(query);
+      setQueueUrlDraft('');
+      setLibraryMessage('Catalog search is not online yet. Staged as a library candidate for the shared queue.');
+    }
   }
 
   const voteCounts = loungeState?.voteCounts ?? { up: 0, down: 0 };
@@ -399,8 +493,8 @@ export function MusicLoungePanel({ identity }: MusicLoungePanelProps) {
           <p className="eyebrow eyebrow--ember">Kodiak-Music Lounge</p>
           <h2>Library-powered listening.</h2>
           <p>
-            Music Lounge is the shared social room. Kodiak-Music is the player that will follow users across the app for private listening,
-            library search, requests, and lounge voting.
+            Music Lounge is the shared social room. Kodiak-Music is the player. Lupercus curates the library that powers the room from
+            a personal 7,000+ track collection.
           </p>
         </div>
 
@@ -414,18 +508,18 @@ export function MusicLoungePanel({ identity }: MusicLoungePanelProps) {
       <section className="music-lounge-library" aria-label="Kodiak-Music library status">
         <div>
           <p className="eyebrow eyebrow--ember">Kodiak-Music Library</p>
-          <h3>VPS-hosted catalog is next.</h3>
+          <h3>Curated by Lupercus.</h3>
           <p>
-            The sync tool will upload approved music to the VPS, store searchable metadata in Postgres, and keep your friend&apos;s machine
+            Lupercus Library Sync will upload approved music to the VPS, store searchable metadata in Postgres, and keep his machine
             from being required for playback.
           </p>
           <small>{libraryMessage}</small>
         </div>
 
         <div className="music-lounge-library__actions">
-          <span>Sync Tool Pending</span>
-          <span>Postgres Catalog Pending</span>
-          <span>Streaming API Pending</span>
+          <span>Lupercus Library Sync</span>
+          <span>Postgres Catalog</span>
+          <span>Streaming API Next</span>
         </div>
       </section>
 
@@ -472,14 +566,14 @@ export function MusicLoungePanel({ identity }: MusicLoungePanelProps) {
       <section className="music-lounge-search" aria-label="Kodiak-Music library search">
         <div>
           <p className="eyebrow eyebrow--ember">Library Search</p>
-          <h3>Find a hosted song or stage a candidate.</h3>
-          <p>Search will hit the VPS catalog once the Postgres-backed library lands. For now, it stages a title into the lounge queue form.</p>
+          <h3>Find a Lupercus-curated song.</h3>
+          <p>Search the hosted catalog once the VPS database is configured, or stage a missing song as a candidate.</p>
         </div>
 
         <form
           onSubmit={(event) => {
             event.preventDefault();
-            stageLibrarySearch();
+            void stageLibrarySearch();
           }}
         >
           <input
@@ -487,8 +581,32 @@ export function MusicLoungePanel({ identity }: MusicLoungePanelProps) {
             onChange={(event) => setSearchDraft(event.target.value)}
             placeholder="Search songs, artists, albums, genres..."
           />
-          <button type="submit">Stage for queue</button>
+          <button type="submit">Search library</button>
         </form>
+
+        {searchResults.length > 0 ? (
+          <div className="music-lounge-queue-list" aria-label="Library search results">
+            {searchResults.map((track) => (
+              <article key={track.id} className="music-lounge-track">
+                <div>
+                  <strong>{getLibraryTrackTitle(track)}</strong>
+                  <small>
+                    {track.albumTitle || 'Kodiak-Music'} - {track.genreNames.length ? track.genreNames.join(', ') : 'Library'}
+                  </small>
+                </div>
+                <div className="music-lounge-track__actions">
+                  <button
+                    type="button"
+                    onClick={() => void addSharedQueueTrack(getLibraryTrackTitle(track), track.streamPath)}
+                    disabled={isSyncing}
+                  >
+                    Add to queue
+                  </button>
+                </div>
+              </article>
+            ))}
+          </div>
+        ) : null}
       </section>
 
       <section className="music-lounge-now-playing" aria-label="Now playing">
@@ -529,7 +647,7 @@ export function MusicLoungePanel({ identity }: MusicLoungePanelProps) {
           <div>
             <p className="eyebrow eyebrow--ember">Lounge Queue</p>
             <h3>Vote on what plays next.</h3>
-            <p>Add a hosted-library candidate, request, or approved YouTube link. This queue is shared for everyone in the lounge.</p>
+            <p>Add a hosted-library pick, request, or approved YouTube link. This queue is shared for everyone in the lounge.</p>
           </div>
 
           {canModerate ? (
@@ -625,7 +743,7 @@ export function MusicLoungePanel({ identity }: MusicLoungePanelProps) {
           <p className="eyebrow eyebrow--ember">Request a Song</p>
           <h3>Ask for something missing.</h3>
           <p>
-            Requests start in the lounge queue today. The dedicated request review table will arrive with the Kodiak-Music catalog backend.
+            Requests go into the Kodiak-Music review list so Lupercus and moderators can decide what belongs in the hosted library.
           </p>
         </div>
 
