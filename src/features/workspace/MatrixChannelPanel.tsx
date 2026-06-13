@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type
 import { createPortal } from 'react-dom';
 import type { MatrixLoginIdentity } from '../auth/matrixLoginService';
 import { playKodiakSound, stopKodiakCallSounds, unlockKodiakSounds } from '../audio/kodiakSounds';
-import { getKodiakWebRtcUnsupportedMessage, isKodiakWebRtcSupported } from '../calls/kodiakWebRtcCall';
+import { getKodiakWebRtcUnsupportedMessage, isKodiakWebRtcSupported } from '../../platform/calls/browserWebRtcCall';
 import { createKodiakCallPeer, shouldUseKodiakNativeLinuxRtcPeer, type KodiakCallPeer } from '../calls/kodiakCallPeer';
 import { KodiakAttachmentBridge } from '../attachments/KodiakAttachmentBridge';
 import { isKodiakDesktopNotificationAvailable, requestKodiakDesktopNotificationPermission, showKodiakDesktopNotification } from '../notifications/kodiakDesktopNotifications';

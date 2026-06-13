@@ -1,13 +1,7 @@
-import { isKodiakMicrophoneSecureContext, requestKodiakUserMedia } from './callPermissions';
-import type { MatrixCallKind } from '../matrix/matrixRestClient';
+import { isKodiakMicrophoneSecureContext, requestKodiakUserMedia } from '../../features/calls/callPermissions';
+import type { MatrixCallKind } from '../../features/matrix/matrixRestClient';
+import type { KodiakVoiceCallPeerOptions } from '../../features/calls/kodiakCallPeer';
 
-export interface KodiakVoiceCallPeerOptions {
-  callKind: MatrixCallKind;
-  onConnectionStateChange?: (state: RTCPeerConnectionState) => void;
-  onIceCandidate?: (candidate: RTCIceCandidateInit) => void;
-  onLocalStream?: (stream: MediaStream) => void;
-  onRemoteStream?: (stream: MediaStream) => void;
-}
 
 type KodiakRtcPeerConnectionConstructor = new (configuration?: RTCConfiguration) => RTCPeerConnection;
 

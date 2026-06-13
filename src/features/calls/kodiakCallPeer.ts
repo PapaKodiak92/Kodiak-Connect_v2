@@ -1,5 +1,4 @@
 import type { MatrixCallKind } from '../matrix/matrixRestClient';
-import type { KodiakVoiceCallPeerOptions } from './kodiakWebRtcCall';
 import {
   createPlatformCallPeer,
   shouldUsePlatformNativeCallPeer,
@@ -14,6 +13,13 @@ export interface KodiakCallPeer {
   hasCameraEnabled(): boolean;
   setMuted(isMuted: boolean): void;
   close(): void;
+}
+export interface KodiakVoiceCallPeerOptions {
+  callKind: MatrixCallKind;
+  onConnectionStateChange?: (state: RTCPeerConnectionState) => void;
+  onIceCandidate?: (candidate: RTCIceCandidateInit) => void;
+  onLocalStream?: (stream: MediaStream) => void;
+  onRemoteStream?: (stream: MediaStream) => void;
 }
 
 export function shouldUseKodiakNativeLinuxRtcPeer() {

@@ -1,10 +1,6 @@
 import { kodiakPlatform } from '../currentPlatform';
-import type { KodiakCallPeer } from '../../features/calls/kodiakCallPeer';
-import {
-  isKodiakWebRtcSupported,
-  KodiakVoiceCallPeer,
-  type KodiakVoiceCallPeerOptions,
-} from '../../features/calls/kodiakWebRtcCall';
+import type { KodiakCallPeer, KodiakVoiceCallPeerOptions } from '../../features/calls/kodiakCallPeer';
+import { isKodiakWebRtcSupported, KodiakVoiceCallPeer } from './browserWebRtcCall';
 import { KodiakNativeLinuxRtcCallPeer } from './kodiakNativeLinuxRtcCall';
 
 export function shouldUsePlatformNativeCallPeer() {

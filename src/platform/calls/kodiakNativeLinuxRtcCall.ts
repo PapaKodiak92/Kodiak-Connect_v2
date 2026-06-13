@@ -1,7 +1,6 @@
 import { invoke } from '@tauri-apps/api/core';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
-import type { KodiakCallPeer } from '../../features/calls/kodiakCallPeer';
-import type { KodiakVoiceCallPeerOptions } from '../../features/calls/kodiakWebRtcCall';
+import type { KodiakCallPeer, KodiakVoiceCallPeerOptions } from '../../features/calls/kodiakCallPeer';
 
 interface LinuxRtcIceCandidatePayload {
   call_id: string;
