@@ -78,9 +78,12 @@
                                 "category":  "Network",
                                 "executableName":  "kodiak-connect",
                                 "maintainer":  "Kodiak Holdings LLC \u003csupport@kodiak-connect.com\u003e",
-                                "icon":  "electron/icon.png"
+                                "icon":  "electron/icon.png",
+                                "desktopName":  "kodiak-connect",
+                                "syncDesktopName":  true
                             },
                   "icon":  "electron/icon.png"
               },
-    "description":  "Secure chat, calls, and community messaging for Kodiak Connect."
+    "description":  "Secure chat, calls, and community messaging for Kodiak Connect.",
+    "author":  "Kodiak Holdings LLC \u003csupport@kodiak-connect.com\u003e"
 }
