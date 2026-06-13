@@ -211,6 +211,10 @@ function getOpenTrackLabel(url: string | undefined) {
     return 'Open link';
   }
 
+  if (sourceLabel === 'Kodiak-Music library') {
+    return 'Open stream';
+  }
+
   return 'Open source';
 }
 
@@ -218,14 +222,47 @@ function getLibraryTrackTitle(track: KodiakMusicLibraryTrack) {
   return [track.title, track.artistName].filter(Boolean).join(' - ');
 }
 
-function getKodiakMusicStreamUrl(identity: MatrixLoginIdentity, track: KodiakMusicLibraryTrack) {
-  const streamPathParts = track.streamPath.split('/').filter(Boolean);
-  const streamId = track.id || streamPathParts[streamPathParts.length - 1] || '';
+function getKodiakMusicStreamId(source: string | undefined) {
+  if (!source) {
+    return '';
+  }
 
+  try {
+    const parsed = new URL(source, KODIAK_API_BASE_URL);
+    const parts = parsed.pathname.split('/').filter(Boolean);
+    return parts[parts.length - 1] ?? '';
+  } catch {
+    const parts = source.split('?')[0].split('/').filter(Boolean);
+    return parts[parts.length - 1] ?? '';
+  }
+}
+
+function getKodiakMusicStreamUrlById(identity: MatrixLoginIdentity, streamId: string) {
   const url = new URL(`/api/music/stream/${encodeURIComponent(streamId)}`, KODIAK_API_BASE_URL);
   url.searchParams.set('userId', identity.userId);
 
   return url.toString();
+}
+
+function getKodiakMusicStreamUrl(identity: MatrixLoginIdentity, track: KodiakMusicLibraryTrack) {
+  return getKodiakMusicStreamUrlById(identity, track.id || getKodiakMusicStreamId(track.streamPath));
+}
+
+function isKodiakMusicStreamSource(url: string | undefined) {
+  return getSourceLabel(url) === 'Kodiak-Music library';
+}
+
+function getPlayableSourceUrl(identity: MatrixLoginIdentity, url: string | undefined) {
+  if (!url) {
+    return '';
+  }
+
+  if (isKodiakMusicStreamSource(url)) {
+    const streamId = getKodiakMusicStreamId(url);
+    return streamId ? getKodiakMusicStreamUrlById(identity, streamId) : '';
+  }
+
+  return url;
 }
 
 export function MusicLoungePanel({ identity }: MusicLoungePanelProps) {
@@ -505,6 +542,10 @@ export function MusicLoungePanel({ identity }: MusicLoungePanelProps) {
   const selectedAt = formatSyncTime(loungeState?.selectedAt ?? 0);
   const queue = loungeState?.queue ?? [];
   const nowPlaying = loungeState?.nowPlaying ?? null;
+  const nowPlayingStreamUrl = nowPlaying?.url && isKodiakMusicStreamSource(nowPlaying.url)
+    ? getPlayableSourceUrl(identity, nowPlaying.url)
+    : '';
+  const nowPlayingOpenUrl = nowPlaying?.url ? getPlayableSourceUrl(identity, nowPlaying.url) : '';
   const canModerate = Boolean(loungeState?.canModerate);
   const canClearQueue = canModerate && queue.length > 0;
 
@@ -696,8 +737,23 @@ export function MusicLoungePanel({ identity }: MusicLoungePanelProps) {
         </div>
 
         <div className="music-lounge-now-playing__actions">
-          {nowPlaying?.url ? (
-            <a href={nowPlaying.url} target="_blank" rel="noreferrer">
+          {nowPlayingStreamUrl ? (
+            <div className="music-lounge-shared-player">
+              <span>Shared lounge audio</span>
+              <audio
+                key={nowPlaying?.id ?? nowPlayingStreamUrl}
+                controls
+                autoPlay
+                preload="metadata"
+                src={nowPlayingStreamUrl}
+              >
+                Your browser cannot play this Kodiak-Music lounge track.
+              </audio>
+              <small>Everyone in the lounge can listen here. Press play if your browser blocks auto-play.</small>
+            </div>
+          ) : null}
+          {nowPlaying?.url && nowPlayingOpenUrl ? (
+            <a href={nowPlayingOpenUrl} target="_blank" rel="noreferrer">
               {getOpenTrackLabel(nowPlaying.url)}
             </a>
           ) : null}

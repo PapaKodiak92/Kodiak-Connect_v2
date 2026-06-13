@@ -341,6 +341,35 @@
   text-decoration: none;
 }
 
+.music-lounge-shared-player {
+  display: grid;
+  flex: 1 1 360px;
+  gap: 0.45rem;
+  min-width: min(100%, 340px);
+  border: 1px solid rgba(251, 146, 60, 0.2);
+  border-radius: 18px;
+  background: rgba(15, 23, 42, 0.58);
+  padding: 0.75rem;
+}
+
+.music-lounge-shared-player span {
+  color: #fed7aa;
+  font-size: 0.72rem;
+  font-weight: 900;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.music-lounge-shared-player audio {
+  width: 100%;
+  min-width: 0;
+}
+
+.music-lounge-shared-player small {
+  color: #cbd5e1;
+  font-weight: 800;
+}
+
 .music-lounge-private-player {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(260px, 420px);
