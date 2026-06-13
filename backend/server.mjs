@@ -4,6 +4,13 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { AccessToken } from "livekit-server-sdk";
 import { sendPushToUser, sendPushToUsers } from "./pushDelivery.mjs";
+import {
+  handleSpotifyCallback,
+  handleSpotifyDisconnect,
+  handleSpotifyLogin,
+  handleSpotifyStatus,
+  handleSpotifyToken,
+} from "./spotifyAuth.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const DATA_DIR = process.env.KODIAK_DATA_DIR
@@ -1990,6 +1997,31 @@ const server = createServer(async (request, response) => {
   try {
     if (request.method === "GET" && url.pathname === "/api/health") {
       sendJson(response, 200, { ok: true, service: "kodiak-connect-backend", time: new Date().toISOString() }, corsHeaders);
+      return;
+    }
+
+    if (request.method === "GET" && url.pathname === "/api/spotify/login") {
+      await handleSpotifyLogin(request, response, corsHeaders, url);
+      return;
+    }
+
+    if (request.method === "GET" && url.pathname === "/api/spotify/callback") {
+      await handleSpotifyCallback(request, response, corsHeaders, url);
+      return;
+    }
+
+    if (request.method === "GET" && url.pathname === "/api/spotify/status") {
+      await handleSpotifyStatus(request, response, corsHeaders, url);
+      return;
+    }
+
+    if (request.method === "GET" && url.pathname === "/api/spotify/token") {
+      await handleSpotifyToken(request, response, corsHeaders, url);
+      return;
+    }
+
+    if (request.method === "POST" && url.pathname === "/api/spotify/disconnect") {
+      await handleSpotifyDisconnect(request, response, corsHeaders);
       return;
     }
 

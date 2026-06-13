@@ -8,6 +8,28 @@ export type KodiakReportActionType = 'reply' | 'note' | 'status' | 'archive' | '
 export type KodiakPushPlatform = 'android' | 'web' | 'tauri-desktop';
 export type KodiakPushProvider = 'fcm' | 'web-push' | 'local';
 
+export interface KodiakSpotifyProfile {
+  displayName: string;
+  email: string;
+  id: string;
+  product: string;
+}
+
+export interface KodiakSpotifyStatus {
+  configured: boolean;
+  connected: boolean;
+  connectedAt?: number;
+  expiresAt?: number;
+  profile?: KodiakSpotifyProfile | null;
+  scope?: string;
+}
+
+export interface KodiakSpotifyTokenResponse {
+  accessToken: string;
+  expiresAt: number;
+  profile?: KodiakSpotifyProfile | null;
+}
+
 export interface KodiakMusicLoungeTrack {
   addedAt: number;
   addedByUserId: string;
@@ -621,4 +643,45 @@ export async function voteKodiakMusicLoungeQueueTrack(
   );
 
   return data.state ?? null;
+}
+export function getKodiakSpotifyLoginUrl(identity: MatrixLoginIdentity) {
+  return `${KODIAK_API_BASE_URL}/api/spotify/login?userId=${encodeURIComponent(identity.userId)}`;
+}
+
+export async function loadKodiakSpotifyStatus(identity: MatrixLoginIdentity) {
+  const response = await fetch(
+    `${KODIAK_API_BASE_URL}/api/spotify/status?userId=${encodeURIComponent(identity.userId)}`,
+    {
+      headers: getHeaders(identity),
+    },
+  );
+
+  if (!response.ok) {
+    throw new Error('Kodiak Spotify status request failed.');
+  }
+
+  return (await response.json()) as KodiakSpotifyStatus;
+}
+
+export async function loadKodiakSpotifyPlaybackToken(identity: MatrixLoginIdentity) {
+  const response = await fetch(
+    `${KODIAK_API_BASE_URL}/api/spotify/token?userId=${encodeURIComponent(identity.userId)}`,
+    {
+      headers: getHeaders(identity),
+    },
+  );
+
+  if (!response.ok) {
+    throw new Error('Kodiak Spotify token request failed.');
+  }
+
+  return (await response.json()) as KodiakSpotifyTokenResponse;
+}
+
+export async function disconnectKodiakSpotify(identity: MatrixLoginIdentity) {
+  return await postKodiak<{ connected: boolean; ok: boolean }>(
+    identity,
+    '/api/spotify/disconnect',
+    {},
+  );
 }
