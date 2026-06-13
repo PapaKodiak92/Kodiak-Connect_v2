@@ -195,7 +195,7 @@ fn create_offer_for_peer(peer: &LinuxRtcPeer) -> Result<String, String> {
                         .map_err(gst_error)
                 }),
             Ok(None) => Err("Linux native RTC offer promise had no reply.".to_string()),
-            Err(error) => Err(gst_error(error)),
+            Err(error) => Err(format!("Linux native RTC promise failed: {error:?}")),
         };
 
         let _ = sender.send(result);
@@ -232,7 +232,7 @@ fn create_answer_for_peer(peer: &LinuxRtcPeer, offer_sdp: &str) -> Result<String
                         .map_err(gst_error)
                 }),
             Ok(None) => Err("Linux native RTC answer promise had no reply.".to_string()),
-            Err(error) => Err(gst_error(error)),
+            Err(error) => Err(format!("Linux native RTC promise failed: {error:?}")),
         };
 
         let _ = sender.send(result);
