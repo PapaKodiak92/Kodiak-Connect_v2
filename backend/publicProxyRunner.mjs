@@ -2,6 +2,7 @@ import { spawn } from 'node:child_process';
 import { createServer, request as httpRequest } from 'node:http';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { handleKodiakMusicApiRequest } from './kodiakMusicApi.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const service = process.argv[2] === 'auth' ? 'auth' : 'backend';
@@ -53,15 +54,7 @@ function startInternalServer() {
   process.on('SIGTERM', () => child.kill('SIGTERM'));
 }
 
-function proxyRequest(clientRequest, clientResponse) {
-  writeCorsHeaders(clientResponse, clientRequest.headers.origin);
-
-  if (clientRequest.method === 'OPTIONS') {
-    clientResponse.writeHead(204);
-    clientResponse.end();
-    return;
-  }
-
+function proxyToInternalServer(clientRequest, clientResponse) {
   const targetRequest = httpRequest(
     {
       headers: clientRequest.headers,
@@ -91,6 +84,27 @@ function proxyRequest(clientRequest, clientResponse) {
   });
 
   clientRequest.pipe(targetRequest);
+}
+
+function proxyRequest(clientRequest, clientResponse) {
+  writeCorsHeaders(clientResponse, clientRequest.headers.origin);
+
+  if (clientRequest.method === 'OPTIONS') {
+    clientResponse.writeHead(204);
+    clientResponse.end();
+    return;
+  }
+
+  if (service === 'backend' && clientRequest.url?.startsWith('/api/music/')) {
+    void handleKodiakMusicApiRequest(clientRequest, clientResponse).then((handled) => {
+      if (!handled) {
+        proxyToInternalServer(clientRequest, clientResponse);
+      }
+    });
+    return;
+  }
+
+  proxyToInternalServer(clientRequest, clientResponse);
 }
 
 startInternalServer();
