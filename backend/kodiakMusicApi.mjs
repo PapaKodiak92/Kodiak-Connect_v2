@@ -5,6 +5,7 @@ import {
   createKodiakMusicUploadIntent,
   getKodiakMusicHealth,
   getKodiakMusicTrackBySha256,
+  getKodiakMusicTrackForStream,
   getKodiakMusicUploadById,
   listKodiakMusicSongRequests,
   markKodiakMusicUploadFailed,
@@ -15,6 +16,7 @@ import {
 } from './kodiakMusicDb.mjs';
 import {
   getKodiakMusicStorageHealth,
+  streamKodiakMusicFile,
   writeKodiakMusicUploadStream,
 } from './kodiakMusicStorage.mjs';
 
@@ -135,6 +137,30 @@ async function handleLibrarySearch(request, response, url) {
   sendJson(response, 200, {
     configured: true,
     tracks,
+  });
+}
+
+async function handleStreamTrack(request, response, url, identifier) {
+  const userId = url.searchParams.get('userId') || getHeaderValue(request, 'x-kodiak-user-id');
+
+  if (!isValidMatrixUserId(userId)) {
+    sendInvalidUser(response);
+    return;
+  }
+
+  const track = await getKodiakMusicTrackForStream(identifier);
+
+  if (!track?.fileKey) {
+    sendJson(response, 404, { error: 'Kodiak-Music track was not found or is not streamable.' });
+    return;
+  }
+
+  await streamKodiakMusicFile({
+    downloadName: [track.title, track.artistName].filter(Boolean).join(' - '),
+    fileKey: track.fileKey,
+    mimeType: track.mimeType,
+    rangeHeader: getHeaderValue(request, 'range') || '',
+    response,
   });
 }
 
@@ -392,6 +418,12 @@ export async function handleKodiakMusicApiRequest(request, response) {
 
     if (request.method === 'GET' && url.pathname === '/api/music/library/search') {
       await handleLibrarySearch(request, response, url);
+      return true;
+    }
+
+    const streamMatch = url.pathname.match(/^\/api\/music\/stream\/([^/]+)$/);
+    if (request.method === 'GET' && streamMatch) {
+      await handleStreamTrack(request, response, url, decodeURIComponent(streamMatch[1]));
       return true;
     }
 
