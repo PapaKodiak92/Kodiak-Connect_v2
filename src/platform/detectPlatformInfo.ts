@@ -42,12 +42,14 @@ export function detectPlatformInfo(): KodiakPlatformInfo {
   const runtimeWindow = window as KodiakWindowRuntime;
   const userAgent = navigator.userAgent;
   const normalizedUserAgent = userAgent.toLowerCase();
+  const buildTarget = 'auto';
 
   if (hasTauriRuntime(runtimeWindow)) {
     return {
       kind: 'desktop',
       runtime: 'tauri-desktop',
       isNativeShell: true,
+      buildTarget,
       desktopOs: detectDesktopOs(userAgent),
     };
   }
@@ -57,6 +59,7 @@ export function detectPlatformInfo(): KodiakPlatformInfo {
       kind: 'android',
       runtime: 'capacitor-android',
       isNativeShell: true,
+      buildTarget,
     };
   }
 
@@ -64,5 +67,6 @@ export function detectPlatformInfo(): KodiakPlatformInfo {
     kind: 'web',
     runtime: 'browser',
     isNativeShell: false,
+    buildTarget,
   };
 }
