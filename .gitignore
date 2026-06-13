@@ -69,3 +69,6 @@ android/app/google-services.json
 /backend/data/active-rooms.json
 
 release-artifacts/
+
+# Local temp test data
+.tmp/
