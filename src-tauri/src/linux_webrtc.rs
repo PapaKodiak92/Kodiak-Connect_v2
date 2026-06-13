@@ -84,8 +84,8 @@ fn build_linux_voice_peer(app: AppHandle, call_id: &str) -> Result<LinuxRtcPeer,
 
     let pipeline = gst::parse::launch(
         "webrtcbin name=kodiak-webrtcbin bundle-policy=max-bundle stun-server=stun://stun.l.google.com:19302 \
-         autoaudiosrc name=kodiak-audio-source ! audioconvert ! audioresample ! volume name=kodiak-microphone-volume ! opusenc bitrate=32000 ! rtpopuspay pt=96 ! \
-         application/x-rtp,media=(string)audio,encoding-name=(string)OPUS,payload=(int)96 ! kodiak-webrtcbin.",
+         autoaudiosrc name=kodiak-audio-source ! audioconvert ! audioresample ! audio/x-raw,rate=48000,channels=1 ! volume name=kodiak-microphone-volume ! opusenc bitrate=32000 ! rtpopuspay pt=96 ! \
+         application/x-rtp,media=(string)audio,encoding-name=(string)OPUS,payload=(int)96,clock-rate=(int)48000 ! kodiak-webrtcbin.",
     )
     .map_err(gst_error)?
     .downcast::<gst::Pipeline>()
