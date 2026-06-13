@@ -19,6 +19,28 @@ Do not keep patching platform breakages as unrelated one-off fixes.
 
 For calls, updater, notifications, audio routing, and background behavior, build a small platform abstraction layer and keep the product behavior consistent above that layer.
 
+## Compartmentalization Rule
+
+Kodiak Connect should have one shared product UI and product core, with platform-specific adapters underneath it.
+
+Shared product layer:
+
+- React UI, workspace layout, chat surface, member lists, settings, and modals.
+- Matrix auth/session/room/message behavior.
+- Calls API shape.
+- Media/GIF API shape.
+- Updater API shape.
+- Shared public app configuration.
+
+Platform adapters:
+
+- Windows: Tauri/desktop updater, notifications/tray, file opening, audio behavior, desktop call runtime.
+- Linux: Tauri/desktop updater, notifications/tray, PulseAudio/PipeWire and Wayland/X11 behavior, desktop call runtime.
+- Android: Capacitor/Android update path, notifications, foreground service, wake locks, audio routing.
+- Web: browser-safe fallbacks with no native updater assumptions.
+
+No random UI component should directly own platform APIs. Components should call shared service/adapter interfaces instead.
+
 ## Calls v2 Direction
 
 ### Core rule
@@ -81,6 +103,17 @@ Required rules:
 - Do not publish a manifest until Windows and Linux artifacts are both uploaded and verified.
 - Keep Android latest metadata separate from the Tauri desktop updater manifest.
 - Do not use broad floating dependency ranges for release-critical packages once the app is in packaged distribution.
+
+## Environment and Media Direction
+
+Use one shared public client configuration shape for all platforms, then layer platform-specific build/runtime behavior underneath it.
+
+Rules:
+
+- Public `VITE_*` values may be bundled into clients.
+- Secrets, provider API keys, updater private keys, tokens, and VPS paths must stay out of clients.
+- GIF/media search should move behind the Kodiak media API so Windows, Linux, Android, and web all consume one normalized response shape.
+- Clients should not directly own provider-specific media keys long term.
 
 ## Dependency Stability Direction
 
