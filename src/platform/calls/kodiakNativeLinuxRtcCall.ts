@@ -1,5 +1,5 @@
 import { invokeTauri } from '../tauri/tauriCore';
-import { listen, type UnlistenFn } from '@tauri-apps/api/event';
+import { listenTauriEvent, type TauriUnlistenFn } from '../tauri/tauriEvents';
 import type { KodiakCallPeer, KodiakVoiceCallPeerOptions } from '../../features/calls/kodiakCallPeer';
 
 interface LinuxRtcIceCandidatePayload {
@@ -16,7 +16,7 @@ export class KodiakNativeLinuxRtcCallPeer implements KodiakCallPeer {
   private readonly callId = crypto.randomUUID();
   private readonly ready: Promise<void>;
   private readonly pendingIceCandidates: RTCIceCandidateInit[] = [];
-  private unlistenIceCandidate?: UnlistenFn;
+  private unlistenIceCandidate?: TauriUnlistenFn;
   private isClosed = false;
   private isMuted = false;
   private isNativeSessionReady = false;
@@ -132,7 +132,7 @@ export class KodiakNativeLinuxRtcCallPeer implements KodiakCallPeer {
   }
 
   private async listenForNativeIceCandidates() {
-    this.unlistenIceCandidate = await listen<LinuxRtcIceCandidatePayload>('kodiak-linux-rtc-ice', (event) => {
+    this.unlistenIceCandidate = await listenTauriEvent<LinuxRtcIceCandidatePayload>('kodiak-linux-rtc-ice', (event) => {
       if (event.payload.call_id !== this.callId || this.isClosed) {
         return;
       }
