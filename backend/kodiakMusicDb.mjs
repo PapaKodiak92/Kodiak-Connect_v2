@@ -103,6 +103,15 @@ function mapTrack(row) {
   };
 }
 
+function mapStreamTrack(row) {
+  return {
+    ...mapTrack(row),
+    fileKey: row.file_key ?? '',
+    fileSha256: row.file_sha256 ?? '',
+    mimeType: row.mime_type ?? '',
+  };
+}
+
 function mapSongRequest(row) {
   return {
     artistName: row.artist_name ?? '',
@@ -216,6 +225,41 @@ export async function getKodiakMusicTrackBySha256(fileSha256) {
   );
 
   return result.rows[0] ? mapTrack(result.rows[0]) : null;
+}
+
+export async function getKodiakMusicTrackForStream(identifier) {
+  await ensureKodiakMusicSchema();
+
+  const cleanIdentifier = normalizeMusicText(identifier, 96).toLowerCase();
+
+  if (!cleanIdentifier) {
+    return null;
+  }
+
+  const looksLikeSha = /^[a-f0-9]{64}$/.test(cleanIdentifier);
+  const looksLikeUuid = /^[a-f0-9]{8}-[a-f0-9]{4}-[1-5][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/.test(cleanIdentifier);
+
+  if (!looksLikeSha && !looksLikeUuid) {
+    return null;
+  }
+
+  const result = looksLikeSha
+    ? await getPool().query(
+        `SELECT id, title, artist_name, album_title, genre_names, source_kind, file_key, stream_path, artwork_path, mime_type, file_sha256, duration_ms, explicit, created_at
+         FROM kodiak_music_tracks
+         WHERE file_sha256 = $1 AND source_kind = 'library'
+         LIMIT 1`,
+        [cleanIdentifier],
+      )
+    : await getPool().query(
+        `SELECT id, title, artist_name, album_title, genre_names, source_kind, file_key, stream_path, artwork_path, mime_type, file_sha256, duration_ms, explicit, created_at
+         FROM kodiak_music_tracks
+         WHERE id = $1::uuid AND source_kind = 'library'
+         LIMIT 1`,
+        [cleanIdentifier],
+      );
+
+  return result.rows[0] ? mapStreamTrack(result.rows[0]) : null;
 }
 
 export async function createKodiakMusicSongRequest({ requesterUserId, title, artistName = '', referenceUrl = '', note = '' }) {
