@@ -1,10 +1,10 @@
-﻿import type { MatrixCallKind } from '../matrix/matrixRestClient';
+import type { MatrixCallKind } from '../matrix/matrixRestClient';
 import {
-  getKodiakWebRtcUnsupportedMessage,
   isKodiakWebRtcSupported,
   KodiakVoiceCallPeer,
   type KodiakVoiceCallPeerOptions,
 } from './kodiakWebRtcCall';
+import { KodiakNativeLinuxRtcCallPeer } from './kodiakNativeLinuxRtcCall';
 
 export interface KodiakCallPeer {
   createOffer(): Promise<string>;
@@ -48,10 +48,7 @@ export function shouldUseKodiakNativeLinuxRtcPeer() {
 
 export function createKodiakCallPeer(options: KodiakVoiceCallPeerOptions): KodiakCallPeer {
   if (shouldUseKodiakNativeLinuxRtcPeer()) {
-    throw new Error(
-      'Linux native RTC backend is selected but not wired yet. ' +
-        getKodiakWebRtcUnsupportedMessage(),
-    );
+    return new KodiakNativeLinuxRtcCallPeer(options);
   }
 
   return new KodiakVoiceCallPeer(options);

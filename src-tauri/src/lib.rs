@@ -1,4 +1,5 @@
-﻿use serde::{Deserialize, Serialize};
+mod linux_webrtc;
+use serde::{Deserialize, Serialize};
 use std::{
     fs,
     path::PathBuf,
@@ -101,7 +102,13 @@ pub fn run() {
             choose_save_path,
             write_downloaded_file,
             get_start_minimized,
-            set_start_minimized
+            set_start_minimized,
+            linux_webrtc::kodiak_linux_rtc_create_offer,
+            linux_webrtc::kodiak_linux_rtc_create_answer,
+            linux_webrtc::kodiak_linux_rtc_apply_answer,
+            linux_webrtc::kodiak_linux_rtc_add_ice_candidate,
+            linux_webrtc::kodiak_linux_rtc_set_muted,
+            linux_webrtc::kodiak_linux_rtc_close
         ])
         .setup(|app| {
             let open_item = MenuItem::with_id(app, "open", "Open Kodiak Connect", true, None::<&str>)?;

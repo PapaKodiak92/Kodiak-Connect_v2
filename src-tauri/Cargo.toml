@@ -22,3 +22,9 @@ tauri-plugin-dialog = "2"
 tauri-plugin-fs = "2"
 rfd = "0.15"
 tauri-plugin-notification = "2.3.3"
+
+[target.'cfg(target_os = "linux")'.dependencies]
+gstreamer = "0.23"
+gstreamer-sdp = "0.23"
+gstreamer-webrtc = "0.23"
+once_cell = "1"
