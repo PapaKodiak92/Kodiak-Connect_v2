@@ -1,5 +1,6 @@
 import { useEffect } from 'react';
 import type { MatrixLoginIdentity } from '../auth/matrixLoginService';
+import { saveBlobWithPlatformPicker } from '../../platform/platformFileAccess';
 
 interface MatrixMediaDomEnhancerProps {
   identity: MatrixLoginIdentity;
@@ -107,20 +108,7 @@ function appendError(card: HTMLElement, message: string) {
 }
 
 
-async function chooseDomEnhancerSavePath(suggestedName: string) {
-  const { invoke } = await import('@tauri-apps/api/core');
-  return invoke<string | null>('choose_save_path', { suggestedName });
-}
 
-async function writeDomEnhancerFile(savePath: string, blob: Blob) {
-  const { invoke } = await import('@tauri-apps/api/core');
-  const bytes = Array.from(new Uint8Array(await blob.arrayBuffer()));
-
-  await invoke('write_downloaded_file', {
-    path: savePath,
-    bytes,
-  });
-}
 function createDownloadButton(
   identity: MatrixLoginIdentity,
   mediaUrl: string,
@@ -137,19 +125,6 @@ function createDownloadButton(
 
     try {
       button.disabled = true;
-      button.textContent = 'Choose location...';
-
-      const savePath = await chooseDomEnhancerSavePath(fileName);
-
-      if (!savePath) {
-        button.textContent = 'Canceled';
-        window.setTimeout(() => {
-          button.textContent = originalText;
-          button.disabled = false;
-        }, 1200);
-        return;
-      }
-
       button.textContent = 'Downloading...';
 
       const blob = isAuthenticatedMatrixMediaUrl(mediaUrl)
@@ -162,8 +137,17 @@ function createDownloadButton(
             return response.blob();
           });
 
-      button.textContent = 'Saving...';
-      await writeDomEnhancerFile(savePath, blob);
+      button.textContent = 'Choose location...';
+      const didSave = await saveBlobWithPlatformPicker(fileName, blob);
+
+      if (!didSave) {
+        button.textContent = 'Canceled';
+        window.setTimeout(() => {
+          button.textContent = originalText;
+          button.disabled = false;
+        }, 1200);
+        return;
+      }
 
       button.textContent = 'Saved';
 

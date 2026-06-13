@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import type { MatrixLoginIdentity } from '../auth/matrixLoginService';
 import { kodiakEnv } from '../../config/env';
 import { officialSpace } from '../workspace/workspaceData';
+import { saveBlobWithPlatformPicker } from '../../platform/platformFileAccess';
 
 interface KodiakAttachmentBridgeProps {
   identity: MatrixLoginIdentity;
@@ -521,53 +522,6 @@ async function getFilesFromDataTransfer(dataTransfer: DataTransfer | null) {
 
 
 
-type KodiakBrowserWritableFile = {
-  close: () => Promise<void>;
-  write: (data: Blob) => Promise<void>;
-};
-
-type KodiakBrowserFileHandle = {
-  createWritable: () => Promise<KodiakBrowserWritableFile>;
-};
-
-type KodiakBrowserSaveFilePicker = (options?: {
-  suggestedName?: string;
-}) => Promise<KodiakBrowserFileHandle>;
-
-function getBrowserSaveFilePicker() {
-  return (window as Window & { showSaveFilePicker?: KodiakBrowserSaveFilePicker }).showSaveFilePicker ?? null;
-}
-
-async function chooseBrowserSaveFile(suggestedName: string) {
-  const saveFilePicker = getBrowserSaveFilePicker();
-
-  if (!saveFilePicker) {
-    return null;
-  }
-
-  return saveFilePicker({
-    suggestedName,
-  });
-}
-
-async function writeBrowserFile(fileHandle: KodiakBrowserFileHandle, blob: Blob) {
-  const writable = await fileHandle.createWritable();
-  await writable.write(blob);
-  await writable.close();
-}
-async function chooseKodiakSavePath(suggestedName: string) {
-  const { invoke } = await import('@tauri-apps/api/core');
-  return invoke<string | null>('choose_save_path', { suggestedName });
-}
-
-async function writeKodiakFile(savePath: string, blob: Blob) {
-  const { invoke } = await import('@tauri-apps/api/core');
-  const bytes = Array.from(new Uint8Array(await blob.arrayBuffer()));
-  await invoke('write_downloaded_file', {
-    path: savePath,
-    bytes,
-  });
-}
 
 function withTimeout<T>(promise: Promise<T>, timeoutMs: number, message: string) {
   return new Promise<T>((resolve, reject) => {
@@ -864,15 +818,6 @@ export function KodiakAttachmentBridge({ identity }: KodiakAttachmentBridgeProps
 
     try {
       setErrorText(null);
-      setStatusText(`Choose where to save ${downloadName}...`);
-
-      const savePath = await chooseKodiakSavePath(downloadName);
-
-      if (!savePath) {
-        setStatusText('Download canceled.');
-        return;
-      }
-
       setStatusText(`Downloading ${downloadName}...`);
 
       const response = attachment.url.startsWith('mxc://')
@@ -897,8 +842,13 @@ export function KodiakAttachmentBridge({ identity }: KodiakAttachmentBridgeProps
 
       const blob = await response.blob();
 
-      setStatusText(`Saving ${downloadName}...`);
-      await writeKodiakFile(savePath, blob);
+      setStatusText(`Choose where to save ${downloadName}...`);
+      const didSave = await saveBlobWithPlatformPicker(downloadName, blob);
+
+      if (!didSave) {
+        setStatusText('Download canceled.');
+        return;
+      }
 
       setStatusText(`Saved ${downloadName}.`);
     } catch (error) {

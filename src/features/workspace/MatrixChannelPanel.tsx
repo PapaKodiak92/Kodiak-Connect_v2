@@ -46,6 +46,7 @@ import {
   type MatrixTextMessage,
 } from '../matrix/matrixRestClient';
 import type { WorkspaceChannel, WorkspaceSpace } from './workspaceTypes';
+import { getStartMinimizedSetting, setStartMinimizedSetting } from '../../platform/platformStartupSettings';
 
 type FriendStatus = 'none' | 'incoming' | 'outgoing' | 'friends';
 
@@ -2600,11 +2601,10 @@ export function MatrixChannelPanel({
   useEffect(() => {
     let cancelled = false;
 
-    void import('@tauri-apps/api/core')
-      .then(({ invoke }) => invoke<boolean>('get_start_minimized'))
+    void getStartMinimizedSetting()
       .then((enabled) => {
         if (!cancelled) {
-          setIsStartMinimizedEnabled(Boolean(enabled));
+          setIsStartMinimizedEnabled(enabled);
         }
       })
       .catch((error) => {
@@ -2620,9 +2620,8 @@ export function MatrixChannelPanel({
     setIsStartMinimizedEnabled(enabled);
 
     try {
-      const { invoke } = await import('@tauri-apps/api/core');
-      const savedValue = await invoke<boolean>('set_start_minimized', { enabled });
-      setIsStartMinimizedEnabled(Boolean(savedValue));
+      const savedValue = await setStartMinimizedSetting(enabled);
+      setIsStartMinimizedEnabled(savedValue);
     } catch (error) {
       console.warn('[Kodiak Connect] Failed to save start minimized setting', error);
       setIsStartMinimizedEnabled(!enabled);
