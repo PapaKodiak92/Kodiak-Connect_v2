@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, type ChangeEventHandler, type FormEvent } from 'react';
-import { openUrl } from '@tauri-apps/plugin-opener';
+import { kodiakPlatform } from '../../platform/currentPlatform';
 import { TurnstileWidget } from '../../components/security/TurnstileWidget';
 import { kodiakEnv } from '../../config/env';
 import { MatrixLoginError, verifyMatrixLogin, type MatrixLoginIdentity } from './matrixLoginService';
@@ -90,13 +90,8 @@ const footerLinks = [
 ];
 
 async function openExternalLink(url: string) {
-  if (url.startsWith('mailto:')) {
-    window.location.href = url;
-    return;
-  }
-
   try {
-    await openUrl(url);
+    await kodiakPlatform.openExternalUrl(url);
   } catch (error) {
     console.error('[Kodiak Connect] Failed to open footer link', error);
     window.open(url, '_blank', 'noopener,noreferrer');
