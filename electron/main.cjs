@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, shell, session } = require('electron');
+const { app, BrowserWindow, Menu, Tray, ipcMain, nativeImage, shell, session } = require('electron');
 const { autoUpdater } = require('electron-updater');
 const path = require('node:path');
 
@@ -6,6 +6,35 @@ app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required');
 
 autoUpdater.autoDownload = false;
 autoUpdater.autoInstallOnAppQuit = false;
+
+let mainWindow = null;
+let tray = null;
+let isQuitting = false;
+
+function isLinux() {
+  return process.platform === 'linux';
+}
+
+function shouldStartHiddenOnLaunch() {
+  return isLinux() && !process.argv.includes('--show-window');
+}
+
+function getIconPath() {
+  return path.join(__dirname, 'icon.png');
+}
+
+function getTrayImage() {
+  const image = nativeImage.createFromPath(getIconPath());
+
+  if (image.isEmpty()) {
+    return getIconPath();
+  }
+
+  return image.resize({
+    width: 22,
+    height: 22,
+  });
+}
 
 function normalizeReleaseNotes(releaseNotes) {
   if (Array.isArray(releaseNotes)) {
@@ -39,15 +68,95 @@ function toKodiakUpdateInfo(updateInfo) {
   };
 }
 
-function createMainWindow() {
-  const mainWindow = new BrowserWindow({
+function refreshTrayMenu() {
+  if (!tray) {
+    return;
+  }
+
+  const isVisible = Boolean(mainWindow?.isVisible());
+
+  const contextMenu = Menu.buildFromTemplate([
+    {
+      label: 'Open Kodiak Connect',
+      enabled: !isVisible,
+      click: () => showMainWindow(),
+    },
+    {
+      label: 'Hide to tray',
+      enabled: isVisible,
+      click: () => hideMainWindow(),
+    },
+    { type: 'separator' },
+    {
+      label: 'Quit Kodiak Connect',
+      click: () => {
+        isQuitting = true;
+        app.quit();
+      },
+    },
+  ]);
+
+  tray.setToolTip('Kodiak Connect');
+  tray.setContextMenu(contextMenu);
+}
+
+function showMainWindow() {
+  if (!mainWindow) {
+    createMainWindow(false);
+    return;
+  }
+
+  if (mainWindow.isMinimized()) {
+    mainWindow.restore();
+  }
+
+  mainWindow.show();
+  mainWindow.focus();
+  refreshTrayMenu();
+}
+
+function hideMainWindow() {
+  if (!mainWindow) {
+    return;
+  }
+
+  mainWindow.hide();
+  refreshTrayMenu();
+}
+
+function createTray() {
+  if (tray || !isLinux()) {
+    return;
+  }
+
+  tray = new Tray(getTrayImage());
+
+  tray.on('click', () => {
+    if (!mainWindow || !mainWindow.isVisible()) {
+      showMainWindow();
+      return;
+    }
+
+    hideMainWindow();
+  });
+
+  refreshTrayMenu();
+}
+
+function createMainWindow(startHidden = shouldStartHiddenOnLaunch()) {
+  if (mainWindow) {
+    return mainWindow;
+  }
+
+  mainWindow = new BrowserWindow({
     width: 1280,
     height: 820,
     minWidth: 960,
     minHeight: 640,
+    show: false,
     backgroundColor: '#080b10',
     title: 'Kodiak Connect',
-    icon: path.join(__dirname, 'icon.png'),
+    icon: getIconPath(),
     webPreferences: {
       preload: path.join(__dirname, 'preload.cjs'),
       contextIsolation: true,
@@ -66,7 +175,43 @@ function createMainWindow() {
     return { action: 'deny' };
   });
 
+  mainWindow.on('minimize', (event) => {
+    if (!isLinux()) {
+      return;
+    }
+
+    event.preventDefault();
+    hideMainWindow();
+  });
+
+  mainWindow.on('close', (event) => {
+    if (!isLinux() || isQuitting) {
+      return;
+    }
+
+    event.preventDefault();
+    hideMainWindow();
+  });
+
+  mainWindow.on('show', refreshTrayMenu);
+  mainWindow.on('hide', refreshTrayMenu);
+  mainWindow.on('closed', () => {
+    mainWindow = null;
+    refreshTrayMenu();
+  });
+
+  mainWindow.once('ready-to-show', () => {
+    if (startHidden) {
+      hideMainWindow();
+      return;
+    }
+
+    showMainWindow();
+  });
+
   void mainWindow.loadFile(path.join(__dirname, '..', 'dist', 'index.html'));
+
+  return mainWindow;
 }
 
 ipcMain.handle('kodiak-updater-check', async () => {
@@ -87,22 +232,35 @@ ipcMain.handle('kodiak-updater-install', async () => {
   autoUpdater.quitAndInstall(false, true);
 });
 
-app.whenReady().then(() => {
-  session.defaultSession.setPermissionRequestHandler((_webContents, permission, callback) => {
-    callback(permission === 'media' || permission === 'camera' || permission === 'microphone');
+const gotSingleInstanceLock = app.requestSingleInstanceLock();
+
+if (!gotSingleInstanceLock) {
+  app.quit();
+} else {
+  app.on('second-instance', () => {
+    showMainWindow();
   });
 
-  createMainWindow();
+  app.on('before-quit', () => {
+    isQuitting = true;
+  });
 
-  app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) {
-      createMainWindow();
+  app.whenReady().then(() => {
+    session.defaultSession.setPermissionRequestHandler((_webContents, permission, callback) => {
+      callback(permission === 'media' || permission === 'camera' || permission === 'microphone');
+    });
+
+    createTray();
+    createMainWindow();
+
+    app.on('activate', () => {
+      showMainWindow();
+    });
+  });
+
+  app.on('window-all-closed', () => {
+    if (!isLinux() && process.platform !== 'darwin') {
+      app.quit();
     }
   });
-});
-
-app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') {
-    app.quit();
-  }
-});
+}
