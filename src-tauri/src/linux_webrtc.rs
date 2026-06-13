@@ -69,43 +69,6 @@ fn session_description_to_sdp(description: &gst_webrtc::WebRTCSessionDescription
 }
 
 #[cfg(target_os = "linux")]
-fn request_webrtc_sink_pad(webrtc: &gst::Element) -> Result<gst::Pad, String> {
-    if let Some(pad) = webrtc.request_pad_simple("sink_0") {
-        return Ok(pad);
-    }
-
-    if let Some(pad) = webrtc.request_pad_simple("sink_%u") {
-        return Ok(pad);
-    }
-
-    let templates = webrtc.pad_template_list();
-
-    for template in &templates {
-        if template.direction() == gst::PadDirection::Sink && template.presence() == gst::PadPresence::Request {
-            if let Some(pad) = webrtc.request_pad(template, None::<&str>, None::<&gst::Caps>) {
-                return Ok(pad);
-            }
-        }
-    }
-
-    let template_names = templates
-        .iter()
-        .map(|template| {
-            format!(
-                "{}:{:?}:{:?}",
-                template.name_template(),
-                template.direction(),
-                template.presence()
-            )
-        })
-        .collect::<Vec<_>>()
-        .join(", ");
-
-    Err(format!(
-        "Linux native RTC could not request a WebRTC sink pad. Available pad templates: {template_names}"
-    ))
-}
-#[cfg(target_os = "linux")]
 fn wait_for_description(
     receiver: mpsc::Receiver<Result<gst_webrtc::WebRTCSessionDescription, String>>,
     label: &str,
@@ -119,30 +82,18 @@ fn wait_for_description(
 fn build_linux_voice_peer(app: AppHandle, call_id: &str) -> Result<LinuxRtcPeer, String> {
     Lazy::force(&GST_READY);
 
-    let pipeline = gst::Pipeline::new();
-
-    let audio_bin = gst::parse::bin_from_description(
-        "autoaudiosrc ! audioconvert ! audioresample ! opusenc bitrate=32000 ! rtpopuspay pt=96 ! capsfilter caps=\"application/x-rtp,media=(string)audio,encoding-name=(string)OPUS,payload=(int)96\"",
-        true,
+    let pipeline = gst::parse::launch(
+        "webrtcbin name=kodiak-webrtcbin bundle-policy=max-bundle stun-server=stun://stun.l.google.com:19302 \
+         autoaudiosrc name=kodiak-audio-source ! audioconvert ! audioresample ! volume name=kodiak-microphone-volume ! opusenc bitrate=32000 ! rtpopuspay pt=96 ! \
+         application/x-rtp,media=(string)audio,encoding-name=(string)OPUS,payload=(int)96 ! kodiak-webrtcbin.",
     )
-    .map_err(gst_error)?;
+    .map_err(gst_error)?
+    .downcast::<gst::Pipeline>()
+    .map_err(|_| "Linux native RTC pipeline did not build as a GStreamer pipeline.".to_string())?;
 
-    let webrtc = gst::ElementFactory::make("webrtcbin")
-        .name("kodiak-webrtcbin")
-        .property("stun-server", "stun://stun.l.google.com:19302")
-        .build()
-        .map_err(gst_error)?;
-
-    pipeline.add(&audio_bin).map_err(gst_error)?;
-    pipeline.add(&webrtc).map_err(gst_error)?;
-
-    let audio_src_pad = audio_bin
-        .static_pad("src")
-        .ok_or_else(|| "Linux native RTC audio bin did not expose a source pad.".to_string())?;
-
-    let webrtc_sink_pad = request_webrtc_sink_pad(&webrtc)?;
-
-    audio_src_pad.link(&webrtc_sink_pad).map_err(gst_error)?;
+    let webrtc = pipeline
+        .by_name("kodiak-webrtcbin")
+        .ok_or_else(|| "Linux native RTC pipeline did not expose webrtcbin.".to_string())?;
 
     let app_for_ice = app.clone();
     let call_id_for_ice = call_id.to_string();
@@ -346,11 +297,12 @@ pub fn kodiak_linux_rtc_add_ice_candidate(call_id: String, candidate: LinuxRtcIc
 #[tauri::command]
 pub fn kodiak_linux_rtc_set_muted(call_id: String, is_muted: bool) -> Result<(), String> {
     with_peer(&call_id, |peer| {
-        for element in peer.pipeline.iterate_elements().into_iter().flatten() {
-            if element.factory().map(|factory| factory.name() == "autoaudiosrc").unwrap_or(false) {
-                element.set_property("mute", &is_muted);
-            }
-        }
+        let microphone_volume = peer
+            .pipeline
+            .by_name("kodiak-microphone-volume")
+            .ok_or_else(|| "Linux native RTC microphone volume control was not found.".to_string())?;
+
+        microphone_volume.set_property("mute", is_muted);
 
         Ok(())
     })
