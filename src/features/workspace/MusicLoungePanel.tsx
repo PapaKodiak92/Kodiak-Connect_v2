@@ -2,9 +2,11 @@ import { useEffect, useMemo, useState } from 'react';
 import type { MatrixLoginIdentity } from '../auth/matrixLoginService';
 import {
   addKodiakMusicLoungeQueueTrack,
+  clearKodiakMusicLoungeNowPlaying,
   clearKodiakMusicLoungeQueue,
   loadKodiakMusicLoungeState,
   removeKodiakMusicLoungeQueueTrack,
+  setKodiakMusicLoungeNowPlaying,
   setKodiakMusicLoungeVibe,
   type KodiakMusicLoungeState,
   voteKodiakMusicLoungeVibe,
@@ -282,10 +284,41 @@ export function MusicLoungePanel({ identity }: MusicLoungePanelProps) {
     }
   }
 
+  async function playSharedQueueTrack(trackId: string) {
+    setIsSyncing(true);
+    setStatusMessage('Updating now playing...');
+
+    try {
+      const nextState = await setKodiakMusicLoungeNowPlaying(identity, trackId);
+      applySharedState(nextState);
+    } catch (error) {
+      console.error('[Kodiak Music Lounge] Failed to set now playing.', error);
+      setStatusMessage('Could not update now playing.');
+    } finally {
+      setIsSyncing(false);
+    }
+  }
+
+  async function clearSharedNowPlaying() {
+    setIsSyncing(true);
+    setStatusMessage('Clearing now playing...');
+
+    try {
+      const nextState = await clearKodiakMusicLoungeNowPlaying(identity);
+      applySharedState(nextState);
+    } catch (error) {
+      console.error('[Kodiak Music Lounge] Failed to clear now playing.', error);
+      setStatusMessage('Could not clear now playing.');
+    } finally {
+      setIsSyncing(false);
+    }
+  }
+
   const voteCounts = loungeState?.voteCounts ?? { up: 0, down: 0 };
   const selectedBy = loungeState?.selectedByUserId ? getDisplayName(loungeState.selectedByUserId) : 'Kodiak';
   const selectedAt = formatSyncTime(loungeState?.selectedAt ?? 0);
   const queue = loungeState?.queue ?? [];
+  const nowPlaying = loungeState?.nowPlaying ?? null;
 
   return (
     <div className="music-lounge-panel">
@@ -308,7 +341,7 @@ export function MusicLoungePanel({ identity }: MusicLoungePanelProps) {
 
       <section className="music-lounge-current" aria-label="Current music vibe">
         <div className="music-lounge-current__main">
-          <span className="music-lounge-orb" aria-hidden="true">?</span>
+          <span className="music-lounge-orb" aria-hidden="true">Audio</span>
           <div>
             <p className="eyebrow">{activeVibe.accent}</p>
             <h3>{activeVibe.title}</h3>
@@ -371,6 +404,39 @@ export function MusicLoungePanel({ identity }: MusicLoungePanelProps) {
         </form>
       </section>
 
+      <section className="music-lounge-now-playing" aria-label="Now playing">
+        <div>
+          <p className="eyebrow eyebrow--ember">Now Playing</p>
+          {nowPlaying ? (
+            <>
+              <h3>{nowPlaying.title}</h3>
+              <p>
+                Started by {nowPlaying.playedByUserId ? getDisplayName(nowPlaying.playedByUserId) : 'Kodiak'} at{' '}
+                {formatSyncTime(nowPlaying.playedAt ?? 0)}
+              </p>
+            </>
+          ) : (
+            <>
+              <h3>Nothing playing yet.</h3>
+              <p>Promote a suggestion from the queue when the room picks a track.</p>
+            </>
+          )}
+        </div>
+
+        <div className="music-lounge-now-playing__actions">
+          {nowPlaying?.url ? (
+            <a href={nowPlaying.url} target="_blank" rel="noreferrer">
+              Open track
+            </a>
+          ) : null}
+          {nowPlaying ? (
+            <button type="button" onClick={() => void clearSharedNowPlaying()} disabled={isSyncing}>
+              Clear now playing
+            </button>
+          ) : null}
+        </div>
+      </section>
+
       <section className="music-lounge-queue" aria-label="Suggested tracks">
         <div className="music-lounge-queue__header">
           <div>
@@ -415,12 +481,19 @@ export function MusicLoungePanel({ identity }: MusicLoungePanelProps) {
                 <div>
                   <strong>{track.title}</strong>
                   <small>
-                    Suggested by {track.addedByUserId ? getDisplayName(track.addedByUserId) : 'Kodiak'} �{' '}
+                    Suggested by {track.addedByUserId ? getDisplayName(track.addedByUserId) : 'Kodiak'} - {' '}
                     {formatSyncTime(track.addedAt)}
                   </small>
                 </div>
 
                 <div className="music-lounge-track__actions">
+                  <button
+                    type="button"
+                    onClick={() => void playSharedQueueTrack(track.id)}
+                    disabled={isSyncing}
+                  >
+                    Play now
+                  </button>
                   {track.url ? (
                     <a href={track.url} target="_blank" rel="noreferrer">
                       Open
