@@ -157,12 +157,10 @@ try {
 
   $RemoteWindowsDir = "$RemoteRoot/$Version/windows"
   $RemoteLinuxDir = "$RemoteRoot/$Version/linux"
-  $RemoteLinuxElectronDir = "$RemoteRoot/$Version/linux-electron"
   $RemoteAndroidDir = "$RemoteRoot/$Version/android"
   $RemoteAndroidLatestDir = "$RemoteRoot/android"
   $RemoteWindowsMsi = "kodiak-connect_${Version}_x64_en-US.msi"
   $RemoteLinuxDeb = "kodiak-connect_${Version}_amd64.deb"
-  $RemoteLinuxElectronDeb = "kodiak-connect_${Version}_linux-electron_amd64.deb"
   $RemoteAndroidApk = "kodiak-connect_${Version}_android-debug.apk"
 
   Invoke-Step "Build and publish Linux DEB on VPS" {
@@ -183,24 +181,6 @@ git fetch origin main
 git reset --hard origin/main
 npm ci
 npm run build
-cargo --version
-TAURI_SIGNING_PRIVATE_KEY='/home/kodiak/.tauri/kodiak-connect-release.key' npx tauri build --bundles deb
-DEB_FILE="`$(find src-tauri/target/release/bundle/deb -maxdepth 1 -type f -name 'Kodiak Connect_${Version}_amd64.deb' | head -n 1)"
-SIG_FILE="`$DEB_FILE.sig"
-if [ -z "`$DEB_FILE" ] || [ ! -f "`$DEB_FILE" ]; then
-  echo "Missing Linux DEB artifact for $Version" >&2
-  exit 1
-fi
-if [ ! -f "`$SIG_FILE" ]; then
-  echo "Missing Linux DEB signature for $Version" >&2
-  exit 1
-fi
-mkdir -p '$RemoteLinuxDir'
-cp "`$DEB_FILE" '$RemoteLinuxDir/$RemoteLinuxDeb'
-cp "`$SIG_FILE" '$RemoteLinuxDir/$RemoteLinuxDeb.sig'
-test -f '$RemoteLinuxDir/$RemoteLinuxDeb'
-test -f '$RemoteLinuxDir/$RemoteLinuxDeb.sig'
-
 npm run electron:build:linux
 ELECTRON_DEB_FILE="`$(find electron-dist -maxdepth 1 -type f -name '*.deb' | head -n 1)"
 if [ -z "`$ELECTRON_DEB_FILE" ] || [ ! -f "`$ELECTRON_DEB_FILE" ]; then
@@ -208,9 +188,9 @@ if [ -z "`$ELECTRON_DEB_FILE" ] || [ ! -f "`$ELECTRON_DEB_FILE" ]; then
   exit 1
 fi
 
-mkdir -p '$RemoteLinuxElectronDir'
-cp "`$ELECTRON_DEB_FILE" '$RemoteLinuxElectronDir/$RemoteLinuxElectronDeb'
-test -f '$RemoteLinuxElectronDir/$RemoteLinuxElectronDeb'
+mkdir -p '$RemoteLinuxDir'
+cp "`$ELECTRON_DEB_FILE" '$RemoteLinuxDir/$RemoteLinuxDeb'
+test -f '$RemoteLinuxDir/$RemoteLinuxDeb'
 "@
 
     $RemoteScript = ($RemoteScript -replace "`r`n", "`n").TrimStart() + "`n"
@@ -251,7 +231,6 @@ for artifact in \
   '$RemoteWindowsDir/$RemoteWindowsMsi' \
   '$RemoteWindowsDir/$RemoteWindowsMsi.sig' \
   '$RemoteLinuxDir/$RemoteLinuxDeb' \
-  '$RemoteLinuxDir/$RemoteLinuxDeb.sig' \
   '$RemoteAndroidDir/$RemoteAndroidApk'
 do
   if [ ! -f "`$artifact" ]; then
@@ -272,14 +251,6 @@ done
 
   Invoke-Step "Generate and upload release manifests" {
     $WindowsSignature = (Get-Content -Path $WindowsSig -Raw).Trim()
-    $LinuxSignature = ((& ssh $VpsHost "cat '$RemoteLinuxDir/$RemoteLinuxDeb.sig'") -join "`n").Trim()
-    if ($LASTEXITCODE -ne 0) {
-      throw 'Failed to read Linux updater signature from VPS.'
-    }
-
-    if (-not $LinuxSignature) {
-      throw 'Linux updater signature could not be read from VPS.'
-    }
 
     $PubDate = (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ')
     $AndroidUrl = "$BaseUrl/$Version/android/$RemoteAndroidApk"
@@ -293,10 +264,7 @@ done
           signature = $WindowsSignature
           url = "$BaseUrl/$Version/windows/$RemoteWindowsMsi"
         }
-        'linux-x86_64' = [ordered]@{
-          signature = $LinuxSignature
-          url = "$BaseUrl/$Version/linux/$RemoteLinuxDeb"
-        }
+
       }
     }
 
@@ -339,7 +307,6 @@ done
   Write-Host "$BaseUrl/android/latest.json" -ForegroundColor Cyan
   Write-Host "$BaseUrl/$Version/windows/$RemoteWindowsMsi" -ForegroundColor Cyan
   Write-Host "$BaseUrl/$Version/linux/$RemoteLinuxDeb" -ForegroundColor Cyan
-  Write-Host "$BaseUrl/$Version/linux-electron/$RemoteLinuxElectronDeb" -ForegroundColor Cyan
   Write-Host "$BaseUrl/$Version/android/$RemoteAndroidApk" -ForegroundColor Cyan
 }
 finally {
