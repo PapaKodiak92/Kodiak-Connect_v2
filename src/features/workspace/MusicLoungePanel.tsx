@@ -218,6 +218,16 @@ function getLibraryTrackTitle(track: KodiakMusicLibraryTrack) {
   return [track.title, track.artistName].filter(Boolean).join(' - ');
 }
 
+function getKodiakMusicStreamUrl(identity: MatrixLoginIdentity, track: KodiakMusicLibraryTrack) {
+  const streamPathParts = track.streamPath.split('/').filter(Boolean);
+  const streamId = track.id || streamPathParts[streamPathParts.length - 1] || '';
+
+  const url = new URL(`/api/music/stream/${encodeURIComponent(streamId)}`, KODIAK_API_BASE_URL);
+  url.searchParams.set('userId', identity.userId);
+
+  return url.toString();
+}
+
 export function MusicLoungePanel({ identity }: MusicLoungePanelProps) {
   const [activeVibeId, setActiveVibeId] = useState(getDefaultVibeId);
   const [localVote, setLocalVote] = useState<'up' | 'down' | null>(null);
@@ -231,6 +241,8 @@ export function MusicLoungePanel({ identity }: MusicLoungePanelProps) {
   const [isSyncing, setIsSyncing] = useState(false);
   const [statusMessage, setStatusMessage] = useState('Loading shared lounge state...');
   const [libraryMessage, setLibraryMessage] = useState('Kodiak-Music library search is ready once the VPS catalog is configured.');
+  const [privatePlayerTrack, setPrivatePlayerTrack] = useState<KodiakMusicLibraryTrack | null>(null);
+  const [privatePlayerMessage, setPrivatePlayerMessage] = useState('Pick a hosted library track to play privately.');
 
   const activeVibe = MUSIC_VIBES.find((vibe) => vibe.id === activeVibeId) ?? MUSIC_VIBES[0];
 
@@ -478,6 +490,16 @@ export function MusicLoungePanel({ identity }: MusicLoungePanelProps) {
     }
   }
 
+  function playPrivateLibraryTrack(track: KodiakMusicLibraryTrack) {
+    if (track.sourceKind !== 'library') {
+      setPrivatePlayerMessage('Only hosted library tracks can play privately right now.');
+      return;
+    }
+
+    setPrivatePlayerTrack(track);
+    setPrivatePlayerMessage(`Playing ${getLibraryTrackTitle(track)} privately through Kodiak-Music.`);
+  }
+
   const voteCounts = loungeState?.voteCounts ?? { up: 0, down: 0 };
   const selectedBy = loungeState?.selectedByUserId ? getDisplayName(loungeState.selectedByUserId) : 'Kodiak';
   const selectedAt = formatSyncTime(loungeState?.selectedAt ?? 0);
@@ -519,7 +541,7 @@ export function MusicLoungePanel({ identity }: MusicLoungePanelProps) {
         <div className="music-lounge-library__actions">
           <span>Lupercus Library Sync</span>
           <span>Postgres Catalog</span>
-          <span>Streaming API Next</span>
+          <span>Private Playback Ready</span>
         </div>
       </section>
 
@@ -597,6 +619,13 @@ export function MusicLoungePanel({ identity }: MusicLoungePanelProps) {
                 <div className="music-lounge-track__actions">
                   <button
                     type="button"
+                    onClick={() => playPrivateLibraryTrack(track)}
+                    disabled={!track.id}
+                  >
+                    Play privately
+                  </button>
+                  <button
+                    type="button"
                     onClick={() => void addSharedQueueTrack(getLibraryTrackTitle(track), track.streamPath)}
                     disabled={isSyncing}
                   >
@@ -607,6 +636,44 @@ export function MusicLoungePanel({ identity }: MusicLoungePanelProps) {
             ))}
           </div>
         ) : null}
+      </section>
+
+      <section
+        className={privatePlayerTrack ? 'music-lounge-private-player' : 'music-lounge-private-player music-lounge-private-player--empty'}
+        aria-label="Kodiak-Music private player"
+      >
+        <div>
+          <p className="eyebrow eyebrow--ember">Kodiak-Music Player</p>
+          {privatePlayerTrack ? (
+            <>
+              <h3>{getLibraryTrackTitle(privatePlayerTrack)}</h3>
+              <p>
+                {privatePlayerTrack.albumTitle || 'Lupercus Library'} -{' '}
+                {privatePlayerTrack.genreNames.length ? privatePlayerTrack.genreNames.join(', ') : 'Hosted library'}
+              </p>
+            </>
+          ) : (
+            <>
+              <h3>Your private player.</h3>
+              <p>Search the Lupercus-curated catalog, then play a hosted track without changing the shared lounge.</p>
+            </>
+          )}
+          <small>{privatePlayerMessage}</small>
+        </div>
+
+        {privatePlayerTrack ? (
+          <audio
+            key={privatePlayerTrack.id}
+            controls
+            autoPlay
+            preload="metadata"
+            src={getKodiakMusicStreamUrl(identity, privatePlayerTrack)}
+          >
+            Your browser cannot play this Kodiak-Music track.
+          </audio>
+        ) : (
+          <span>Private playback</span>
+        )}
       </section>
 
       <section className="music-lounge-now-playing" aria-label="Now playing">
