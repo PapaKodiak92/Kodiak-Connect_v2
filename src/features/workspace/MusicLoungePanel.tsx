@@ -1,7 +1,10 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { MatrixLoginIdentity } from '../auth/matrixLoginService';
 import {
+  addKodiakMusicLoungeQueueTrack,
+  clearKodiakMusicLoungeQueue,
   loadKodiakMusicLoungeState,
+  removeKodiakMusicLoungeQueueTrack,
   setKodiakMusicLoungeVibe,
   type KodiakMusicLoungeState,
   voteKodiakMusicLoungeVibe,
@@ -90,7 +93,7 @@ const MUSIC_VIBES: MusicVibe[] = [
 const LOUNGE_GUIDELINES = [
   'Keep it community-safe.',
   'Use Spotify links for now.',
-  'Synced queues and voting come next.',
+  'Synced queue and voting are shared.',
 ];
 
 function getDisplayName(userId: string) {
@@ -126,6 +129,8 @@ export function MusicLoungePanel({ identity }: MusicLoungePanelProps) {
   const [activeVibeId, setActiveVibeId] = useState(getDefaultVibeId);
   const [localVote, setLocalVote] = useState<'up' | 'down' | null>(null);
   const [searchDraft, setSearchDraft] = useState('');
+  const [queueTitleDraft, setQueueTitleDraft] = useState('');
+  const [queueUrlDraft, setQueueUrlDraft] = useState('');
   const [loungeState, setLoungeState] = useState<KodiakMusicLoungeState | null>(null);
   const [isSyncing, setIsSyncing] = useState(false);
   const [statusMessage, setStatusMessage] = useState('Loading shared lounge state...');
@@ -222,9 +227,65 @@ export function MusicLoungePanel({ identity }: MusicLoungePanelProps) {
     }
   }
 
+  async function addSharedQueueTrack() {
+    const title = queueTitleDraft.trim();
+    const url = queueUrlDraft.trim();
+
+    if (!title) {
+      setStatusMessage('Add a track title first.');
+      return;
+    }
+
+    setIsSyncing(true);
+    setStatusMessage('Adding track suggestion...');
+
+    try {
+      const nextState = await addKodiakMusicLoungeQueueTrack(identity, { title, url });
+      applySharedState(nextState);
+      setQueueTitleDraft('');
+      setQueueUrlDraft('');
+    } catch (error) {
+      console.error('[Kodiak Music Lounge] Failed to add queue track.', error);
+      setStatusMessage('Could not add that track.');
+    } finally {
+      setIsSyncing(false);
+    }
+  }
+
+  async function removeSharedQueueTrack(trackId: string) {
+    setIsSyncing(true);
+    setStatusMessage('Removing track suggestion...');
+
+    try {
+      const nextState = await removeKodiakMusicLoungeQueueTrack(identity, trackId);
+      applySharedState(nextState);
+    } catch (error) {
+      console.error('[Kodiak Music Lounge] Failed to remove queue track.', error);
+      setStatusMessage('Could not remove that track.');
+    } finally {
+      setIsSyncing(false);
+    }
+  }
+
+  async function clearSharedQueue() {
+    setIsSyncing(true);
+    setStatusMessage('Clearing queue...');
+
+    try {
+      const nextState = await clearKodiakMusicLoungeQueue(identity);
+      applySharedState(nextState);
+    } catch (error) {
+      console.error('[Kodiak Music Lounge] Failed to clear queue.', error);
+      setStatusMessage('Could not clear the queue.');
+    } finally {
+      setIsSyncing(false);
+    }
+  }
+
   const voteCounts = loungeState?.voteCounts ?? { up: 0, down: 0 };
   const selectedBy = loungeState?.selectedByUserId ? getDisplayName(loungeState.selectedByUserId) : 'Kodiak';
   const selectedAt = formatSyncTime(loungeState?.selectedAt ?? 0);
+  const queue = loungeState?.queue ?? [];
 
   return (
     <div className="music-lounge-panel">
@@ -292,7 +353,7 @@ export function MusicLoungePanel({ identity }: MusicLoungePanelProps) {
         <div>
           <p className="eyebrow eyebrow--ember">Search Spotify</p>
           <h3>Bring a track, artist, or mood.</h3>
-          <p>For now this opens Spotify search. Queue sharing and room-wide votes come next on this branch.</p>
+          <p>Open Spotify search, then paste a track or playlist link below to suggest it to the shared queue.</p>
         </div>
 
         <form
@@ -308,6 +369,75 @@ export function MusicLoungePanel({ identity }: MusicLoungePanelProps) {
           />
           <button type="submit">Open Spotify</button>
         </form>
+      </section>
+
+      <section className="music-lounge-queue" aria-label="Suggested tracks">
+        <div className="music-lounge-queue__header">
+          <div>
+            <p className="eyebrow eyebrow--ember">Suggested Tracks</p>
+            <h3>Build the room queue.</h3>
+            <p>Add tracks, playlists, or moods. This is shared for everyone in the lounge.</p>
+          </div>
+
+          <button type="button" onClick={() => void clearSharedQueue()} disabled={isSyncing || queue.length === 0}>
+            Clear queue
+          </button>
+        </div>
+
+        <form
+          className="music-lounge-queue-form"
+          onSubmit={(event) => {
+            event.preventDefault();
+            void addSharedQueueTrack();
+          }}
+        >
+          <input
+            value={queueTitleDraft}
+            onChange={(event) => setQueueTitleDraft(event.target.value)}
+            placeholder="Track, artist, playlist, or vibe..."
+          />
+          <input
+            value={queueUrlDraft}
+            onChange={(event) => setQueueUrlDraft(event.target.value)}
+            placeholder="Optional Spotify/YouTube/link URL..."
+          />
+          <button type="submit" disabled={isSyncing || !queueTitleDraft.trim()}>
+            Add
+          </button>
+        </form>
+
+        <div className="music-lounge-queue-list">
+          {queue.length === 0 ? (
+            <p className="music-lounge-empty">No suggestions yet. Drop the first track.</p>
+          ) : (
+            queue.map((track) => (
+              <article key={track.id} className="music-lounge-track">
+                <div>
+                  <strong>{track.title}</strong>
+                  <small>
+                    Suggested by {track.addedByUserId ? getDisplayName(track.addedByUserId) : 'Kodiak'} �{' '}
+                    {formatSyncTime(track.addedAt)}
+                  </small>
+                </div>
+
+                <div className="music-lounge-track__actions">
+                  {track.url ? (
+                    <a href={track.url} target="_blank" rel="noreferrer">
+                      Open
+                    </a>
+                  ) : null}
+                  <button
+                    type="button"
+                    onClick={() => void removeSharedQueueTrack(track.id)}
+                    disabled={isSyncing}
+                  >
+                    Remove
+                  </button>
+                </div>
+              </article>
+            ))
+          )}
+        </div>
       </section>
 
       <section className="music-lounge-grid" aria-label="Music vibe options">
