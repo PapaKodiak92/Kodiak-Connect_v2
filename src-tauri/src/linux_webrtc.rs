@@ -85,7 +85,7 @@ fn build_linux_voice_peer(app: AppHandle, call_id: &str) -> Result<LinuxRtcPeer,
     let pipeline = gst::Pipeline::new();
 
     let audio_bin = gst::parse::bin_from_description(
-        "autoaudiosrc ! audioconvert ! audioresample ! opusenc bitrate=32000 ! rtpopuspay pt=96 ! application/x-rtp,media=audio,encoding-name=OPUS,payload=96",
+        "autoaudiosrc ! audioconvert ! audioresample ! opusenc bitrate=32000 ! rtpopuspay pt=96 ! capsfilter caps=\"application/x-rtp,media=(string)audio,encoding-name=(string)OPUS,payload=(int)96\"",
         true,
     )
     .map_err(gst_error)?;
