@@ -1,18 +1,14 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import type { MatrixLoginIdentity } from '../auth/matrixLoginService';
 import {
   addKodiakMusicLoungeQueueTrack,
   clearKodiakMusicLoungeNowPlaying,
-  disconnectKodiakSpotify,
   clearKodiakMusicLoungeQueue,
-  getKodiakSpotifyLoginUrl,
   loadKodiakMusicLoungeState,
-  loadKodiakSpotifyStatus,
   removeKodiakMusicLoungeQueueTrack,
   setKodiakMusicLoungeNowPlaying,
   setKodiakMusicLoungeVibe,
   type KodiakMusicLoungeState,
-  type KodiakSpotifyStatus,
   voteKodiakMusicLoungeQueueTrack,
   voteKodiakMusicLoungeVibe,
 } from '../backend/kodiakApiClient';
@@ -27,45 +23,40 @@ interface MusicVibe {
   subtitle: string;
   description: string;
   accent: string;
-  spotifyUrl: string;
   tags: string[];
 }
 
 const MUSIC_VIBES: MusicVibe[] = [
   {
-    id: 'random-hits',
-    title: 'Random Hits',
-    subtitle: 'A little bit of everything.',
-    description: 'The default room vibe when nobody knows what to play.',
-    accent: 'Open Room',
-    spotifyUrl: 'https://open.spotify.com/search/top%20hits',
-    tags: ['mixed', 'party', 'community'],
+    id: 'open-library',
+    title: 'Open Library',
+    subtitle: 'The default Kodiak-Music mix.',
+    description: 'A broad room mix pulled from approved library tracks, requests, and community-safe picks.',
+    accent: 'Library Mode',
+    tags: ['library', 'mixed', 'community'],
   },
   {
     id: 'dev-focus',
     title: 'Dev Focus',
     subtitle: 'Low-distraction background energy.',
-    description: 'For coding, patching, shipping, and late-night debugging.',
+    description: 'For coding, patching, shipping, and late-night debugging without derailing chat.',
     accent: 'Focus Mode',
-    spotifyUrl: 'https://open.spotify.com/search/focus%20coding',
     tags: ['coding', 'focus', 'late night'],
   },
   {
     id: 'throwbacks',
     title: 'Throwbacks',
     subtitle: 'Old favorites and memory-lane tracks.',
-    description: 'For when the server needs nostalgia instead of chaos.',
+    description: 'For when the server needs familiar songs, nostalgia, and singalong momentum.',
     accent: 'Nostalgia',
-    spotifyUrl: 'https://open.spotify.com/search/throwback%20hits',
     tags: ['retro', 'singalong', 'classic'],
   },
   {
     id: 'rock',
     title: 'Rock',
     subtitle: 'Guitars, drums, and momentum.',
-    description: 'For lock-in mode, queue crushing, and build nights.',
+    description: 'For lock-in mode, queue crushing, and build nights with more edge.',
     accent: 'Energy',
-    spotifyUrl: 'https://open.spotify.com/search/rock%20hits',
     tags: ['guitars', 'drums', 'drive'],
   },
   {
@@ -74,16 +65,14 @@ const MUSIC_VIBES: MusicVibe[] = [
     subtitle: 'Bars, beats, and energy.',
     description: 'For higher-energy dev sessions and community hangouts.',
     accent: 'High Tempo',
-    spotifyUrl: 'https://open.spotify.com/search/rap%20hits',
     tags: ['beats', 'bars', 'hype'],
   },
   {
     id: 'country',
     title: 'Country',
     subtitle: 'Relaxed, familiar, and easygoing.',
-    description: 'For winding down and keeping the room human.',
+    description: 'For winding down, storytelling, and keeping the room human.',
     accent: 'Easygoing',
-    spotifyUrl: 'https://open.spotify.com/search/country%20hits',
     tags: ['relaxed', 'stories', 'open road'],
   },
   {
@@ -92,15 +81,14 @@ const MUSIC_VIBES: MusicVibe[] = [
     subtitle: 'Calm, smooth, and steady.',
     description: 'For low-stress background listening while people chat.',
     accent: 'Low Stress',
-    spotifyUrl: 'https://open.spotify.com/search/chill%20hits',
     tags: ['calm', 'smooth', 'ambient'],
   },
 ];
 
 const LOUNGE_GUIDELINES = [
-  'Keep it community-safe.',
-  'Use Spotify links for now.',
-  'Synced queue and voting are shared.',
+  'Library-first playback.',
+  'YouTube links stay external for now.',
+  'Requests need moderator/library review.',
 ];
 
 function getDisplayName(userId: string) {
@@ -132,30 +120,56 @@ function formatSyncTime(timestamp: number) {
   }).format(new Date(timestamp));
 }
 
+function getSourceLabel(url: string | undefined) {
+  if (!url) {
+    return 'Library candidate';
+  }
+
+  try {
+    const hostname = new URL(url).hostname.toLowerCase();
+
+    if (hostname.includes('youtube.com') || hostname.includes('youtu.be')) {
+      return 'YouTube link';
+    }
+
+    if (hostname.includes('spotify.com')) {
+      return 'External link';
+    }
+
+    return 'External link';
+  } catch {
+    return 'Library candidate';
+  }
+}
+
+function getOpenTrackLabel(url: string | undefined) {
+  const sourceLabel = getSourceLabel(url);
+
+  if (sourceLabel === 'YouTube link') {
+    return 'Open YouTube';
+  }
+
+  if (sourceLabel === 'External link') {
+    return 'Open link';
+  }
+
+  return 'Open source';
+}
+
 export function MusicLoungePanel({ identity }: MusicLoungePanelProps) {
   const [activeVibeId, setActiveVibeId] = useState(getDefaultVibeId);
   const [localVote, setLocalVote] = useState<'up' | 'down' | null>(null);
   const [searchDraft, setSearchDraft] = useState('');
   const [queueTitleDraft, setQueueTitleDraft] = useState('');
   const [queueUrlDraft, setQueueUrlDraft] = useState('');
+  const [requestTitleDraft, setRequestTitleDraft] = useState('');
+  const [requestUrlDraft, setRequestUrlDraft] = useState('');
   const [loungeState, setLoungeState] = useState<KodiakMusicLoungeState | null>(null);
-  const [spotifyStatus, setSpotifyStatus] = useState<KodiakSpotifyStatus | null>(null);
-  const [isSpotifyChecking, setIsSpotifyChecking] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
   const [statusMessage, setStatusMessage] = useState('Loading shared lounge state...');
-  const [spotifyMessage, setSpotifyMessage] = useState('Checking Spotify connection...');
+  const [libraryMessage, setLibraryMessage] = useState('Kodiak-Music library search will connect to the VPS catalog next.');
 
   const activeVibe = MUSIC_VIBES.find((vibe) => vibe.id === activeVibeId) ?? MUSIC_VIBES[0];
-
-  const spotifySearchUrl = useMemo(() => {
-    const query = searchDraft.trim();
-
-    if (!query) {
-      return activeVibe.spotifyUrl;
-    }
-
-    return `https://open.spotify.com/search/${encodeURIComponent(query)}`;
-  }, [activeVibe.spotifyUrl, searchDraft]);
 
   function applySharedState(nextState: KodiakMusicLoungeState | null) {
     if (!nextState) {
@@ -168,61 +182,6 @@ export function MusicLoungePanel({ identity }: MusicLoungePanelProps) {
     setStatusMessage('Shared lounge synced.');
   }
 
-  useEffect(() => {
-    let isMounted = true;
-
-    async function refreshSpotifyStatus() {
-      setIsSpotifyChecking(true);
-
-      try {
-        const nextStatus = await loadKodiakSpotifyStatus(identity);
-
-        if (!isMounted) {
-          return;
-        }
-
-        setSpotifyStatus(nextStatus);
-
-        if (!nextStatus.configured) {
-          setSpotifyMessage('Spotify is not configured on this backend yet.');
-        } else if (nextStatus.connected) {
-          const name = nextStatus.profile?.displayName || nextStatus.profile?.id || 'Spotify';
-          setSpotifyMessage(`Connected as ${name}.`);
-        } else {
-          setSpotifyMessage('Connect Spotify to enable real lounge playback.');
-        }
-      } catch (error) {
-        if (!isMounted) {
-          return;
-        }
-
-        console.error('[Kodiak Music Lounge] Failed to load Spotify status.', error);
-        setSpotifyMessage('Could not check Spotify connection.');
-      } finally {
-        if (isMounted) {
-          setIsSpotifyChecking(false);
-        }
-      }
-    }
-
-    function handleSpotifyMessage(event: MessageEvent) {
-      if (event.data?.type !== 'kodiak:spotify-connected') {
-        return;
-      }
-
-      void refreshSpotifyStatus();
-    }
-
-    void refreshSpotifyStatus();
-    window.addEventListener('focus', refreshSpotifyStatus);
-    window.addEventListener('message', handleSpotifyMessage);
-
-    return () => {
-      isMounted = false;
-      window.removeEventListener('focus', refreshSpotifyStatus);
-      window.removeEventListener('message', handleSpotifyMessage);
-    };
-  }, [identity]);
   useEffect(() => {
     let isMounted = true;
 
@@ -257,48 +216,6 @@ export function MusicLoungePanel({ identity }: MusicLoungePanelProps) {
     };
   }, [identity]);
 
-  function openSpotifyConnect() {
-    window.open(getKodiakSpotifyLoginUrl(identity), 'kodiak-spotify-connect', 'popup,width=520,height=720');
-    setSpotifyMessage('Finish the Spotify connection in the browser. Kodiak will refresh automatically.');
-  }
-
-  async function disconnectSpotify() {
-    setIsSpotifyChecking(true);
-    setSpotifyMessage('Disconnecting Spotify...');
-
-    try {
-      await disconnectKodiakSpotify(identity);
-      const nextStatus = await loadKodiakSpotifyStatus(identity);
-      setSpotifyStatus(nextStatus);
-      setSpotifyMessage('Spotify disconnected.');
-    } catch (error) {
-      console.error('[Kodiak Music Lounge] Failed to disconnect Spotify.', error);
-      setSpotifyMessage('Could not disconnect Spotify.');
-    } finally {
-      setIsSpotifyChecking(false);
-    }
-  }
-
-  async function refreshSpotifyConnection() {
-    setIsSpotifyChecking(true);
-
-    try {
-      const nextStatus = await loadKodiakSpotifyStatus(identity);
-      setSpotifyStatus(nextStatus);
-
-      if (nextStatus.connected) {
-        const name = nextStatus.profile?.displayName || nextStatus.profile?.id || 'Spotify';
-        setSpotifyMessage(`Connected as ${name}.`);
-      } else {
-        setSpotifyMessage('Spotify is not connected.');
-      }
-    } catch (error) {
-      console.error('[Kodiak Music Lounge] Failed to refresh Spotify status.', error);
-      setSpotifyMessage('Could not refresh Spotify connection.');
-    } finally {
-      setIsSpotifyChecking(false);
-    }
-  }
   async function selectSharedVibe(vibeId: string) {
     setActiveVibeId(vibeId);
     setLocalVote(null);
@@ -334,9 +251,9 @@ export function MusicLoungePanel({ identity }: MusicLoungePanelProps) {
     }
   }
 
-  async function addSharedQueueTrack() {
-    const title = queueTitleDraft.trim();
-    const url = queueUrlDraft.trim();
+  async function addSharedQueueTrack(titleOverride?: string, urlOverride?: string) {
+    const title = (titleOverride ?? queueTitleDraft).trim();
+    const url = (urlOverride ?? queueUrlDraft).trim();
 
     if (!title) {
       setStatusMessage('Add a track title first.');
@@ -357,6 +274,22 @@ export function MusicLoungePanel({ identity }: MusicLoungePanelProps) {
     } finally {
       setIsSyncing(false);
     }
+  }
+
+  async function addSongRequest() {
+    const title = requestTitleDraft.trim();
+    const url = requestUrlDraft.trim();
+
+    if (!title) {
+      setLibraryMessage('Add the song or artist name before sending a request.');
+      return;
+    }
+
+    setLibraryMessage('Sending request into the shared lounge queue...');
+    await addSharedQueueTrack(`Request: ${title}`, url);
+    setRequestTitleDraft('');
+    setRequestUrlDraft('');
+    setLibraryMessage('Request added. Dedicated request review storage comes with the Kodiak-Music catalog backend.');
   }
 
   async function removeSharedQueueTrack(trackId: string) {
@@ -438,14 +371,24 @@ export function MusicLoungePanel({ identity }: MusicLoungePanelProps) {
     }
   }
 
+  function stageLibrarySearch() {
+    const query = searchDraft.trim();
+
+    if (!query) {
+      setLibraryMessage('Search by song, artist, album, genre, or YouTube link.');
+      return;
+    }
+
+    setQueueTitleDraft(query);
+    setQueueUrlDraft('');
+    setLibraryMessage('Staged as a library candidate. Real VPS catalog search is the next backend step.');
+  }
+
   const voteCounts = loungeState?.voteCounts ?? { up: 0, down: 0 };
   const selectedBy = loungeState?.selectedByUserId ? getDisplayName(loungeState.selectedByUserId) : 'Kodiak';
   const selectedAt = formatSyncTime(loungeState?.selectedAt ?? 0);
   const queue = loungeState?.queue ?? [];
   const nowPlaying = loungeState?.nowPlaying ?? null;
-  const spotifyConnected = Boolean(spotifyStatus?.connected);
-  const spotifyPremium = spotifyStatus?.profile?.product === 'premium';
-  const spotifyName = spotifyStatus?.profile?.displayName || spotifyStatus?.profile?.id || 'Spotify';
   const canModerate = Boolean(loungeState?.canModerate);
   const canClearQueue = canModerate && queue.length > 0;
 
@@ -453,11 +396,11 @@ export function MusicLoungePanel({ identity }: MusicLoungePanelProps) {
     <div className="music-lounge-panel">
       <section className="music-lounge-hero">
         <div className="music-lounge-hero__copy">
-          <p className="eyebrow eyebrow--ember">Kodiak Music Lounge</p>
-          <h2>Set the room vibe.</h2>
+          <p className="eyebrow eyebrow--ember">Kodiak-Music Lounge</p>
+          <h2>Library-powered listening.</h2>
           <p>
-            A dedicated hangout for shared music taste, focus sessions, late-night building, and community listening.
-            Spotify opens on each user&apos;s own account/device while we build synced lounge features.
+            Music Lounge is the shared social room. Kodiak-Music is the player that will follow users across the app for private listening,
+            library search, requests, and lounge voting.
           </p>
         </div>
 
@@ -468,37 +411,21 @@ export function MusicLoungePanel({ identity }: MusicLoungePanelProps) {
         </aside>
       </section>
 
-      <section className="music-lounge-spotify" aria-label="Spotify connection">
+      <section className="music-lounge-library" aria-label="Kodiak-Music library status">
         <div>
-          <p className="eyebrow eyebrow--ember">Spotify Playback</p>
-          <h3>{spotifyConnected ? 'Spotify connected' : 'Connect Spotify'}</h3>
+          <p className="eyebrow eyebrow--ember">Kodiak-Music Library</p>
+          <h3>VPS-hosted catalog is next.</h3>
           <p>
-            {spotifyConnected
-              ? spotifyPremium
-                ? 'Premium detected. Next step is creating a Kodiak Connect playback device.'
-                : 'Connected, but Spotify Premium is required for in-app playback.'
-              : 'Connect Spotify so this lounge can become a real playback room instead of just shared links.'}
+            The sync tool will upload approved music to the VPS, store searchable metadata in Postgres, and keep your friend&apos;s machine
+            from being required for playback.
           </p>
-          <small>{isSpotifyChecking ? 'Checking Spotify...' : spotifyMessage}</small>
+          <small>{libraryMessage}</small>
         </div>
 
-        <div className="music-lounge-spotify__actions">
-          {spotifyConnected ? (
-            <>
-              <span>{spotifyName}</span>
-              <button type="button" onClick={() => void disconnectSpotify()} disabled={isSpotifyChecking}>
-                Disconnect
-              </button>
-            </>
-          ) : (
-            <button type="button" onClick={openSpotifyConnect} disabled={isSpotifyChecking}>
-              Connect Spotify
-            </button>
-          )}
-
-          <button type="button" onClick={() => void refreshSpotifyConnection()} disabled={isSpotifyChecking}>
-            Refresh
-          </button>
+        <div className="music-lounge-library__actions">
+          <span>Sync Tool Pending</span>
+          <span>Postgres Catalog Pending</span>
+          <span>Streaming API Pending</span>
         </div>
       </section>
 
@@ -523,9 +450,6 @@ export function MusicLoungePanel({ identity }: MusicLoungePanelProps) {
         </div>
 
         <div className="music-lounge-actions">
-          <a href={activeVibe.spotifyUrl} target="_blank" rel="noreferrer">
-            Open vibe
-          </a>
           <button
             type="button"
             className={localVote === 'up' ? 'music-lounge-vote music-lounge-vote--active' : 'music-lounge-vote'}
@@ -545,25 +469,25 @@ export function MusicLoungePanel({ identity }: MusicLoungePanelProps) {
         </div>
       </section>
 
-      <section className="music-lounge-search" aria-label="Spotify search">
+      <section className="music-lounge-search" aria-label="Kodiak-Music library search">
         <div>
-          <p className="eyebrow eyebrow--ember">Search Spotify</p>
-          <h3>Bring a track, artist, or mood.</h3>
-          <p>Open Spotify search, then paste a track or playlist link below to suggest it to the shared queue.</p>
+          <p className="eyebrow eyebrow--ember">Library Search</p>
+          <h3>Find a hosted song or stage a candidate.</h3>
+          <p>Search will hit the VPS catalog once the Postgres-backed library lands. For now, it stages a title into the lounge queue form.</p>
         </div>
 
         <form
           onSubmit={(event) => {
             event.preventDefault();
-            window.open(spotifySearchUrl, '_blank', 'noopener,noreferrer');
+            stageLibrarySearch();
           }}
         >
           <input
             value={searchDraft}
             onChange={(event) => setSearchDraft(event.target.value)}
-            placeholder="Search songs, artists, playlists..."
+            placeholder="Search songs, artists, albums, genres..."
           />
-          <button type="submit">Open Spotify</button>
+          <button type="submit">Stage for queue</button>
         </form>
       </section>
 
@@ -574,14 +498,14 @@ export function MusicLoungePanel({ identity }: MusicLoungePanelProps) {
             <>
               <h3>{nowPlaying.title}</h3>
               <p>
-                Started by {nowPlaying.playedByUserId ? getDisplayName(nowPlaying.playedByUserId) : 'Kodiak'} at{' '}
+                {getSourceLabel(nowPlaying.url)} - Started by {nowPlaying.playedByUserId ? getDisplayName(nowPlaying.playedByUserId) : 'Kodiak'} at{' '}
                 {formatSyncTime(nowPlaying.playedAt ?? 0)}
               </p>
             </>
           ) : (
             <>
               <h3>Nothing playing yet.</h3>
-              <p>Promote a suggestion from the queue when the room picks a track.</p>
+              <p>Promote a library song, request, or YouTube link from the queue when the room picks a track.</p>
             </>
           )}
         </div>
@@ -589,7 +513,7 @@ export function MusicLoungePanel({ identity }: MusicLoungePanelProps) {
         <div className="music-lounge-now-playing__actions">
           {nowPlaying?.url ? (
             <a href={nowPlaying.url} target="_blank" rel="noreferrer">
-              Open track
+              {getOpenTrackLabel(nowPlaying.url)}
             </a>
           ) : null}
           {nowPlaying && canModerate ? (
@@ -603,9 +527,9 @@ export function MusicLoungePanel({ identity }: MusicLoungePanelProps) {
       <section className="music-lounge-queue" aria-label="Suggested tracks">
         <div className="music-lounge-queue__header">
           <div>
-            <p className="eyebrow eyebrow--ember">Suggested Tracks</p>
-            <h3>Build the room queue.</h3>
-            <p>Add tracks, playlists, or moods. This is shared for everyone in the lounge.</p>
+            <p className="eyebrow eyebrow--ember">Lounge Queue</p>
+            <h3>Vote on what plays next.</h3>
+            <p>Add a hosted-library candidate, request, or approved YouTube link. This queue is shared for everyone in the lounge.</p>
           </div>
 
           {canModerate ? (
@@ -625,12 +549,12 @@ export function MusicLoungePanel({ identity }: MusicLoungePanelProps) {
           <input
             value={queueTitleDraft}
             onChange={(event) => setQueueTitleDraft(event.target.value)}
-            placeholder="Track, artist, playlist, or vibe..."
+            placeholder="Song title, artist, or library candidate..."
           />
           <input
             value={queueUrlDraft}
             onChange={(event) => setQueueUrlDraft(event.target.value)}
-            placeholder="Optional Spotify/YouTube/link URL..."
+            placeholder="Optional YouTube or source URL..."
           />
           <button type="submit" disabled={isSyncing || !queueTitleDraft.trim()}>
             Add
@@ -639,14 +563,14 @@ export function MusicLoungePanel({ identity }: MusicLoungePanelProps) {
 
         <div className="music-lounge-queue-list">
           {queue.length === 0 ? (
-            <p className="music-lounge-empty">No suggestions yet. Drop the first track.</p>
+            <p className="music-lounge-empty">No suggestions yet. Drop the first library pick or YouTube link.</p>
           ) : (
             queue.map((track) => (
               <article key={track.id} className="music-lounge-track">
                 <div>
                   <strong>{track.title}</strong>
                   <small>
-                    Suggested by {track.addedByUserId ? getDisplayName(track.addedByUserId) : 'Kodiak'} - {' '}
+                    {getSourceLabel(track.url)} - Suggested by {track.addedByUserId ? getDisplayName(track.addedByUserId) : 'Kodiak'} - {' '}
                     {formatSyncTime(track.addedAt)}
                   </small>
                 </div>
@@ -677,7 +601,7 @@ export function MusicLoungePanel({ identity }: MusicLoungePanelProps) {
                   </button>
                   {track.url ? (
                     <a href={track.url} target="_blank" rel="noreferrer">
-                      Open
+                      {getOpenTrackLabel(track.url)}
                     </a>
                   ) : null}
                   {canRemoveQueueTrack(track.addedByUserId) ? (
@@ -694,6 +618,37 @@ export function MusicLoungePanel({ identity }: MusicLoungePanelProps) {
             ))
           )}
         </div>
+      </section>
+
+      <section className="music-lounge-request" aria-label="Request a song">
+        <div>
+          <p className="eyebrow eyebrow--ember">Request a Song</p>
+          <h3>Ask for something missing.</h3>
+          <p>
+            Requests start in the lounge queue today. The dedicated request review table will arrive with the Kodiak-Music catalog backend.
+          </p>
+        </div>
+
+        <form
+          onSubmit={(event) => {
+            event.preventDefault();
+            void addSongRequest();
+          }}
+        >
+          <input
+            value={requestTitleDraft}
+            onChange={(event) => setRequestTitleDraft(event.target.value)}
+            placeholder="Song and artist name..."
+          />
+          <input
+            value={requestUrlDraft}
+            onChange={(event) => setRequestUrlDraft(event.target.value)}
+            placeholder="Optional YouTube/reference link..."
+          />
+          <button type="submit" disabled={isSyncing || !requestTitleDraft.trim()}>
+            Request
+          </button>
+        </form>
       </section>
 
       <section className="music-lounge-grid" aria-label="Music vibe options">
