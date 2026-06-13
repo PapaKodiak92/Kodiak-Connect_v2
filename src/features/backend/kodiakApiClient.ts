@@ -12,10 +12,15 @@ export interface KodiakMusicLoungeTrack {
   addedAt: number;
   addedByUserId: string;
   id: string;
+  myVote?: 'up' | 'down' | null;
   playedAt?: number;
   playedByUserId?: string;
   title: string;
   url: string;
+  voteCounts?: {
+    down: number;
+    up: number;
+  };
 }
 
 export interface KodiakMusicLoungeState {
