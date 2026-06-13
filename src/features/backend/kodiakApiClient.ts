@@ -163,6 +163,28 @@ export async function notifyKodiakDirectMessage(identity: MatrixLoginIdentity, n
 export async function notifyKodiakCall(identity: MatrixLoginIdentity, notification: { callId: string; callKind: 'voice' | 'video'; roomId: string; targetUserId: string }) {
   await postKodiak<{ ok?: boolean }>(identity, '/api/push/call', notification);
 }
+export interface KodiakCallMediaTokenResponse {
+  callId: string;
+  callKind: KodiakBackendCallKind;
+  roomName: string;
+  token: string;
+  wsUrl: string;
+}
+
+export async function requestKodiakCallMediaToken(
+  identity: MatrixLoginIdentity,
+  request: {
+    callId: string;
+    callKind: KodiakBackendCallKind;
+    targetUserId: string;
+  },
+) {
+  return await postKodiak<KodiakCallMediaTokenResponse>(
+    identity,
+    '/api/calls/media-token',
+    request as unknown as Record<string, unknown>,
+  );
+}
 export async function sendKodiakBackendCallEvent(
   identity: MatrixLoginIdentity,
   event: {

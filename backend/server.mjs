@@ -2,6 +2,7 @@ import { createServer } from "node:http";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { AccessToken } from "livekit-server-sdk";
 import { sendPushToUser, sendPushToUsers } from "./pushDelivery.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -20,6 +21,9 @@ const ACTIVE_ROOM_VISIBLE_WINDOW_MS = 20_000;
 const CALL_EVENT_RETENTION_MS = 10 * 60_000;
 
 const PORT = Number(process.env.KODIAK_BACKEND_PORT ?? 8787);
+const LIVEKIT_URL = String(process.env.KODIAK_LIVEKIT_URL ?? "").trim();
+const LIVEKIT_API_KEY = String(process.env.KODIAK_LIVEKIT_API_KEY ?? "").trim();
+const LIVEKIT_API_SECRET = String(process.env.KODIAK_LIVEKIT_API_SECRET ?? "").trim();
 const DEFAULT_ALLOWED_ORIGINS = [
   "http://localhost:5173",
   "http://127.0.0.1:5173",
@@ -249,6 +253,26 @@ function pruneCallEvents(callEvents) {
   return callEvents
     .filter((event) => Number(event.createdAt ?? 0) >= cutoff)
     .slice(-1000);
+}
+function sanitizeLiveKitRoomPart(value) {
+  return String(value ?? "")
+    .trim()
+    .replace(/^@/, "")
+    .replace(/[^a-zA-Z0-9_-]+/g, "_")
+    .replace(/^_+|_+$/g, "")
+    .slice(0, 80);
+}
+
+function getLiveKitCallRoomName(callId, userA, userB) {
+  const participants = [sanitizeLiveKitRoomPart(userA), sanitizeLiveKitRoomPart(userB)]
+    .sort()
+    .join("_");
+
+  return `kc_${sanitizeLiveKitRoomPart(callId)}_${participants}`.slice(0, 180);
+}
+
+function isLiveKitConfigured() {
+  return Boolean(LIVEKIT_URL && LIVEKIT_API_KEY && LIVEKIT_API_SECRET);
 }
 
 function sanitizeReportCategory(category) {
@@ -625,6 +649,63 @@ async function handleCallPush(request, response, corsHeaders) {
   sendJson(response, 200, { ok: true, delivery }, corsHeaders);
 }
 
+async function handleCallMediaToken(request, response, corsHeaders) {
+  const body = await readRequestBody(request);
+  const userId = getCurrentUserId(request, body);
+  const targetUserId = body.targetUserId;
+  const callId = String(body.callId ?? "").trim().slice(0, 160);
+  const callKind = sanitizeCallKind(body.callKind);
+
+  if (!isValidMatrixUserId(userId) || !isValidMatrixUserId(targetUserId) || userId === targetUserId || !callId) {
+    sendJson(response, 400, { error: "Invalid call media token request." }, corsHeaders);
+    return;
+  }
+
+  const friendStore = await readJsonFile(FRIENDS_FILE, {});
+  const blockStore = await readJsonFile(BLOCKS_FILE, {});
+  const profileStore = await readJsonFile(PROFILES_FILE, {});
+  const friendEdge = friendStore[getFriendKey(userId, targetUserId)];
+
+  if (friendEdge?.status !== "friends") {
+    sendJson(response, 403, { error: "Calls are only available between friends." }, corsHeaders);
+    return;
+  }
+
+  if (hasEitherUserBlocked(blockStore, userId, targetUserId)) {
+    sendJson(response, 403, { error: "Calls are not available while a block is active." }, corsHeaders);
+    return;
+  }
+
+  if (!isLiveKitConfigured()) {
+    sendJson(response, 503, { error: "Calls v2 media is not configured." }, corsHeaders);
+    return;
+  }
+
+  const roomName = getLiveKitCallRoomName(callId, userId, targetUserId);
+  const displayName = getProfileDisplayName(profileStore, userId);
+  const accessToken = new AccessToken(LIVEKIT_API_KEY, LIVEKIT_API_SECRET, {
+    identity: userId,
+    name: displayName,
+  });
+
+  accessToken.addGrant({
+    room: roomName,
+    roomJoin: true,
+    canPublish: true,
+    canPublishData: true,
+    canSubscribe: true,
+  });
+
+  const token = await accessToken.toJwt();
+
+  sendJson(response, 200, {
+    callId,
+    callKind,
+    roomName,
+    token,
+    wsUrl: LIVEKIT_URL,
+  }, corsHeaders);
+}
 async function handleCallEventPost(request, response, corsHeaders) {
   const body = await readRequestBody(request);
   const senderUserId = getCurrentUserId(request, body);
@@ -1477,6 +1558,11 @@ const server = createServer(async (request, response) => {
 
     if (request.method === "POST" && url.pathname === "/api/push/call") {
       await handleCallPush(request, response, corsHeaders);
+      return;
+    }
+
+    if (request.method === "POST" && url.pathname === "/api/calls/media-token") {
+      await handleCallMediaToken(request, response, corsHeaders);
       return;
     }
 

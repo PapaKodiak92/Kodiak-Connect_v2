@@ -38,6 +38,8 @@
     "@tauri-apps/plugin-opener": "^2.5.4",
     "@tauri-apps/plugin-updater": "latest",
     "firebase-admin": "^14.0.0",
+    "livekit-client": "^2.19.2",
+    "livekit-server-sdk": "^2.15.4",
     "react": "latest",
     "react-dom": "latest",
     "web-push": "^3.6.7"
