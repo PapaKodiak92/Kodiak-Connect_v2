@@ -79,19 +79,13 @@
   min-width: 0;
 }
 
-.music-lounge-orb {
-  display: grid;
-  width: 4rem;
-  height: 4rem;
+.music-lounge-accent-bar {
+  width: 0.28rem;
+  align-self: stretch;
   flex: 0 0 auto;
-  place-items: center;
-  border: 1px solid rgba(251, 146, 60, 0.38);
   border-radius: 999px;
-  background:
-    radial-gradient(circle, rgba(251, 146, 60, 0.34), rgba(67, 20, 7, 0.42));
-  color: #ffedd5;
-  font-size: 2rem;
-  font-weight: 900;
+  background: linear-gradient(180deg, rgba(251, 146, 60, 0.95), rgba(251, 146, 60, 0.18));
+  box-shadow: 0 0 24px rgba(251, 146, 60, 0.24);
 }
 
 .music-lounge-current h3,

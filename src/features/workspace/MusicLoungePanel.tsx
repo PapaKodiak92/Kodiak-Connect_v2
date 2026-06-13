@@ -363,7 +363,7 @@ export function MusicLoungePanel({ identity }: MusicLoungePanelProps) {
 
       <section className="music-lounge-current" aria-label="Current music vibe">
         <div className="music-lounge-current__main">
-          <span className="music-lounge-orb" aria-hidden="true">Audio</span>
+          <span className="music-lounge-accent-bar" aria-hidden="true" />
           <div>
             <p className="eyebrow">{activeVibe.accent}</p>
             <h3>{activeVibe.title}</h3>
