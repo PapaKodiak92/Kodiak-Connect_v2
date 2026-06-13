@@ -103,9 +103,7 @@ fn build_linux_voice_peer(app: AppHandle, call_id: &str) -> Result<LinuxRtcPeer,
         .static_pad("src")
         .ok_or_else(|| "Linux native RTC audio bin did not expose a source pad.".to_string())?;
 
-    let webrtc_sink_pad = webrtc
-        .request_pad_simple("sink_%u")
-        .ok_or_else(|| "Linux native RTC could not request a WebRTC sink pad.".to_string())?;
+    let webrtc_sink_pad = request_webrtc_sink_pad(&webrtc)?;
 
     audio_src_pad.link(&webrtc_sink_pad).map_err(gst_error)?;
 
