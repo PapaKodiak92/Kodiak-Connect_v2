@@ -97,9 +97,20 @@ X-Kodiak-User-Id: @user:kodiak-connect.com
 
 Body is the raw audio file bytes. The backend calculates SHA-256 while streaming, verifies it matches the prepared hash, stores the file under `audio/<hash-prefix>/<hash>.<ext>`, and upserts the track metadata into Postgres.
 
+## Playback API
+
+### Stream uploaded audio
+
+```http
+GET /api/music/stream/:trackIdOrSha256?userId=@user:kodiak-connect.com
+Range: bytes=0-
+```
+
+The stream route looks up the library track by track id or SHA-256, resolves its stored file key inside `KODIAK_MUSIC_LIBRARY_DIR`, and returns the audio with HTTP Range support so browsers can seek and resume playback.
+
 ## Current limitations
 
 - This is the server foundation for the future desktop sync app.
 - Artwork extraction/upload is not wired yet.
-- Streaming endpoint is reserved by `streamPath` but still needs the playback route.
+- The first Kodiak-Music player UI still needs to be wired to the stream route.
 - Upload access is restricted by `KODIAK_MUSIC_SYNC_USER_IDS` and music moderators.
