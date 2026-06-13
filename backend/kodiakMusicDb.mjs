@@ -302,7 +302,7 @@ export async function upsertKodiakMusicTrackFromSync(track) {
        uploaded_by_user_id,
        updated_at
      ) VALUES ($1, $2, $3, $4, $5, $6, $7, 'library', $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, now())
-     ON CONFLICT (file_sha256) WHERE file_sha256 IS NOT NULL
+     ON CONFLICT (file_sha256)
      DO UPDATE SET
        title = EXCLUDED.title,
        normalized_title = EXCLUDED.normalized_title,
