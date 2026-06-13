@@ -79,21 +79,78 @@ fn wait_for_description(
 }
 
 #[cfg(target_os = "linux")]
+fn build_opus_rtp_caps() -> gst::Caps {
+    gst::Caps::builder("application/x-rtp")
+        .field("media", "audio")
+        .field("encoding-name", "OPUS")
+        .field("payload", 96i32)
+        .field("clock-rate", 48000i32)
+        .build()
+}
+
+#[cfg(target_os = "linux")]
+fn request_webrtc_audio_sink_pad(webrtc: &gst::Element, caps: &gst::Caps) -> Result<gst::Pad, String> {
+    let templates = webrtc.pad_template_list();
+
+    for template in &templates {
+        if template.direction() == gst::PadDirection::Sink && template.presence() == gst::PadPresence::Request {
+            if let Some(pad) = webrtc.request_pad(template, None::<&str>, Some(caps)) {
+                return Ok(pad);
+            }
+        }
+    }
+
+    let template_names = templates
+        .iter()
+        .map(|template| {
+            format!(
+                "{}:{:?}:{:?}",
+                template.name_template(),
+                template.direction(),
+                template.presence()
+            )
+        })
+        .collect::<Vec<_>>()
+        .join(", ");
+
+    Err(format!(
+        "Linux native RTC could not request a WebRTC audio sink pad for caps {}. Available pad templates: {template_names}",
+        caps.to_string()
+    ))
+}
+
+#[cfg(target_os = "linux")]
 fn build_linux_voice_peer(app: AppHandle, call_id: &str) -> Result<LinuxRtcPeer, String> {
     Lazy::force(&GST_READY);
 
-    let pipeline = gst::parse::launch(
-        "webrtcbin name=kodiak-webrtcbin bundle-policy=max-bundle stun-server=stun://stun.l.google.com:19302 \
-         autoaudiosrc name=kodiak-audio-source ! audioconvert ! audioresample ! audio/x-raw,rate=48000,channels=1 ! volume name=kodiak-microphone-volume ! opusenc bitrate=32000 ! rtpopuspay pt=96 ! \
-         application/x-rtp,media=(string)audio,encoding-name=(string)OPUS,payload=(int)96,clock-rate=(int)48000 ! kodiak-webrtcbin.",
-    )
-    .map_err(gst_error)?
-    .downcast::<gst::Pipeline>()
-    .map_err(|_| "Linux native RTC pipeline did not build as a GStreamer pipeline.".to_string())?;
+    let rtp_caps = build_opus_rtp_caps();
+    let rtp_caps_description = rtp_caps.to_string();
+    let pipeline = gst::Pipeline::new();
 
-    let webrtc = pipeline
-        .by_name("kodiak-webrtcbin")
-        .ok_or_else(|| "Linux native RTC pipeline did not expose webrtcbin.".to_string())?;
+    let audio_bin = gst::parse::bin_from_description(
+        "autoaudiosrc name=kodiak-audio-source ! audioconvert ! audioresample ! audio/x-raw,rate=48000,channels=1 ! volume name=kodiak-microphone-volume ! opusenc bitrate=32000 ! rtpopuspay pt=96 ! capsfilter caps=\"application/x-rtp,media=(string)audio,encoding-name=(string)OPUS,payload=(int)96,clock-rate=(int)48000\"",
+        true,
+    )
+    .map_err(gst_error)?;
+
+    let webrtc = gst::ElementFactory::make("webrtcbin")
+        .name("kodiak-webrtcbin")
+        .property("stun-server", "stun://stun.l.google.com:19302")
+        .build()
+        .map_err(gst_error)?;
+
+    pipeline.add(&audio_bin).map_err(gst_error)?;
+    pipeline.add(&webrtc).map_err(gst_error)?;
+
+    let audio_src_pad = audio_bin
+        .static_pad("src")
+        .ok_or_else(|| "Linux native RTC audio bin did not expose a source pad.".to_string())?;
+
+    let webrtc_sink_pad = request_webrtc_audio_sink_pad(&webrtc, &rtp_caps)?;
+
+    audio_src_pad
+        .link(&webrtc_sink_pad)
+        .map_err(|error| format!("Linux native RTC failed to link Opus RTP to webrtcbin for caps {rtp_caps_description}: {error}"))?;
 
     let app_for_ice = app.clone();
     let call_id_for_ice = call_id.to_string();
