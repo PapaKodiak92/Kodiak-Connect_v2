@@ -1,4 +1,4 @@
-import { invoke } from '@tauri-apps/api/core';
+import { invokeTauri } from '../tauri/tauriCore';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import type { KodiakCallPeer, KodiakVoiceCallPeerOptions } from '../../features/calls/kodiakCallPeer';
 
@@ -30,7 +30,7 @@ export class KodiakNativeLinuxRtcCallPeer implements KodiakCallPeer {
   async createOffer() {
     await this.ready;
 
-    const offerSdp = await invoke<string>('kodiak_linux_rtc_create_offer', {
+    const offerSdp = await invokeTauri<string>('kodiak_linux_rtc_create_offer', {
       callId: this.callId,
       callKind: this.options.callKind,
     });
@@ -48,7 +48,7 @@ export class KodiakNativeLinuxRtcCallPeer implements KodiakCallPeer {
   async createAnswer(offerSdp: string) {
     await this.ready;
 
-    const answerSdp = await invoke<string>('kodiak_linux_rtc_create_answer', {
+    const answerSdp = await invokeTauri<string>('kodiak_linux_rtc_create_answer', {
       callId: this.callId,
       callKind: this.options.callKind,
       offerSdp,
@@ -69,7 +69,7 @@ export class KodiakNativeLinuxRtcCallPeer implements KodiakCallPeer {
       return;
     }
 
-    await invoke('kodiak_linux_rtc_apply_answer', {
+    await invokeTauri('kodiak_linux_rtc_apply_answer', {
       callId: this.callId,
       answerSdp,
     });
@@ -105,7 +105,7 @@ export class KodiakNativeLinuxRtcCallPeer implements KodiakCallPeer {
       return;
     }
 
-    void invoke('kodiak_linux_rtc_set_muted', {
+    void invokeTauri('kodiak_linux_rtc_set_muted', {
       callId: this.callId,
       isMuted,
     }).catch((error) => {
@@ -122,7 +122,7 @@ export class KodiakNativeLinuxRtcCallPeer implements KodiakCallPeer {
     this.pendingIceCandidates.length = 0;
     this.unlistenIceCandidate?.();
 
-    void invoke('kodiak_linux_rtc_close', {
+    void invokeTauri('kodiak_linux_rtc_close', {
       callId: this.callId,
     }).catch((error) => {
       console.warn('[Kodiak Connect] Linux native RTC close failed', error);
@@ -145,7 +145,7 @@ export class KodiakNativeLinuxRtcCallPeer implements KodiakCallPeer {
   }
 
   private async sendNativeIceCandidate(candidate: RTCIceCandidateInit) {
-    await invoke('kodiak_linux_rtc_add_ice_candidate', {
+    await invokeTauri('kodiak_linux_rtc_add_ice_candidate', {
       callId: this.callId,
       candidate: {
         candidate: candidate.candidate,
