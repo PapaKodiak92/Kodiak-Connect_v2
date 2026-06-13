@@ -94,6 +94,23 @@
   color: #fff7ed;
 }
 
+.music-lounge-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  margin-top: 0.65rem;
+}
+
+.music-lounge-tags span {
+  border: 1px solid rgba(251, 146, 60, 0.16);
+  border-radius: 999px;
+  background: rgba(251, 146, 60, 0.08);
+  color: #fed7aa;
+  font-size: 0.72rem;
+  font-weight: 900;
+  padding: 0.28rem 0.55rem;
+}
+
 .music-lounge-actions {
   display: flex;
   flex-wrap: wrap;
@@ -158,33 +175,16 @@
   padding: 0.85rem 1rem;
 }
 
-@media (max-width: 760px) {
-  .music-lounge-panel {
-    padding: 0.85rem;
-  }
-
-  .music-lounge-hero,
-  .music-lounge-current {
-    grid-template-columns: 1fr;
-    display: grid;
-  }
-
-  .music-lounge-actions {
-    justify-content: stretch;
-  }
-
-  .music-lounge-actions a,
-  .music-lounge-actions button {
-    text-align: center;
-  }
-
-  .music-lounge-footer {
-    display: grid;
-  }
+.music-lounge-footer div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.55rem;
+  justify-content: flex-end;
 }
 
 .music-lounge-search,
-.music-lounge-queue {
+.music-lounge-queue,
+.music-lounge-request {
   border: 1px solid rgba(251, 146, 60, 0.18);
   border-radius: 24px;
   background:
@@ -194,7 +194,8 @@
   padding: 1rem;
 }
 
-.music-lounge-search {
+.music-lounge-search,
+.music-lounge-request {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(280px, 420px);
   gap: 1rem;
@@ -202,13 +203,15 @@
 }
 
 .music-lounge-search form,
-.music-lounge-queue-form {
+.music-lounge-queue-form,
+.music-lounge-request form {
   display: grid;
   gap: 0.6rem;
 }
 
 .music-lounge-search input,
-.music-lounge-queue-form input {
+.music-lounge-queue-form input,
+.music-lounge-request input {
   width: 100%;
   border: 1px solid rgba(251, 146, 60, 0.22);
   border-radius: 999px;
@@ -219,7 +222,8 @@
 
 .music-lounge-search button,
 .music-lounge-queue button,
-.music-lounge-track a {
+.music-lounge-track a,
+.music-lounge-request button {
   border: 1px solid rgba(251, 146, 60, 0.28);
   border-radius: 999px;
   background: rgba(251, 146, 60, 0.12);
@@ -237,9 +241,16 @@
   margin-bottom: 0.9rem;
 }
 
-.music-lounge-queue__header h3 {
+.music-lounge-queue__header h3,
+.music-lounge-search h3,
+.music-lounge-request h3 {
   margin: 0.2rem 0 0.35rem;
   color: #fff7ed;
+}
+
+.music-lounge-search p,
+.music-lounge-request p {
+  color: #cbd5e1;
 }
 
 .music-lounge-queue-form {
@@ -287,28 +298,6 @@
   font-weight: 800;
 }
 
-@media (max-width: 760px) {
-  .music-lounge-search,
-  .music-lounge-queue__header,
-  .music-lounge-track {
-    display: grid;
-    grid-template-columns: 1fr;
-  }
-
-  .music-lounge-queue-form {
-    grid-template-columns: 1fr;
-  }
-
-  .music-lounge-track__actions {
-    justify-content: stretch;
-  }
-
-  .music-lounge-track__actions a,
-  .music-lounge-track__actions button {
-    text-align: center;
-  }
-}
-
 .music-lounge-now-playing {
   display: flex;
   justify-content: space-between;
@@ -351,53 +340,38 @@
   text-decoration: none;
 }
 
-@media (max-width: 760px) {
-  .music-lounge-now-playing {
-    display: grid;
-    grid-template-columns: 1fr;
-  }
-
-  .music-lounge-now-playing__actions {
-    justify-content: stretch;
-  }
-
-  .music-lounge-now-playing__actions a,
-  .music-lounge-now-playing__actions button {
-    text-align: center;
-  }
-}
-.music-lounge-spotify {
+.music-lounge-library {
   display: flex;
   justify-content: space-between;
   gap: 1rem;
   align-items: center;
-  border: 1px solid rgba(34, 197, 94, 0.22);
+  border: 1px solid rgba(14, 165, 233, 0.22);
   border-radius: 24px;
   background:
-    radial-gradient(circle at 8% 0%, rgba(34, 197, 94, 0.16), transparent 22rem),
+    radial-gradient(circle at 8% 0%, rgba(14, 165, 233, 0.16), transparent 22rem),
     linear-gradient(135deg, rgba(15, 23, 42, 0.94), rgba(7, 12, 27, 0.96));
   box-shadow: 0 22px 55px rgba(0, 0, 0, 0.2);
   padding: 1rem;
 }
 
-.music-lounge-spotify h3 {
+.music-lounge-library h3 {
   margin: 0.2rem 0 0.35rem;
   color: #fff7ed;
 }
 
-.music-lounge-spotify p {
+.music-lounge-library p {
   margin: 0;
   color: #cbd5e1;
 }
 
-.music-lounge-spotify small {
+.music-lounge-library small {
   display: block;
   margin-top: 0.55rem;
-  color: #86efac;
+  color: #bae6fd;
   font-weight: 800;
 }
 
-.music-lounge-spotify__actions {
+.music-lounge-library__actions {
   display: flex;
   flex-wrap: wrap;
   gap: 0.5rem;
@@ -405,36 +379,64 @@
   justify-content: flex-end;
 }
 
-.music-lounge-spotify__actions span {
-  border: 1px solid rgba(34, 197, 94, 0.22);
+.music-lounge-library__actions span {
+  border: 1px solid rgba(14, 165, 233, 0.22);
   border-radius: 999px;
-  background: rgba(34, 197, 94, 0.1);
-  color: #dcfce7;
+  background: rgba(14, 165, 233, 0.1);
+  color: #e0f2fe;
   font-weight: 900;
   padding: 0.65rem 0.9rem;
 }
 
-.music-lounge-spotify__actions button {
-  border: 1px solid rgba(34, 197, 94, 0.28);
-  border-radius: 999px;
-  background: rgba(34, 197, 94, 0.12);
-  color: #dcfce7;
-  font-weight: 900;
-  padding: 0.7rem 0.9rem;
+button:disabled,
+.music-lounge-track a[aria-disabled='true'] {
+  cursor: not-allowed;
+  opacity: 0.58;
 }
 
 @media (max-width: 760px) {
-  .music-lounge-spotify {
+  .music-lounge-panel {
+    padding: 0.85rem;
+  }
+
+  .music-lounge-hero,
+  .music-lounge-current,
+  .music-lounge-search,
+  .music-lounge-queue__header,
+  .music-lounge-track,
+  .music-lounge-now-playing,
+  .music-lounge-library,
+  .music-lounge-request {
     display: grid;
     grid-template-columns: 1fr;
   }
 
-  .music-lounge-spotify__actions {
+  .music-lounge-actions,
+  .music-lounge-track__actions,
+  .music-lounge-now-playing__actions,
+  .music-lounge-library__actions {
     justify-content: stretch;
   }
 
-  .music-lounge-spotify__actions button,
-  .music-lounge-spotify__actions span {
+  .music-lounge-actions a,
+  .music-lounge-actions button,
+  .music-lounge-track__actions a,
+  .music-lounge-track__actions button,
+  .music-lounge-now-playing__actions a,
+  .music-lounge-now-playing__actions button,
+  .music-lounge-library__actions span {
     text-align: center;
+  }
+
+  .music-lounge-queue-form {
+    grid-template-columns: 1fr;
+  }
+
+  .music-lounge-footer {
+    display: grid;
+  }
+
+  .music-lounge-footer div {
+    justify-content: flex-start;
   }
 }
