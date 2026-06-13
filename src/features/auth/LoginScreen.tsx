@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, type ChangeEventHandler, type FormEvent } from 'react';
-import { kodiakPlatform } from '../../platform/currentPlatform';
+import { openKodiakExternalUrl } from '../../platform/externalLinks';
 import { TurnstileWidget } from '../../components/security/TurnstileWidget';
 import { kodiakEnv } from '../../config/env';
 import { MatrixLoginError, verifyMatrixLogin, type MatrixLoginIdentity } from './matrixLoginService';
@@ -89,13 +89,8 @@ const footerLinks = [
   { href: 'https://buymeacoffee.com/papakodiak', label: 'Buy Me a Coffee' },
 ];
 
-async function openExternalLink(url: string) {
-  try {
-    await kodiakPlatform.openExternalUrl(url);
-  } catch (error) {
-    console.error('[Kodiak Connect] Failed to open footer link', error);
-    window.open(url, '_blank', 'noopener,noreferrer');
-  }
+function openExternalLink(url: string) {
+  return openKodiakExternalUrl(url);
 }
 
 function LoginFooter() {

@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { KodiakStatusCard } from '../../components/ui/KodiakStatusCard';
 import { updateManifest } from './updateManifest';
-import { kodiakPlatform } from '../../platform/currentPlatform';
-import type { DesktopUpdateInfo, DesktopUpdaterStatus } from '../../platform/desktop/desktopUpdaterService';
+import { openKodiakExternalUrl } from '../../platform/externalLinks';
+import { checkKodiakPlatformUpdate, installKodiakPlatformUpdate, type DesktopUpdateInfo, type DesktopUpdaterStatus } from '../../platform/updater/platformUpdater';
 
 function formatUpdaterStatus(status: DesktopUpdaterStatus, updateInfo: DesktopUpdateInfo | null) {
   if (status === 'checking') return 'Checking for updates...';
@@ -21,13 +21,8 @@ function getStatusTone(status: DesktopUpdaterStatus) {
   return 'ready';
 }
 
-async function openExternalUrl(url: string) {
-  try {
-    await kodiakPlatform.openExternalUrl(url);
-  } catch (error) {
-    console.error('[Kodiak Connect] Failed to open external link', error);
-    window.open(url, '_blank', 'noopener,noreferrer');
-  }
+function openExternalUrl(url: string) {
+  return openKodiakExternalUrl(url);
 }
 
 function SocialLinks() {
@@ -98,7 +93,7 @@ export function UpdaterPanel({ onUpToDate, onUpdateRequired, onUpdateCheckFailed
     setProgressText(source === 'auto' ? 'Checking current version...' : 'Checking again...');
 
     try {
-      const update = await kodiakPlatform.updater.check();
+      const update = await checkKodiakPlatformUpdate();
       setUpdateInfo(update);
       setStatus(update ? 'available' : 'not-available');
       setProgressText(update ? 'A new version is ready.' : 'Latest desktop version installed.');
@@ -131,7 +126,7 @@ export function UpdaterPanel({ onUpToDate, onUpdateRequired, onUpdateCheckFailed
     setProgressText('Downloading update...');
 
     try {
-      await kodiakPlatform.updater.install((progress) => {
+      await installKodiakPlatformUpdate((progress) => {
         if (progress.event === 'Started') setProgressText('Download started.');
 
         if (progress.event === 'Progress' && progress.totalBytes) {
