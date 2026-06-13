@@ -66,6 +66,16 @@ export function sanitizeMusicUrl(value) {
   }
 }
 
+export function normalizeSha256(value) {
+  const sha = normalizeMusicText(value, 96).toLowerCase();
+
+  if (!/^[a-f0-9]{64}$/.test(sha)) {
+    return '';
+  }
+
+  return sha;
+}
+
 export async function ensureKodiakMusicSchema() {
   if (!schemaReadyPromise) {
     schemaReadyPromise = (async () => {
@@ -107,6 +117,24 @@ function mapSongRequest(row) {
     status: row.status ?? 'pending',
     title: row.title ?? '',
     updatedAt: row.updated_at ? new Date(row.updated_at).getTime() : 0,
+  };
+}
+
+function mapUpload(row) {
+  return {
+    createdAt: row.created_at ? new Date(row.created_at).getTime() : 0,
+    errorMessage: row.error_message ?? '',
+    fileName: row.file_name ?? '',
+    fileSha256: row.file_sha256 ?? '',
+    fileSizeBytes: Number(row.file_size_bytes ?? 0),
+    id: String(row.id),
+    originalPath: row.original_path ?? '',
+    sourceDeviceId: row.source_device_id ?? '',
+    status: row.status ?? 'pending',
+    syncMetadata: row.sync_metadata && typeof row.sync_metadata === 'object' ? row.sync_metadata : {},
+    trackId: row.track_id ? String(row.track_id) : '',
+    updatedAt: row.updated_at ? new Date(row.updated_at).getTime() : 0,
+    uploaderUserId: row.uploader_user_id ?? '',
   };
 }
 
@@ -168,6 +196,26 @@ export async function searchKodiakMusicTracks({ query = '', limit = 20 } = {}) {
   );
 
   return result.rows.map(mapTrack);
+}
+
+export async function getKodiakMusicTrackBySha256(fileSha256) {
+  await ensureKodiakMusicSchema();
+
+  const cleanSha = normalizeSha256(fileSha256);
+
+  if (!cleanSha) {
+    return null;
+  }
+
+  const result = await getPool().query(
+    `SELECT id, title, artist_name, album_title, genre_names, source_kind, stream_path, artwork_path, duration_ms, explicit, created_at
+     FROM kodiak_music_tracks
+     WHERE file_sha256 = $1
+     LIMIT 1`,
+    [cleanSha],
+  );
+
+  return result.rows[0] ? mapTrack(result.rows[0]) : null;
 }
 
 export async function createKodiakMusicSongRequest({ requesterUserId, title, artistName = '', referenceUrl = '', note = '' }) {
@@ -263,6 +311,93 @@ export async function updateKodiakMusicSongRequestStatus({ moderatorUserId, requ
   return result.rows[0] ? mapSongRequest(result.rows[0]) : null;
 }
 
+export async function createKodiakMusicUploadIntent({
+  uploaderUserId,
+  sourceDeviceId = '',
+  originalPath = '',
+  fileName = '',
+  fileSha256 = '',
+  fileSizeBytes = 0,
+  status = 'pending',
+  trackId = '',
+  errorMessage = '',
+  syncMetadata = {},
+}) {
+  await ensureKodiakMusicSchema();
+
+  const cleanSha = normalizeSha256(fileSha256);
+
+  if (!cleanSha) {
+    throw new Error('A valid SHA-256 hash is required before upload.');
+  }
+
+  const result = await getPool().query(
+    `INSERT INTO kodiak_music_uploads (
+       uploader_user_id,
+       source_device_id,
+       original_path,
+       file_name,
+       file_sha256,
+       file_size_bytes,
+       status,
+       track_id,
+       error_message,
+       sync_metadata
+     ) VALUES ($1, $2, $3, $4, $5, $6, $7, NULLIF($8, '')::uuid, $9, $10::jsonb)
+     RETURNING *`,
+    [
+      normalizeMusicText(uploaderUserId, 120),
+      normalizeMusicText(sourceDeviceId, 160),
+      normalizeMusicText(originalPath, 700),
+      normalizeMusicText(fileName, 260),
+      cleanSha,
+      Math.max(Number(fileSizeBytes) || 0, 0),
+      normalizeMusicText(status, 30),
+      normalizeMusicText(trackId, 80),
+      normalizeMusicText(errorMessage, 700),
+      JSON.stringify(syncMetadata ?? {}),
+    ],
+  );
+
+  return mapUpload(result.rows[0]);
+}
+
+export async function getKodiakMusicUploadById(uploadId) {
+  await ensureKodiakMusicSchema();
+
+  const cleanUploadId = normalizeMusicText(uploadId, 80);
+
+  if (!cleanUploadId) {
+    return null;
+  }
+
+  const result = await getPool().query(
+    `SELECT *
+     FROM kodiak_music_uploads
+     WHERE id = $1::uuid
+     LIMIT 1`,
+    [cleanUploadId],
+  );
+
+  return result.rows[0] ? mapUpload(result.rows[0]) : null;
+}
+
+export async function markKodiakMusicUploadFailed({ uploadId, errorMessage }) {
+  await ensureKodiakMusicSchema();
+
+  const result = await getPool().query(
+    `UPDATE kodiak_music_uploads
+     SET status = 'failed',
+         error_message = $2,
+         updated_at = now()
+     WHERE id = $1::uuid
+     RETURNING *`,
+    [normalizeMusicText(uploadId, 80), normalizeMusicText(errorMessage, 700)],
+  );
+
+  return result.rows[0] ? mapUpload(result.rows[0]) : null;
+}
+
 export async function upsertKodiakMusicTrackFromSync(track) {
   await ensureKodiakMusicSchema();
 
@@ -277,7 +412,7 @@ export async function upsertKodiakMusicTrackFromSync(track) {
   const genreNames = Array.isArray(track.genreNames)
     ? track.genreNames.map((genre) => normalizeMusicText(genre, 80)).filter(Boolean).slice(0, 12)
     : [];
-  const fileSha256 = normalizeMusicText(track.fileSha256, 96) || null;
+  const fileSha256 = normalizeSha256(track.fileSha256) || null;
 
   const result = await getPool().query(
     `INSERT INTO kodiak_music_tracks (
@@ -345,4 +480,42 @@ export async function upsertKodiakMusicTrackFromSync(track) {
   );
 
   return mapTrack(result.rows[0]);
+}
+
+export async function completeKodiakMusicUpload({ uploadId, fileKey, streamPath, mimeType, actualFileSha256, actualFileSizeBytes }) {
+  await ensureKodiakMusicSchema();
+
+  const upload = await getKodiakMusicUploadById(uploadId);
+
+  if (!upload) {
+    return null;
+  }
+
+  const metadata = upload.syncMetadata ?? {};
+  const track = await upsertKodiakMusicTrackFromSync({
+    ...metadata,
+    artworkPath: metadata.artworkPath ?? '',
+    fileKey,
+    fileSha256: actualFileSha256,
+    mimeType,
+    streamPath,
+    uploadedByUserId: upload.uploaderUserId,
+  });
+
+  const result = await getPool().query(
+    `UPDATE kodiak_music_uploads
+     SET status = 'uploaded',
+         track_id = $2::uuid,
+         file_size_bytes = $3,
+         error_message = '',
+         updated_at = now()
+     WHERE id = $1::uuid
+     RETURNING *`,
+    [upload.id, track.id, Math.max(Number(actualFileSizeBytes) || 0, 0)],
+  );
+
+  return {
+    track,
+    upload: result.rows[0] ? mapUpload(result.rows[0]) : upload,
+  };
 }
