@@ -23,6 +23,7 @@
         "backend:dev": "node backend/publicProxyRunner.mjs backend",
         "backend:direct": "node backend/server.mjs",
         "backend:health": "node -e \"fetch('http://localhost:8787/api/health').then(r=>r.json()).then(console.log).catch(console.error)\"",
+        "music:upload-one": "node scripts/kodiak-music-upload-one.mjs",
         "auth:dev": "node backend/publicProxyRunner.mjs auth",
         "auth:direct": "node backend/authServer.mjs",
         "auth:health": "node -e \"fetch('http://localhost:8788/api/auth/health').then(r=>r.json()).then(console.log).catch(console.error)\"",
