@@ -1,4 +1,4 @@
-import type { MatrixLoginIdentity } from '../auth/matrixLoginService';
+﻿import type { MatrixLoginIdentity } from '../auth/matrixLoginService';
 
 export type KodiakPresenceState = 'online' | 'idle' | 'offline';
 export type KodiakFriendStatus = 'none' | 'incoming' | 'outgoing' | 'friends';
@@ -8,10 +8,19 @@ export type KodiakReportActionType = 'reply' | 'note' | 'status' | 'archive' | '
 export type KodiakPushPlatform = 'android' | 'web' | 'tauri-desktop';
 export type KodiakPushProvider = 'fcm' | 'web-push' | 'local';
 
+export interface KodiakMusicLoungeTrack {
+  addedAt: number;
+  addedByUserId: string;
+  id: string;
+  title: string;
+  url: string;
+}
+
 export interface KodiakMusicLoungeState {
   myVote: 'up' | 'down' | null;
   selectedAt: number;
   selectedByUserId: string;
+  queue: KodiakMusicLoungeTrack[];
   selectedVibeId: string;
   updatedAt: number;
   voteCounts: {
@@ -533,6 +542,41 @@ export async function voteKodiakMusicLoungeVibe(identity: MatrixLoginIdentity, v
     identity,
     '/api/music-lounge/vote',
     { vote },
+  );
+
+  return data.state ?? null;
+}
+export async function addKodiakMusicLoungeQueueTrack(
+  identity: MatrixLoginIdentity,
+  track: { title: string; url?: string },
+) {
+  const data = await postKodiak<{ state?: KodiakMusicLoungeState; ok?: boolean }>(
+    identity,
+    '/api/music-lounge/queue',
+    {
+      title: track.title,
+      url: track.url ?? '',
+    },
+  );
+
+  return data.state ?? null;
+}
+
+export async function removeKodiakMusicLoungeQueueTrack(identity: MatrixLoginIdentity, trackId: string) {
+  const data = await postKodiak<{ state?: KodiakMusicLoungeState; ok?: boolean }>(
+    identity,
+    '/api/music-lounge/queue/remove',
+    { trackId },
+  );
+
+  return data.state ?? null;
+}
+
+export async function clearKodiakMusicLoungeQueue(identity: MatrixLoginIdentity) {
+  const data = await postKodiak<{ state?: KodiakMusicLoungeState; ok?: boolean }>(
+    identity,
+    '/api/music-lounge/queue/clear',
+    {},
   );
 
   return data.state ?? null;

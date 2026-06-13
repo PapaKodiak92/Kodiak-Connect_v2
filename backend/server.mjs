@@ -1,4 +1,4 @@
-import { createServer } from "node:http";
+﻿import { createServer } from "node:http";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -189,11 +189,56 @@ function getDefaultMusicLoungeState() {
     selectedVibeId: "random-hits",
     selectedByUserId: "",
     selectedAt: 0,
+    queue: [],
     votes: {},
     updatedAt: 0,
   };
 }
 
+function createMusicQueueTrackId() {
+  return `track_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
+}
+
+function sanitizeMusicText(value, maxLength = 160) {
+  return String(value ?? "").trim().replace(/\s+/g, " ").slice(0, maxLength);
+}
+
+function sanitizeMusicUrl(value) {
+  const url = sanitizeMusicText(value, 600);
+
+  if (!url) {
+    return "";
+  }
+
+  try {
+    const parsed = new URL(url);
+
+    if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
+      return "";
+    }
+
+    return parsed.toString().slice(0, 600);
+  } catch {
+    return "";
+  }
+}
+
+function sanitizeMusicQueueTrack(track) {
+  const id = sanitizeMusicText(track?.id, 96);
+  const title = sanitizeMusicText(track?.title, 160);
+
+  if (!id || !title) {
+    return null;
+  }
+
+  return {
+    addedAt: Number(track?.addedAt || 0),
+    addedByUserId: isValidMatrixUserId(track?.addedByUserId) ? track.addedByUserId : "",
+    id,
+    title,
+    url: sanitizeMusicUrl(track?.url),
+  };
+}
 function sanitizeMusicLoungeState(state) {
   const fallback = getDefaultMusicLoungeState();
 
@@ -204,6 +249,7 @@ function sanitizeMusicLoungeState(state) {
     selectedByUserId: isValidMatrixUserId(state?.selectedByUserId) ? state.selectedByUserId : "",
     selectedAt: Number(state?.selectedAt || 0),
     updatedAt: Number(state?.updatedAt || 0),
+    queue: Array.isArray(state?.queue) ? state.queue.map(sanitizeMusicQueueTrack).filter(Boolean).slice(0, 25) : [],
     votes: typeof state?.votes === "object" && state.votes ? state.votes : {},
   };
 }
@@ -218,6 +264,17 @@ function getMusicVoteCounts(votes) {
     { up: 0, down: 0 },
   );
 }
+function getPublicMusicLoungeState(state, userId) {
+  return {
+    selectedVibeId: state.selectedVibeId,
+    selectedByUserId: state.selectedByUserId,
+    selectedAt: state.selectedAt,
+    updatedAt: state.updatedAt,
+    queue: state.queue ?? [],
+    voteCounts: getMusicVoteCounts(state.votes),
+    myVote: state.votes[userId] ?? null,
+  };
+}
 
 async function handleMusicLoungeState(request, response, corsHeaders, url) {
   const userId = url.searchParams.get("userId") ?? getHeaderValue(request, "x-kodiak-user-id");
@@ -230,14 +287,7 @@ async function handleMusicLoungeState(request, response, corsHeaders, url) {
   const state = sanitizeMusicLoungeState(await readJsonFile(MUSIC_LOUNGE_FILE, getDefaultMusicLoungeState()));
 
   sendJson(response, 200, {
-    state: {
-      selectedVibeId: state.selectedVibeId,
-      selectedByUserId: state.selectedByUserId,
-      selectedAt: state.selectedAt,
-      updatedAt: state.updatedAt,
-      voteCounts: getMusicVoteCounts(state.votes),
-      myVote: state.votes[userId] ?? null,
-    },
+    state: getPublicMusicLoungeState(state, userId),
   }, corsHeaders);
 }
 
@@ -268,14 +318,7 @@ async function handleMusicLoungeVibe(request, response, corsHeaders) {
 
   sendJson(response, 200, {
     ok: true,
-    state: {
-      selectedVibeId: state.selectedVibeId,
-      selectedByUserId: state.selectedByUserId,
-      selectedAt: state.selectedAt,
-      updatedAt: state.updatedAt,
-      voteCounts: getMusicVoteCounts(state.votes),
-      myVote: null,
-    },
+    state: getPublicMusicLoungeState(state, userId),
   }, corsHeaders);
 }
 
@@ -303,14 +346,93 @@ async function handleMusicLoungeVote(request, response, corsHeaders) {
 
   sendJson(response, 200, {
     ok: true,
-    state: {
-      selectedVibeId: state.selectedVibeId,
-      selectedByUserId: state.selectedByUserId,
-      selectedAt: state.selectedAt,
-      updatedAt: state.updatedAt,
-      voteCounts: getMusicVoteCounts(state.votes),
-      myVote: state.votes[userId] ?? null,
+    state: getPublicMusicLoungeState(state, userId),
+  }, corsHeaders);
+}
+async function handleMusicLoungeQueueAdd(request, response, corsHeaders) {
+  const body = await readRequestBody(request);
+  const userId = getCurrentUserId(request, body);
+  const title = sanitizeMusicText(body.title, 160);
+  const url = sanitizeMusicUrl(body.url);
+
+  if (!isValidMatrixUserId(userId)) {
+    sendJson(response, 400, { error: "Invalid Matrix userId." }, corsHeaders);
+    return;
+  }
+
+  if (!title) {
+    sendJson(response, 400, { error: "Track title is required." }, corsHeaders);
+    return;
+  }
+
+  const state = sanitizeMusicLoungeState(await readJsonFile(MUSIC_LOUNGE_FILE, getDefaultMusicLoungeState()));
+
+  state.queue = [
+    {
+      addedAt: now(),
+      addedByUserId: userId,
+      id: createMusicQueueTrackId(),
+      title,
+      url,
     },
+    ...(state.queue ?? []),
+  ].slice(0, 25);
+
+  state.updatedAt = now();
+
+  await writeJsonFile(MUSIC_LOUNGE_FILE, state);
+
+  sendJson(response, 200, {
+    ok: true,
+    state: getPublicMusicLoungeState(state, userId),
+  }, corsHeaders);
+}
+
+async function handleMusicLoungeQueueRemove(request, response, corsHeaders) {
+  const body = await readRequestBody(request);
+  const userId = getCurrentUserId(request, body);
+  const trackId = sanitizeMusicText(body.trackId, 96);
+
+  if (!isValidMatrixUserId(userId)) {
+    sendJson(response, 400, { error: "Invalid Matrix userId." }, corsHeaders);
+    return;
+  }
+
+  if (!trackId) {
+    sendJson(response, 400, { error: "Track id is required." }, corsHeaders);
+    return;
+  }
+
+  const state = sanitizeMusicLoungeState(await readJsonFile(MUSIC_LOUNGE_FILE, getDefaultMusicLoungeState()));
+  state.queue = (state.queue ?? []).filter((track) => track.id !== trackId);
+  state.updatedAt = now();
+
+  await writeJsonFile(MUSIC_LOUNGE_FILE, state);
+
+  sendJson(response, 200, {
+    ok: true,
+    state: getPublicMusicLoungeState(state, userId),
+  }, corsHeaders);
+}
+
+async function handleMusicLoungeQueueClear(request, response, corsHeaders) {
+  const body = await readRequestBody(request);
+  const userId = getCurrentUserId(request, body);
+
+  if (!isValidMatrixUserId(userId)) {
+    sendJson(response, 400, { error: "Invalid Matrix userId." }, corsHeaders);
+    return;
+  }
+
+  const state = sanitizeMusicLoungeState(await readJsonFile(MUSIC_LOUNGE_FILE, getDefaultMusicLoungeState()));
+  state.queue = [];
+  state.updatedAt = now();
+
+  await writeJsonFile(MUSIC_LOUNGE_FILE, state);
+
+  sendJson(response, 200, {
+    ok: true,
+    state: getPublicMusicLoungeState(state, userId),
   }, corsHeaders);
 }
 
@@ -1720,6 +1842,20 @@ const server = createServer(async (request, response) => {
 
     if (request.method === "POST" && url.pathname === "/api/music-lounge/vote") {
       await handleMusicLoungeVote(request, response, corsHeaders);
+      return;
+    }
+    if (request.method === "POST" && url.pathname === "/api/music-lounge/queue") {
+      await handleMusicLoungeQueueAdd(request, response, corsHeaders);
+      return;
+    }
+
+    if (request.method === "POST" && url.pathname === "/api/music-lounge/queue/remove") {
+      await handleMusicLoungeQueueRemove(request, response, corsHeaders);
+      return;
+    }
+
+    if (request.method === "POST" && url.pathname === "/api/music-lounge/queue/clear") {
+      await handleMusicLoungeQueueClear(request, response, corsHeaders);
       return;
     }
 
