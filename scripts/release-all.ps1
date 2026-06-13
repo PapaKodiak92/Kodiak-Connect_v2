@@ -181,8 +181,9 @@ git fetch origin main
 git reset --hard origin/main
 npm ci
 npm run build
+rm -rf electron-dist
 npm run electron:build:linux
-ELECTRON_DEB_FILE="`$(find electron-dist -maxdepth 1 -type f -name '*.deb' | head -n 1)"
+ELECTRON_DEB_FILE="`$(find electron-dist -maxdepth 1 -type f -name 'kodiak-connect_${Version}_amd64.deb' | head -n 1)"
 if [ -z "`$ELECTRON_DEB_FILE" ] || [ ! -f "`$ELECTRON_DEB_FILE" ]; then
   echo "Missing Linux Electron DEB artifact for $Version" >&2
   exit 1
