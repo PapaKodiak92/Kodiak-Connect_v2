@@ -157,10 +157,12 @@ try {
 
   $RemoteWindowsDir = "$RemoteRoot/$Version/windows"
   $RemoteLinuxDir = "$RemoteRoot/$Version/linux"
+  $RemoteLinuxElectronDir = "$RemoteRoot/$Version/linux-electron"
   $RemoteAndroidDir = "$RemoteRoot/$Version/android"
   $RemoteAndroidLatestDir = "$RemoteRoot/android"
   $RemoteWindowsMsi = "kodiak-connect_${Version}_x64_en-US.msi"
   $RemoteLinuxDeb = "kodiak-connect_${Version}_amd64.deb"
+  $RemoteLinuxElectronDeb = "kodiak-connect_${Version}_linux-electron_amd64.deb"
   $RemoteAndroidApk = "kodiak-connect_${Version}_android-debug.apk"
 
   Invoke-Step "Build and publish Linux DEB on VPS" {
@@ -198,6 +200,17 @@ cp "`$DEB_FILE" '$RemoteLinuxDir/$RemoteLinuxDeb'
 cp "`$SIG_FILE" '$RemoteLinuxDir/$RemoteLinuxDeb.sig'
 test -f '$RemoteLinuxDir/$RemoteLinuxDeb'
 test -f '$RemoteLinuxDir/$RemoteLinuxDeb.sig'
+
+npm run electron:build:linux
+ELECTRON_DEB_FILE="`$(find electron-dist -maxdepth 1 -type f -name '*.deb' | head -n 1)"
+if [ -z "`$ELECTRON_DEB_FILE" ] || [ ! -f "`$ELECTRON_DEB_FILE" ]; then
+  echo "Missing Linux Electron DEB artifact for $Version" >&2
+  exit 1
+fi
+
+mkdir -p '$RemoteLinuxElectronDir'
+cp "`$ELECTRON_DEB_FILE" '$RemoteLinuxElectronDir/$RemoteLinuxElectronDeb'
+test -f '$RemoteLinuxElectronDir/$RemoteLinuxElectronDeb'
 "@
 
     $RemoteScript = ($RemoteScript -replace "`r`n", "`n").TrimStart() + "`n"
@@ -326,6 +339,7 @@ done
   Write-Host "$BaseUrl/android/latest.json" -ForegroundColor Cyan
   Write-Host "$BaseUrl/$Version/windows/$RemoteWindowsMsi" -ForegroundColor Cyan
   Write-Host "$BaseUrl/$Version/linux/$RemoteLinuxDeb" -ForegroundColor Cyan
+  Write-Host "$BaseUrl/$Version/linux-electron/$RemoteLinuxElectronDeb" -ForegroundColor Cyan
   Write-Host "$BaseUrl/$Version/android/$RemoteAndroidApk" -ForegroundColor Cyan
 }
 finally {
