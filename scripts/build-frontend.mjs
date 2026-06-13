@@ -28,13 +28,14 @@ function resolveBuildTarget(target) {
     'android',
     'desktop-windows',
     'desktop-linux',
+    'desktop-linux-electron',
     'desktop-macos',
     'desktop-unknown',
   ]);
 
   if (!allowedTargets.has(target)) {
     throw new Error(
-      `Unknown Kodiak frontend build target "${target}". Use web, android, desktop, desktop-windows, desktop-linux, or desktop-macos.`
+      `Unknown Kodiak frontend build target "${target}". Use web, android, desktop, desktop-windows, desktop-linux, desktop-linux-electron, or desktop-macos.`
     );
   }
 

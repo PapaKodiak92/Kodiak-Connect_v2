@@ -5,6 +5,9 @@ type KodiakWindowRuntime = typeof window & {
   __TAURI__?: unknown;
   __TAURI_INTERNALS__?: unknown;
   __TAURI_IPC__?: unknown;
+  kodiakElectron?: {
+    runtime?: string;
+  };
   Capacitor?: {
     getPlatform?: () => string;
     isNativePlatform?: () => boolean;
@@ -79,6 +82,16 @@ export function detectPlatformInfo(): KodiakPlatformInfo {
     };
   }
 
+  if (buildTarget === 'desktop-linux-electron') {
+    return {
+      kind: 'desktop',
+      runtime: 'electron-desktop',
+      isNativeShell: true,
+      buildTarget,
+      desktopOs: 'linux',
+    };
+  }
+
   if (buildTarget.startsWith('desktop-')) {
     return {
       kind: 'desktop',
@@ -86,6 +99,16 @@ export function detectPlatformInfo(): KodiakPlatformInfo {
       isNativeShell: true,
       buildTarget,
       desktopOs: desktopOsForBuildTarget(buildTarget, userAgent),
+    };
+  }
+
+  if (runtimeWindow.kodiakElectron?.runtime === 'electron-desktop') {
+    return {
+      kind: 'desktop',
+      runtime: 'electron-desktop',
+      isNativeShell: true,
+      buildTarget,
+      desktopOs: detectDesktopOs(userAgent),
     };
   }
 

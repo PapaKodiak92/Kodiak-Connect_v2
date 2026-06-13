@@ -31,19 +31,28 @@ function isKodiakInstalledAppRuntime() {
   const kodiakGlobal = globalThis as typeof globalThis & {
     __TAURI__?: unknown;
     __TAURI_INTERNALS__?: unknown;
+    kodiakElectron?: {
+      runtime?: string;
+    };
   };
 
-  return Boolean(kodiakGlobal.__TAURI__ || kodiakGlobal.__TAURI_INTERNALS__);
+  return Boolean(kodiakGlobal.__TAURI__ || kodiakGlobal.__TAURI_INTERNALS__ || kodiakGlobal.kodiakElectron?.runtime === 'electron-desktop');
 }
 
 function isKodiakLinuxTauriRuntime() {
   const kodiakGlobal = globalThis as typeof globalThis & {
     __TAURI__?: unknown;
     __TAURI_INTERNALS__?: unknown;
+    kodiakElectron?: {
+      runtime?: string;
+    };
   };
   const kodiakWindow = window as typeof window & {
     __TAURI__?: unknown;
     __TAURI_INTERNALS__?: unknown;
+    kodiakElectron?: {
+      runtime?: string;
+    };
   };
 
   return Boolean(
