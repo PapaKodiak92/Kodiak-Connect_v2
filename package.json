@@ -1,98 +1,98 @@
 {
-    "name":  "kodiak-connect",
-    "private":  true,
-    "version":  "1.13.28",
-    "type":  "module",
-    "scripts":  {
-                    "dev":  "vite",
-                    "build":  "npm run build:web",
-                    "build:web":  "node scripts/build-frontend.mjs web",
-                    "build:android":  "node scripts/build-frontend.mjs android",
-                    "build:desktop":  "node scripts/build-frontend.mjs desktop",
-                    "build:desktop:windows":  "node scripts/build-frontend.mjs desktop-windows",
-                    "build:desktop:linux":  "node scripts/build-frontend.mjs desktop-linux",
-                    "preview":  "vite preview",
-                    "cap:init":  "cap init \"Kodiak Connect\" com.kodiakholdings.kodiakconnect --web-dir dist",
-                    "cap:add:android":  "cap add android",
-                    "cap:sync":  "npm run build:android \u0026\u0026 cap sync android",
-                    "cap:open:android":  "cap open android",
-                    "tauri:dev":  "tauri dev",
-                    "tauri:build":  "tauri build",
-                    "tauri:signer:generate":  "tauri signer generate -w ~/.tauri/kodiak-connect.key",
-                    "check":  "tsc -b",
-                    "backend:dev":  "node backend/publicProxyRunner.mjs backend",
-                    "backend:direct":  "node backend/server.mjs",
-                    "backend:health":  "node -e \"fetch(\u0027http://localhost:8787/api/health\u0027).then(r=\u003er.json()).then(console.log).catch(console.error)\"",
-                    "auth:dev":  "node backend/publicProxyRunner.mjs auth",
-                    "auth:direct":  "node backend/authServer.mjs",
-                    "auth:health":  "node -e \"fetch(\u0027http://localhost:8788/api/auth/health\u0027).then(r=\u003er.json()).then(console.log).catch(console.error)\"",
-                    "build:desktop:linux-electron":  "node scripts/build-frontend.mjs desktop-linux-electron",
-                    "electron:build:linux":  "npm run build:desktop:linux-electron \u0026\u0026 electron-builder --linux deb --x64"
-                },
-    "dependencies":  {
-                         "@capacitor/android":  "latest",
-                         "@capacitor/core":  "latest",
-                         "@capacitor/push-notifications":  "^8.1.1",
-                         "@tauri-apps/api":  "latest",
-                         "@tauri-apps/plugin-dialog":  "^2.7.1",
-                         "@tauri-apps/plugin-fs":  "^2.5.1",
-                         "@tauri-apps/plugin-notification":  "^2.3.3",
-                         "@tauri-apps/plugin-opener":  "^2.5.4",
-                         "@tauri-apps/plugin-updater":  "latest",
-                         "electron-updater":  "^6.8.9",
-                         "firebase-admin":  "^14.0.0",
-                         "livekit-client":  "^2.19.2",
-                         "livekit-server-sdk":  "^2.15.4",
-                         "react":  "latest",
-                         "react-dom":  "latest",
-                         "web-push":  "^3.6.7"
-                     },
-    "devDependencies":  {
-                            "@capacitor/cli":  "latest",
-                            "@tauri-apps/cli":  "^2.11.2",
-                            "@types/node":  "latest",
-                            "@types/react":  "latest",
-                            "@types/react-dom":  "latest",
-                            "@vitejs/plugin-react":  "latest",
-                            "electron":  "^42.4.0",
-                            "electron-builder":  "^26.15.3",
-                            "typescript":  "latest",
-                            "vite":  "latest"
-                        },
-    "main":  "electron/main.cjs",
-    "build":  {
-                  "appId":  "com.kodiakholdings.kodiakconnect",
-                  "productName":  "Kodiak Connect",
-                  "files":  [
-                                "dist/**/*",
-                                "electron/**/*",
-                                "package.json",
-                                "electron/icon.png",
-                                "electron-assets/**/*"
-                            ],
-                  "directories":  {
-                                      "output":  "electron-dist",
-                                      "buildResources":  "electron-assets"
-                                  },
-                  "linux":  {
-                                "target":  [
-                                               "deb"
-                                           ],
-                                "category":  "Network",
-                                "maintainer":  "Kodiak Holdings LLC \u003csupport@kodiak-connect.com\u003e",
-                                "icon":  "electron-assets/icons",
-                                "executableName":  "kodiak-connect",
-                                "syncDesktopName":  true
-                            },
-                  "publish":  [
-                                  {
-                                      "provider":  "generic",
-                                      "url":  "https://updates.kodiak-connect.com/linux/"
-                                  }
-                              ],
-                  "icon":  "electron-assets/icon.png"
-              },
-    "description":  "Secure chat, calls, and community messaging for Kodiak Connect.",
-    "author":  "Kodiak Holdings LLC \u003csupport@kodiak-connect.com\u003e",
-    "desktopName":  "kodiak-connect"
+    "name": "kodiak-connect",
+    "private": true,
+    "version": "1.13.29",
+    "type": "module",
+    "scripts": {
+        "dev": "vite",
+        "build": "npm run build:web",
+        "build:web": "node scripts/build-frontend.mjs web",
+        "build:android": "node scripts/build-frontend.mjs android",
+        "build:desktop": "node scripts/build-frontend.mjs desktop",
+        "build:desktop:windows": "node scripts/build-frontend.mjs desktop-windows",
+        "build:desktop:linux": "node scripts/build-frontend.mjs desktop-linux",
+        "preview": "vite preview",
+        "cap:init": "cap init \"Kodiak Connect\" com.kodiakholdings.kodiakconnect --web-dir dist",
+        "cap:add:android": "cap add android",
+        "cap:sync": "npm run build:android && cap sync android",
+        "cap:open:android": "cap open android",
+        "tauri:dev": "tauri dev",
+        "tauri:build": "tauri build",
+        "tauri:signer:generate": "tauri signer generate -w ~/.tauri/kodiak-connect.key",
+        "check": "tsc -b",
+        "backend:dev": "node backend/publicProxyRunner.mjs backend",
+        "backend:direct": "node backend/server.mjs",
+        "backend:health": "node -e \"fetch('http://localhost:8787/api/health').then(r=>r.json()).then(console.log).catch(console.error)\"",
+        "auth:dev": "node backend/publicProxyRunner.mjs auth",
+        "auth:direct": "node backend/authServer.mjs",
+        "auth:health": "node -e \"fetch('http://localhost:8788/api/auth/health').then(r=>r.json()).then(console.log).catch(console.error)\"",
+        "build:desktop:linux-electron": "node scripts/build-frontend.mjs desktop-linux-electron",
+        "electron:build:linux": "npm run build:desktop:linux-electron && electron-builder --linux deb --x64"
+    },
+    "dependencies": {
+        "@capacitor/android": "latest",
+        "@capacitor/core": "latest",
+        "@capacitor/push-notifications": "^8.1.1",
+        "@tauri-apps/api": "latest",
+        "@tauri-apps/plugin-dialog": "^2.7.1",
+        "@tauri-apps/plugin-fs": "^2.5.1",
+        "@tauri-apps/plugin-notification": "^2.3.3",
+        "@tauri-apps/plugin-opener": "^2.5.4",
+        "@tauri-apps/plugin-updater": "latest",
+        "electron-updater": "^6.8.9",
+        "firebase-admin": "^14.0.0",
+        "livekit-client": "^2.19.2",
+        "livekit-server-sdk": "^2.15.4",
+        "react": "latest",
+        "react-dom": "latest",
+        "web-push": "^3.6.7"
+    },
+    "devDependencies": {
+        "@capacitor/cli": "latest",
+        "@tauri-apps/cli": "^2.11.2",
+        "@types/node": "latest",
+        "@types/react": "latest",
+        "@types/react-dom": "latest",
+        "@vitejs/plugin-react": "latest",
+        "electron": "^42.4.0",
+        "electron-builder": "^26.15.3",
+        "typescript": "latest",
+        "vite": "latest"
+    },
+    "main": "electron/main.cjs",
+    "build": {
+        "appId": "com.kodiakholdings.kodiakconnect",
+        "productName": "Kodiak Connect",
+        "files": [
+            "dist/**/*",
+            "electron/**/*",
+            "package.json",
+            "electron/icon.png",
+            "electron-assets/**/*"
+        ],
+        "directories": {
+            "output": "electron-dist",
+            "buildResources": "electron-assets"
+        },
+        "linux": {
+            "target": [
+                "deb"
+            ],
+            "category": "Network",
+            "maintainer": "Kodiak Holdings LLC <support@kodiak-connect.com>",
+            "icon": "electron-assets/icons",
+            "executableName": "kodiak-connect",
+            "syncDesktopName": true
+        },
+        "publish": [
+            {
+                "provider": "generic",
+                "url": "https://updates.kodiak-connect.com/linux/"
+            }
+        ],
+        "icon": "electron-assets/icon.png"
+    },
+    "description": "Secure chat, calls, and community messaging for Kodiak Connect.",
+    "author": "Kodiak Holdings LLC <support@kodiak-connect.com>",
+    "desktopName": "kodiak-connect"
 }
