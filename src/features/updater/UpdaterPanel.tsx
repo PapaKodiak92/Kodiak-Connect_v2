@@ -1,13 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { openUrl } from '@tauri-apps/plugin-opener';
 import { KodiakStatusCard } from '../../components/ui/KodiakStatusCard';
 import { updateManifest } from './updateManifest';
-import {
-  checkForDesktopUpdate,
-  installDesktopUpdate,
-  type DesktopUpdateInfo,
-  type DesktopUpdaterStatus,
-} from '../../platform/desktop/desktopUpdaterService';
+import { kodiakPlatform } from '../../platform/currentPlatform';
+import type { DesktopUpdateInfo, DesktopUpdaterStatus } from '../../platform/desktop/desktopUpdaterService';
 
 function formatUpdaterStatus(status: DesktopUpdaterStatus, updateInfo: DesktopUpdateInfo | null) {
   if (status === 'checking') return 'Checking for updates...';
@@ -28,7 +23,7 @@ function getStatusTone(status: DesktopUpdaterStatus) {
 
 async function openExternalUrl(url: string) {
   try {
-    await openUrl(url);
+    await kodiakPlatform.openExternalUrl(url);
   } catch (error) {
     console.error('[Kodiak Connect] Failed to open external link', error);
     window.open(url, '_blank', 'noopener,noreferrer');
@@ -103,7 +98,7 @@ export function UpdaterPanel({ onUpToDate, onUpdateRequired, onUpdateCheckFailed
     setProgressText(source === 'auto' ? 'Checking current version...' : 'Checking again...');
 
     try {
-      const update = await checkForDesktopUpdate();
+      const update = await kodiakPlatform.updater.check();
       setUpdateInfo(update);
       setStatus(update ? 'available' : 'not-available');
       setProgressText(update ? 'A new version is ready.' : 'Latest desktop version installed.');
@@ -136,7 +131,7 @@ export function UpdaterPanel({ onUpToDate, onUpdateRequired, onUpdateCheckFailed
     setProgressText('Downloading update...');
 
     try {
-      await installDesktopUpdate((progress) => {
+      await kodiakPlatform.updater.install((progress) => {
         if (progress.event === 'Started') setProgressText('Download started.');
 
         if (progress.event === 'Progress' && progress.totalBytes) {
