@@ -103,6 +103,7 @@ pub fn run() {
             write_downloaded_file,
             get_start_minimized,
             set_start_minimized,
+            linux_webrtc::kodiak_linux_rtc_diagnostics,
             linux_webrtc::kodiak_linux_rtc_create_offer,
             linux_webrtc::kodiak_linux_rtc_create_answer,
             linux_webrtc::kodiak_linux_rtc_apply_answer,

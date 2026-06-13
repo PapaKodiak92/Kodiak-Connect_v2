@@ -7,6 +7,25 @@ interface LinuxRtcIceCandidatePayload {
   candidate: string;
   sdp_m_line_index: number;
 }
+interface LinuxRtcDiagnostics {
+  available: boolean;
+  reason?: string | null;
+  missingPlugins: string[];
+}
+
+async function ensureLinuxNativeRtcAvailable() {
+  const diagnostics = await invokeTauri<LinuxRtcDiagnostics>('kodiak_linux_rtc_diagnostics');
+
+  if (diagnostics.available) {
+    return;
+  }
+
+  const missingPlugins = diagnostics.missingPlugins.length > 0
+    ? ` Missing plugins: ${diagnostics.missingPlugins.join(', ')}.`
+    : '';
+
+  throw new Error(`${diagnostics.reason ?? 'Linux native RTC is not available.'}${missingPlugins}`);
+}
 
 function createEmptyCallStream() {
   return new MediaStream();
@@ -29,6 +48,7 @@ export class KodiakNativeLinuxRtcCallPeer implements KodiakCallPeer {
 
   async createOffer() {
     await this.ready;
+    await ensureLinuxNativeRtcAvailable();
 
     const offerSdp = await invokeTauri<string>('kodiak_linux_rtc_create_offer', {
       callId: this.callId,
@@ -47,6 +67,7 @@ export class KodiakNativeLinuxRtcCallPeer implements KodiakCallPeer {
 
   async createAnswer(offerSdp: string) {
     await this.ready;
+    await ensureLinuxNativeRtcAvailable();
 
     const answerSdp = await invokeTauri<string>('kodiak_linux_rtc_create_answer', {
       callId: this.callId,

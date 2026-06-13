@@ -1,4 +1,4 @@
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use tauri::AppHandle;
 #[cfg(target_os = "linux")]
 use gstreamer as gst;
@@ -11,8 +11,6 @@ use gstreamer_webrtc as gst_webrtc;
 use gst::prelude::*;
 #[cfg(target_os = "linux")]
 use once_cell::sync::Lazy;
-#[cfg(target_os = "linux")]
-use serde::Serialize;
 #[cfg(target_os = "linux")]
 use std::{
     collections::HashMap,
@@ -45,6 +43,13 @@ pub struct LinuxRtcIceCandidateInput {
     #[serde(rename = "sdpMLineIndex")]
     pub sdp_m_line_index: Option<u32>,
 }
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LinuxRtcDiagnostics {
+    pub available: bool,
+    pub reason: Option<String>,
+    pub missing_plugins: Vec<String>,
+}
 
 #[cfg(target_os = "linux")]
 struct LinuxRtcPeer {
@@ -52,6 +57,58 @@ struct LinuxRtcPeer {
     webrtc: gst::Element,
 }
 
+#[cfg(target_os = "linux")]
+fn required_linux_rtc_plugins() -> [&'static str; 12] {
+    [
+        "webrtcbin",
+        "autoaudiosrc",
+        "audioconvert",
+        "audioresample",
+        "volume",
+        "opusenc",
+        "rtpopuspay",
+        "capsfilter",
+        "queue",
+        "rtpopusdepay",
+        "opusdec",
+        "autoaudiosink",
+    ]
+}
+
+#[cfg(target_os = "linux")]
+#[tauri::command]
+pub fn kodiak_linux_rtc_diagnostics() -> LinuxRtcDiagnostics {
+    if let Err(error) = gst::init() {
+        return LinuxRtcDiagnostics {
+            available: false,
+            reason: Some(format!("GStreamer initialization failed: {error}")),
+            missing_plugins: vec![],
+        };
+    }
+
+    let missing_plugins = required_linux_rtc_plugins()
+        .iter()
+        .filter(|plugin| gst::ElementFactory::find(plugin).is_none())
+        .map(|plugin| plugin.to_string())
+        .collect::<Vec<_>>();
+
+    if !missing_plugins.is_empty() {
+        return LinuxRtcDiagnostics {
+            available: false,
+            reason: Some(format!(
+                "Linux native RTC is missing required GStreamer plugins: {}",
+                missing_plugins.join(", ")
+            )),
+            missing_plugins,
+        };
+    }
+
+    LinuxRtcDiagnostics {
+        available: true,
+        reason: None,
+        missing_plugins: vec![],
+    }
+}
 #[cfg(target_os = "linux")]
 fn gst_error(error: impl ToString) -> String {
     error.to_string()
@@ -379,6 +436,15 @@ pub fn kodiak_linux_rtc_close(call_id: String) -> Result<(), String> {
 
 #[cfg(not(target_os = "linux"))]
 #[tauri::command]
+pub fn kodiak_linux_rtc_diagnostics() -> LinuxRtcDiagnostics {
+    LinuxRtcDiagnostics {
+        available: false,
+        reason: Some("Linux native RTC is only available on Linux.".to_string()),
+        missing_plugins: vec![],
+    }
+}
+#[cfg(not(target_os = "linux"))]
+#[tauri::command]
 pub fn kodiak_linux_rtc_create_offer(_app: AppHandle, _call_id: String, _call_kind: String) -> Result<String, String> {
     Err("Linux native RTC is only available on Linux.".to_string())
 }
@@ -419,4 +485,11 @@ pub struct LinuxRtcIceCandidateInput {
     pub candidate: String,
     #[serde(rename = "sdpMLineIndex")]
     pub sdp_m_line_index: Option<u32>,
+}
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LinuxRtcDiagnostics {
+    pub available: bool,
+    pub reason: Option<String>,
+    pub missing_plugins: Vec<String>,
 }
