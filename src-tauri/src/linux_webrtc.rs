@@ -480,16 +480,11 @@ pub fn kodiak_linux_rtc_close(_call_id: String) -> Result<(), String> {
 }
 
 #[cfg(not(target_os = "linux"))]
+#[allow(dead_code)]
 #[derive(Debug, Clone, Deserialize)]
 pub struct LinuxRtcIceCandidateInput {
     pub candidate: String,
     #[serde(rename = "sdpMLineIndex")]
     pub sdp_m_line_index: Option<u32>,
 }
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct LinuxRtcDiagnostics {
-    pub available: bool,
-    pub reason: Option<String>,
-    pub missing_plugins: Vec<String>,
-}
+
