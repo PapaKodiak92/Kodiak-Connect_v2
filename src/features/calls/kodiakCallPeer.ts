@@ -43,7 +43,7 @@ function isLinuxTauriRuntime() {
 }
 
 export function shouldUseKodiakNativeLinuxRtcPeer() {
-  return isLinuxTauriRuntime();
+  return isLinuxTauriRuntime() && !isKodiakWebRtcSupported();
 }
 
 export function createKodiakCallPeer(options: KodiakVoiceCallPeerOptions): KodiakCallPeer {
