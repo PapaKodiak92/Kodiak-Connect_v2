@@ -44,6 +44,20 @@ Keep this path separate from:
 - Synapse data
 - Postgres data
 
+## Single-track test uploader
+
+Before building the full desktop app, the repo includes a one-track uploader for testing the complete loop.
+
+Run it from local PowerShell while `npm run backend:dev` is running and `KODIAK_MUSIC_DATABASE_URL` is configured for that backend process:
+
+```powershell
+npm run music:upload-one -- --api-base "http://localhost:8787" --user-id "@papakodiak:kodiak-connect.com" --file "C:\Music\Artist\Song.mp3" --title "Song" --artist "Artist" --genre "Rock"
+```
+
+The script calculates SHA-256, calls the prepare endpoint, skips duplicates, uploads raw audio bytes, and prints the cataloged track when the upload completes.
+
+Use a Matrix user id included in `KODIAK_MUSIC_SYNC_USER_IDS` or `KODIAK_MUSIC_MODERATOR_IDS`.
+
 ## Sync API
 
 ### Health
@@ -112,5 +126,5 @@ The stream route looks up the library track by track id or SHA-256, resolves its
 
 - This is the server foundation for the future desktop sync app.
 - Artwork extraction/upload is not wired yet.
-- The first Kodiak-Music player UI still needs to be wired to the stream route.
+- The full Lupercus Library Sync desktop app still needs to be built.
 - Upload access is restricted by `KODIAK_MUSIC_SYNC_USER_IDS` and music moderators.
