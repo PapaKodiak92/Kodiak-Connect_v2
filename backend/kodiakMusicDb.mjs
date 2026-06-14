@@ -1,4 +1,4 @@
-import { readFile } from 'node:fs/promises';
+﻿import { readFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Pool } from 'pg';
@@ -97,9 +97,11 @@ function mapTrack(row) {
     explicit: row.explicit === true,
     genreNames: Array.isArray(row.genre_names) ? row.genre_names : [],
     id: String(row.id),
+    releaseYear: row.release_year ? Number(row.release_year) : null,
     sourceKind: row.source_kind ?? 'library',
     streamPath: row.stream_path ?? '',
     title: row.title ?? '',
+    trackNumber: row.track_number ? Number(row.track_number) : null,
   };
 }
 
@@ -174,7 +176,7 @@ export async function searchKodiakMusicTracks({ query = '', limit = 20 } = {}) {
 
   if (!search) {
     const result = await getPool().query(
-      `SELECT id, title, artist_name, album_title, genre_names, source_kind, stream_path, artwork_path, duration_ms, explicit, created_at
+      `SELECT id, title, artist_name, album_title, genre_names, source_kind, stream_path, artwork_path, duration_ms, release_year, track_number, explicit, created_at
        FROM kodiak_music_tracks
        ORDER BY created_at DESC
        LIMIT $1`,
@@ -186,7 +188,7 @@ export async function searchKodiakMusicTracks({ query = '', limit = 20 } = {}) {
 
   const likeSearch = `%${search}%`;
   const result = await getPool().query(
-    `SELECT id, title, artist_name, album_title, genre_names, source_kind, stream_path, artwork_path, duration_ms, explicit, created_at
+    `SELECT id, title, artist_name, album_title, genre_names, source_kind, stream_path, artwork_path, duration_ms, release_year, track_number, explicit, created_at
      FROM kodiak_music_tracks
      WHERE search_vector @@ plainto_tsquery('simple', $1)
         OR title ILIKE $2
@@ -217,7 +219,7 @@ export async function getKodiakMusicTrackBySha256(fileSha256) {
   }
 
   const result = await getPool().query(
-    `SELECT id, title, artist_name, album_title, genre_names, source_kind, stream_path, artwork_path, duration_ms, explicit, created_at
+    `SELECT id, title, artist_name, album_title, genre_names, source_kind, stream_path, artwork_path, duration_ms, release_year, track_number, explicit, created_at
      FROM kodiak_music_tracks
      WHERE file_sha256 = $1
      LIMIT 1`,
@@ -245,14 +247,14 @@ export async function getKodiakMusicTrackForStream(identifier) {
 
   const result = looksLikeSha
     ? await getPool().query(
-        `SELECT id, title, artist_name, album_title, genre_names, source_kind, file_key, stream_path, artwork_path, mime_type, file_sha256, duration_ms, explicit, created_at
+        `SELECT id, title, artist_name, album_title, genre_names, source_kind, file_key, stream_path, artwork_path, mime_type, file_sha256, duration_ms, release_year, track_number, explicit, created_at
          FROM kodiak_music_tracks
          WHERE file_sha256 = $1 AND source_kind = 'library'
          LIMIT 1`,
         [cleanIdentifier],
       )
     : await getPool().query(
-        `SELECT id, title, artist_name, album_title, genre_names, source_kind, file_key, stream_path, artwork_path, mime_type, file_sha256, duration_ms, explicit, created_at
+        `SELECT id, title, artist_name, album_title, genre_names, source_kind, file_key, stream_path, artwork_path, mime_type, file_sha256, duration_ms, release_year, track_number, explicit, created_at
          FROM kodiak_music_tracks
          WHERE id = $1::uuid AND source_kind = 'library'
          LIMIT 1`,
@@ -500,7 +502,7 @@ export async function upsertKodiakMusicTrackFromSync(track) {
        track_number = EXCLUDED.track_number,
        explicit = EXCLUDED.explicit,
        updated_at = now()
-     RETURNING id, title, artist_name, album_title, genre_names, source_kind, stream_path, artwork_path, duration_ms, explicit, created_at`,
+     RETURNING id, title, artist_name, album_title, genre_names, source_kind, stream_path, artwork_path, duration_ms, release_year, track_number, explicit, created_at`,
     [
       title,
       normalizeSearchValue(title, 180),
@@ -563,3 +565,4 @@ export async function completeKodiakMusicUpload({ uploadId, fileKey, streamPath,
     upload: result.rows[0] ? mapUpload(result.rows[0]) : upload,
   };
 }
+
