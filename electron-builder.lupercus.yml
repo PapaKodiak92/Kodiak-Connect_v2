@@ -3,14 +3,12 @@ productName: Lupercus Library Sync
 copyright: Copyright © Kodiak Holdings LLC
 artifactName: "lupercus-library-sync-${version}-${arch}.${ext}"
 files:
-  - dist-lupercus-sync/**/*
-  - electron-lupercus/**/*
+  - dist-lupercus-sync/**
+  - electron-lupercus/**
   - package.json
-  - electron-assets/icon.png
-  - electron-assets/icons/**/*
 directories:
   output: electron-dist-lupercus
-  buildResources: electron-assets
+  buildResources: electron-assets-lupercus
 extraMetadata:
   name: lupercus-library-sync
   description: Private library sync client for the Kodiak-Music Lupercus catalog.
@@ -21,7 +19,8 @@ linux:
     - deb
   category: Utility
   maintainer: Kodiak Holdings LLC <support@kodiak-connect.com>
-  icon: electron-assets/icons
+  icon: electron-assets-lupercus/icons
   executableName: lupercus-library-sync
   syncDesktopName: true
+icon: electron-assets-lupercus/icon.png
 publish: null
