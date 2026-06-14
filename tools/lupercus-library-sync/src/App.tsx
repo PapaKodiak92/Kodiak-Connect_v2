@@ -190,7 +190,7 @@ export function App() {
       <section className="panel actions">
         <input
           ref={filePickerRef}
-          className="hidden-picker"
+          style={{ display: 'none' }}
           type="file"
           multiple
           accept=".aac,.flac,.m4a,.mp3,.ogg,.opus,.wav,audio/*"
@@ -198,7 +198,7 @@ export function App() {
         />
         <input
           ref={folderPickerRef}
-          className="hidden-picker"
+          style={{ display: 'none' }}
           type="file"
           multiple
           accept=".aac,.flac,.m4a,.mp3,.ogg,.opus,.wav,audio/*"
