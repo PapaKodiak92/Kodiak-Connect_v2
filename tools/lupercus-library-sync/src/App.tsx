@@ -53,18 +53,19 @@ function err(error: unknown) {
 }
 
 export function App() {
-  const pickerRef = useRef<HTMLInputElement | null>(null);
+  const filePickerRef = useRef<HTMLInputElement | null>(null);
+  const folderPickerRef = useRef<HTMLInputElement | null>(null);
   const [apiBase, setApiBase] = useState('https://api.kodiak-connect.com');
   const [userId, setUserId] = useState('@lupercus:kodiak-connect.com');
   const [deviceId, setDeviceId] = useState('lupercus-main-pc');
   const [genre, setGenre] = useState('');
   const [tracks, setTracks] = useState<SyncTrack[]>([]);
   const [busy, setBusy] = useState(false);
-  const [message, setMessage] = useState('Choose a music folder or files to begin.');
+  const [message, setMessage] = useState('Choose a few files for testing, or choose a folder for a larger library scan.');
 
   useEffect(() => {
-    pickerRef.current?.setAttribute('webkitdirectory', '');
-    pickerRef.current?.setAttribute('directory', '');
+    folderPickerRef.current?.setAttribute('webkitdirectory', '');
+    folderPickerRef.current?.setAttribute('directory', '');
   }, []);
 
   function patchTrack(id: string, updates: Partial<SyncTrack>) {
@@ -187,7 +188,24 @@ export function App() {
       </section>
 
       <section className="panel actions">
-        <input ref={pickerRef} type="file" multiple accept=".aac,.flac,.m4a,.mp3,.ogg,.opus,.wav,audio/*" onChange={(event) => loadFiles(event.target.files)} />
+        <input
+          ref={filePickerRef}
+          className="hidden-picker"
+          type="file"
+          multiple
+          accept=".aac,.flac,.m4a,.mp3,.ogg,.opus,.wav,audio/*"
+          onChange={(event) => loadFiles(event.target.files)}
+        />
+        <input
+          ref={folderPickerRef}
+          className="hidden-picker"
+          type="file"
+          multiple
+          accept=".aac,.flac,.m4a,.mp3,.ogg,.opus,.wav,audio/*"
+          onChange={(event) => loadFiles(event.target.files)}
+        />
+        <button disabled={busy} onClick={() => filePickerRef.current?.click()}>Choose files</button>
+        <button disabled={busy} onClick={() => folderPickerRef.current?.click()}>Choose folder</button>
         <button disabled={busy} onClick={() => void checkAccess()}>Check access</button>
         <button disabled={busy || tracks.length === 0} onClick={() => void hashSelected()}>Hash selected</button>
         <button disabled={busy || tracks.length === 0} onClick={() => void uploadSelected()}>Upload selected</button>
