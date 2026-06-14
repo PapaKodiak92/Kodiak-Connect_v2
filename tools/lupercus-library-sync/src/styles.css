@@ -102,6 +102,60 @@ input {
   font-size: 0.86rem;
 }
 
+.library-manager {
+  display: grid;
+  gap: 1rem;
+  padding: 1rem;
+}
+
+.eyebrow {
+  color: #d9b27e;
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.16em;
+  margin: 0 0 0.25rem;
+  text-transform: uppercase;
+}
+
+.library-manager h2,
+.confirm-modal h2 {
+  margin: 0.1rem 0 0.35rem;
+}
+
+.library-manager span,
+.confirm-modal p,
+.modal-track-summary {
+  color: #c9b6a2;
+}
+
+.library-search-row {
+  display: grid;
+  gap: 0.8rem;
+  grid-template-columns: minmax(280px, 1fr) auto;
+}
+
+.library-results {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.library-result-card {
+  align-items: center;
+  border: 1px solid rgba(255, 226, 190, 0.12);
+  border-radius: 16px;
+  background: rgba(15, 12, 10, 0.56);
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: minmax(0, 1fr) auto;
+  padding: 0.85rem;
+}
+
+.library-result-card small {
+  color: #9f8d7a;
+  display: block;
+  margin-top: 0.2rem;
+}
+
 .table-panel {
   overflow: auto;
 }
@@ -154,6 +208,66 @@ td small {
 
 .metadata-grid input {
   padding: 0.52rem 0.65rem;
+}
+
+.danger-button {
+  border-color: rgba(255, 112, 88, 0.6);
+  background: rgba(153, 50, 38, 0.28);
+  color: #ffd3ca;
+}
+
+.ghost-button {
+  background: rgba(255, 255, 255, 0.04);
+  border-color: rgba(255, 226, 190, 0.22);
+  color: #f8efe4;
+}
+
+.modal-backdrop {
+  align-items: center;
+  background: rgba(4, 3, 2, 0.76);
+  backdrop-filter: blur(12px);
+  display: flex;
+  inset: 0;
+  justify-content: center;
+  padding: 1.5rem;
+  position: fixed;
+  z-index: 50;
+}
+
+.confirm-modal {
+  border: 1px solid rgba(255, 170, 130, 0.28);
+  border-radius: 22px;
+  background:
+    radial-gradient(circle at top left, rgba(181, 65, 52, 0.22), transparent 24rem),
+    rgba(23, 18, 14, 0.96);
+  box-shadow: 0 28px 120px rgba(0, 0, 0, 0.62);
+  max-width: 560px;
+  padding: 1.35rem;
+  width: min(560px, 100%);
+}
+
+.danger-eyebrow {
+  color: #ffb19f;
+}
+
+.modal-track-summary {
+  border: 1px solid rgba(255, 226, 190, 0.12);
+  border-radius: 14px;
+  background: rgba(15, 12, 10, 0.62);
+  display: grid;
+  gap: 0.25rem;
+  margin: 1rem 0;
+  padding: 0.85rem;
+}
+
+.modal-track-summary small {
+  color: #9f8d7a;
+}
+
+.modal-actions {
+  display: flex;
+  gap: 0.75rem;
+  justify-content: flex-end;
 }
 
 .status-uploaded td {
