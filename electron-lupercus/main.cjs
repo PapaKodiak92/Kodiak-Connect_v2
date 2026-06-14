@@ -4,7 +4,7 @@ const path = require('node:path');
 let mainWindow = null;
 
 function getIconPath() {
-  return path.join(__dirname, '..', 'electron-assets', 'icon.png');
+  return path.join(__dirname, '..', 'electron-assets-lupercus', 'icon.png');
 }
 
 function createMainWindow() {
@@ -13,13 +13,14 @@ function createMainWindow() {
   }
 
   mainWindow = new BrowserWindow({
-    width: 1240,
-    height: 860,
-    minWidth: 980,
-    minHeight: 680,
-    backgroundColor: '#080b10',
+    width: 1440,
+    height: 960,
+    minWidth: 1180,
+    minHeight: 760,
+    backgroundColor: '#050504',
     title: 'Lupercus Library Sync',
     icon: getIconPath(),
+    autoHideMenuBar: true,
     webPreferences: {
       preload: path.join(__dirname, 'preload.cjs'),
       contextIsolation: true,
