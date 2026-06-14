@@ -118,6 +118,13 @@ function normalizeTrackIdentifier(value) {
   return trackId;
 }
 
+class KodiakMusicAdminValidationError extends Error {
+  constructor(message) {
+    super(message);
+    this.name = 'KodiakMusicAdminValidationError';
+  }
+}
+
 async function deleteKodiakMusicLibraryTrack({ fileSha256 = '', trackId = '' } = {}) {
   await ensureKodiakMusicSchema();
 
@@ -125,7 +132,7 @@ async function deleteKodiakMusicLibraryTrack({ fileSha256 = '', trackId = '' } =
   const cleanTrackId = normalizeTrackIdentifier(trackId);
 
   if (!cleanSha && !cleanTrackId) {
-    throw new Error('A valid trackId or fileSha256 is required.');
+    throw new KodiakMusicAdminValidationError('A valid trackId or fileSha256 is required.');
   }
 
   const client = await getPool().connect();
@@ -163,7 +170,7 @@ async function deleteKodiakMusicLibraryTrack({ fileSha256 = '', trackId = '' } =
 
     if (track.source_kind !== 'library') {
       await client.query('ROLLBACK');
-      throw new Error('Only hosted Kodiak-Music library tracks can be deleted here.');
+      throw new KodiakMusicAdminValidationError('Only hosted Kodiak-Music library tracks can be deleted here.');
     }
 
     const queueDeleteResult = await client.query(
@@ -276,6 +283,11 @@ export async function handleKodiakMusicAdminApiRequest(request, response) {
         configured: false,
         error: 'Kodiak-Music database is not configured. Set KODIAK_MUSIC_DATABASE_URL on the backend service.',
       });
+      return true;
+    }
+
+    if (error instanceof KodiakMusicAdminValidationError) {
+      sendJson(response, 400, { error: error.message });
       return true;
     }
 
