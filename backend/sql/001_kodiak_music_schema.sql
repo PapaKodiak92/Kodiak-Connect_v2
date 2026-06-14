@@ -27,15 +27,7 @@ CREATE TABLE IF NOT EXISTS kodiak_music_tracks (
   uploaded_by_user_id text NOT NULL DEFAULT '',
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now(),
-  search_vector tsvector GENERATED ALWAYS AS (
-    to_tsvector(
-      'simple',
-      coalesce(title, '') || ' ' ||
-      coalesce(artist_name, '') || ' ' ||
-      coalesce(album_title, '') || ' ' ||
-      coalesce(array_to_string(genre_names, ' '), '')
-    )
-  ) STORED
+  search_vector tsvector NOT NULL DEFAULT ''::tsvector
 );
 
 CREATE INDEX IF NOT EXISTS kodiak_music_tracks_search_idx ON kodiak_music_tracks USING gin(search_vector);
