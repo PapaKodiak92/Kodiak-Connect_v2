@@ -8,6 +8,10 @@ type SyncTrack = {
   path: string;
   title: string;
   artistName: string;
+  albumTitle: string;
+  genreNames: string;
+  releaseYear: string;
+  trackNumber: string;
   sizeBytes: number;
   fileSha256: string;
   selected: boolean;
@@ -16,6 +20,7 @@ type SyncTrack = {
 };
 
 const supportedExtensions = new Set(['.aac', '.flac', '.m4a', '.mp3', '.ogg', '.opus', '.wav']);
+const supportedExtensionLabel = '.aac, .flac, .m4a, .mp3, .ogg, .opus, .wav';
 
 function ext(name: string) {
   const index = name.lastIndexOf('.');
@@ -30,6 +35,12 @@ function guessArtist(file: File) {
   const path = (file as File & { webkitRelativePath?: string }).webkitRelativePath || file.name;
   const parts = path.split('/').filter(Boolean);
   return parts.length >= 2 ? parts[parts.length - 2].replace(/[_-]+/g, ' ') : '';
+}
+
+function guessAlbum(file: File) {
+  const path = (file as File & { webkitRelativePath?: string }).webkitRelativePath || file.name;
+  const parts = path.split('/').filter(Boolean);
+  return parts.length >= 3 ? parts[parts.length - 2].replace(/[_-]+/g, ' ') : '';
 }
 
 function bytes(value: number) {
@@ -52,6 +63,19 @@ function err(error: unknown) {
   return error instanceof Error ? error.message : 'Unknown error';
 }
 
+function parseGenres(value: string) {
+  return value
+    .split(',')
+    .map((genre) => genre.trim())
+    .filter(Boolean)
+    .slice(0, 12);
+}
+
+function parsePositiveNumber(value: string) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+}
+
 export function App() {
   const filePickerRef = useRef<HTMLInputElement | null>(null);
   const folderPickerRef = useRef<HTMLInputElement | null>(null);
@@ -61,7 +85,7 @@ export function App() {
   const [genre, setGenre] = useState('');
   const [tracks, setTracks] = useState<SyncTrack[]>([]);
   const [busy, setBusy] = useState(false);
-  const [message, setMessage] = useState('Choose a few files for testing, or choose a folder for a larger library scan.');
+  const [message, setMessage] = useState('Choose files for testing, or choose a folder for a larger library scan. Edit metadata before upload.');
 
   useEffect(() => {
     folderPickerRef.current?.setAttribute('webkitdirectory', '');
@@ -82,14 +106,18 @@ export function App() {
         path,
         title: titleFromName(file.name),
         artistName: guessArtist(file),
+        albumTitle: guessAlbum(file),
+        genreNames: genre,
+        releaseYear: '',
+        trackNumber: '',
         sizeBytes: file.size,
         fileSha256: '',
         selected: true,
         status: 'ready',
-        message: 'Ready',
+        message: 'Ready. Edit metadata, then hash.',
       };
     }));
-    setMessage(`Loaded ${audioFiles.length} supported audio files.`);
+    setMessage(`Loaded ${audioFiles.length} supported audio files. Supported formats: ${supportedExtensionLabel}.`);
   }
 
   async function checkAccess() {
@@ -119,7 +147,7 @@ export function App() {
         patchTrack(track.id, { status: 'failed', message: err(error) });
       }
     }
-    setMessage('Hash pass complete.');
+    setMessage('Hash pass complete. Metadata can still be edited before upload.');
     setBusy(false);
   }
 
@@ -131,14 +159,17 @@ export function App() {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'X-Kodiak-User-Id': userId },
       body: JSON.stringify({
+        albumTitle: track.albumTitle,
         fileName: track.file.name,
         fileSha256: track.fileSha256,
         fileSizeBytes: track.sizeBytes,
-        title: track.title,
-        artistName: track.artistName,
-        genreNames: genre.trim() ? [genre.trim()] : [],
-        sourceDeviceId: deviceId,
+        genreNames: parseGenres(track.genreNames || genre),
         originalPath: track.path,
+        releaseYear: parsePositiveNumber(track.releaseYear),
+        sourceDeviceId: deviceId,
+        title: track.title,
+        trackNumber: parsePositiveNumber(track.trackNumber),
+        artistName: track.artistName,
       }),
     });
     const prepared = await prepare.json() as { shouldUpload?: boolean; uploadUrl?: string; reason?: string };
@@ -184,7 +215,7 @@ export function App() {
         <label>API base<input value={apiBase} onChange={(event) => setApiBase(event.target.value)} /></label>
         <label>Matrix user ID<input value={userId} onChange={(event) => setUserId(event.target.value)} /></label>
         <label>Device ID<input value={deviceId} onChange={(event) => setDeviceId(event.target.value)} /></label>
-        <label>Genre for this batch<input value={genre} onChange={(event) => setGenre(event.target.value)} placeholder="Optional" /></label>
+        <label>Default genre for new files<input value={genre} onChange={(event) => setGenre(event.target.value)} placeholder="Optional" /></label>
       </section>
 
       <section className="panel actions">
@@ -209,17 +240,36 @@ export function App() {
         <button disabled={busy} onClick={() => void checkAccess()}>Check access</button>
         <button disabled={busy || tracks.length === 0} onClick={() => void hashSelected()}>Hash selected</button>
         <button disabled={busy || tracks.length === 0} onClick={() => void uploadSelected()}>Upload selected</button>
+        <span className="format-note">Supported: {supportedExtensionLabel}</span>
       </section>
 
       <section className="panel table-panel">
         <table>
-          <thead><tr><th>Use</th><th>Track</th><th>Artist</th><th>Size</th><th>Status</th><th>Message</th></tr></thead>
+          <thead>
+            <tr>
+              <th>Use</th>
+              <th>File</th>
+              <th>Editable metadata</th>
+              <th>Size</th>
+              <th>Status</th>
+              <th>Message</th>
+            </tr>
+          </thead>
           <tbody>
             {tracks.map((track) => (
               <tr key={track.id} className={`status-${track.status}`}>
                 <td><input type="checkbox" checked={track.selected} onChange={() => patchTrack(track.id, { selected: !track.selected })} /></td>
-                <td><strong>{track.title}</strong><small>{track.path}</small></td>
-                <td>{track.artistName || 'Unknown'}</td>
+                <td><strong>{track.file.name}</strong><small>{track.path}</small></td>
+                <td>
+                  <div className="metadata-grid">
+                    <label>Title<input value={track.title} onChange={(event) => patchTrack(track.id, { title: event.target.value })} /></label>
+                    <label>Artist<input value={track.artistName} onChange={(event) => patchTrack(track.id, { artistName: event.target.value })} /></label>
+                    <label>Album<input value={track.albumTitle} onChange={(event) => patchTrack(track.id, { albumTitle: event.target.value })} /></label>
+                    <label>Genre(s)<input value={track.genreNames} onChange={(event) => patchTrack(track.id, { genreNames: event.target.value })} placeholder="Rock, Live, Demo" /></label>
+                    <label>Year<input value={track.releaseYear} onChange={(event) => patchTrack(track.id, { releaseYear: event.target.value.replace(/[^0-9]/g, '').slice(0, 4) })} placeholder="Optional" /></label>
+                    <label>Track #<input value={track.trackNumber} onChange={(event) => patchTrack(track.id, { trackNumber: event.target.value.replace(/[^0-9]/g, '').slice(0, 3) })} placeholder="Optional" /></label>
+                  </div>
+                </td>
                 <td>{bytes(track.sizeBytes)}</td>
                 <td>{track.status}</td>
                 <td>{track.message}</td>
