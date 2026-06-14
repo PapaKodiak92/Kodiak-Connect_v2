@@ -27,6 +27,7 @@
         "lupercus:dev": "vite --config tools/lupercus-library-sync/vite.config.ts",
         "lupercus:check": "tsc -p tools/lupercus-library-sync/tsconfig.json",
         "lupercus:build": "vite build --config tools/lupercus-library-sync/vite.config.ts",
+        "lupercus:electron:build:linux": "npm run lupercus:build && electron-builder --linux deb --x64 --config electron-builder.lupercus.yml",
         "auth:dev": "node backend/publicProxyRunner.mjs auth",
         "auth:direct": "node backend/authServer.mjs",
         "auth:health": "node -e \"fetch('http://localhost:8788/api/auth/health').then(r=>r.json()).then(console.log).catch(console.error)\"",
