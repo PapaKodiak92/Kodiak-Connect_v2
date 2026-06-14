@@ -17,6 +17,9 @@ type SyncTrack = {
   selected: boolean;
   status: TrackStatus;
   message: string;
+  hostedTrackId?: string;
+  hostedStreamPath?: string;
+  playbackVerified?: boolean;
 };
 
 type LibraryTrack = {
@@ -27,6 +30,12 @@ type LibraryTrack = {
   genreNames?: string[];
   fileSha256?: string;
   streamPath?: string;
+};
+
+type PlaybackTarget = {
+  title: string;
+  subtitle: string;
+  streamUrl: string;
 };
 
 const supportedExtensions = new Set(['.aac', '.flac', '.m4a', '.mp3', '.ogg', '.opus', '.wav']);
@@ -86,6 +95,14 @@ function parsePositiveNumber(value: string) {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
 }
 
+function streamPathForTrack(track: Pick<LibraryTrack, 'fileSha256' | 'streamPath'>) {
+  if (track.streamPath) {
+    return track.streamPath;
+  }
+
+  return track.fileSha256 ? `/api/music/stream/${encodeURIComponent(track.fileSha256)}` : '';
+}
+
 export function App() {
   const filePickerRef = useRef<HTMLInputElement | null>(null);
   const folderPickerRef = useRef<HTMLInputElement | null>(null);
@@ -96,9 +113,11 @@ export function App() {
   const [tracks, setTracks] = useState<SyncTrack[]>([]);
   const [libraryQuery, setLibraryQuery] = useState('');
   const [libraryResults, setLibraryResults] = useState<LibraryTrack[]>([]);
-  const [libraryMessage, setLibraryMessage] = useState('Search uploaded Kodiak-Music tracks to review or delete them. Delete requires moderator access.');
+  const [libraryMessage, setLibraryMessage] = useState('Search uploaded Kodiak-Music tracks to review, test playback, or delete them. Delete requires moderator access.');
   const [deletingTrackId, setDeletingTrackId] = useState<string | null>(null);
   const [confirmDeleteTrack, setConfirmDeleteTrack] = useState<LibraryTrack | null>(null);
+  const [playbackTarget, setPlaybackTarget] = useState<PlaybackTarget | null>(null);
+  const [playbackMessage, setPlaybackMessage] = useState('Upload or search a hosted track, then test the server-hosted stream here.');
   const [busy, setBusy] = useState(false);
   const [libraryBusy, setLibraryBusy] = useState(false);
   const [message, setMessage] = useState('Choose files for testing, or choose a folder for a larger library scan. Edit metadata before upload.');
@@ -110,6 +129,45 @@ export function App() {
 
   function patchTrack(id: string, updates: Partial<SyncTrack>) {
     setTracks((current) => current.map((track) => (track.id === id ? { ...track, ...updates } : track)));
+  }
+
+  function buildHostedStreamUrl(streamPath: string) {
+    const separator = streamPath.includes('?') ? '&' : '?';
+    return apiUrl(apiBase, `${streamPath}${separator}userId=${encodeURIComponent(userId)}`);
+  }
+
+  function playHostedTrack(track: LibraryTrack) {
+    const streamPath = streamPathForTrack(track);
+
+    if (!streamPath) {
+      setPlaybackTarget(null);
+      setPlaybackMessage('No hosted stream path is available for that track yet.');
+      return;
+    }
+
+    setPlaybackTarget({
+      streamUrl: buildHostedStreamUrl(streamPath),
+      subtitle: [track.artistName, track.albumTitle].filter(Boolean).join(' • ') || 'Hosted Kodiak-Music stream',
+      title: track.title || 'Untitled track',
+    });
+    setPlaybackMessage('Loading hosted stream from the VPS...');
+  }
+
+  function playUploadedTrack(track: SyncTrack) {
+    const streamPath = streamPathForTrack({ fileSha256: track.fileSha256, streamPath: track.hostedStreamPath });
+
+    if (!streamPath) {
+      setPlaybackTarget(null);
+      setPlaybackMessage('Hash or upload this file before testing hosted playback.');
+      return;
+    }
+
+    setPlaybackTarget({
+      streamUrl: buildHostedStreamUrl(streamPath),
+      subtitle: [track.artistName, track.albumTitle].filter(Boolean).join(' • ') || track.path,
+      title: track.title || track.file.name,
+    });
+    setPlaybackMessage('Loading hosted stream from the VPS...');
   }
 
   function loadFiles(files: FileList | null) {
@@ -184,6 +242,10 @@ export function App() {
       const data = await response.json() as { error?: string; fileRemoved?: boolean };
       if (!response.ok) throw new Error(data.error || `Delete failed: ${response.status}`);
       setLibraryResults((current) => current.filter((item) => item.id !== track.id));
+      if (playbackTarget?.title === track.title) {
+        setPlaybackTarget(null);
+        setPlaybackMessage('Deleted track was removed from playback tester.');
+      }
       setLibraryMessage(`Deleted ${track.title}${data.fileRemoved ? ' and removed the stored file' : ''}.`);
     } catch (error) {
       setLibraryMessage(`Delete failed: ${err(error)}`);
@@ -228,10 +290,15 @@ export function App() {
         artistName: track.artistName,
       }),
     });
-    const prepared = await prepare.json() as { shouldUpload?: boolean; uploadUrl?: string; reason?: string };
+    const prepared = await prepare.json() as { duplicateTrack?: LibraryTrack; shouldUpload?: boolean; uploadUrl?: string; reason?: string };
     if (!prepare.ok) throw new Error(prepared.reason || `Prepare failed: ${prepare.status}`);
     if (!prepared.shouldUpload) {
-      patchTrack(track.id, { status: 'duplicate', message: prepared.reason || 'Already exists.' });
+      patchTrack(track.id, {
+        hostedStreamPath: prepared.duplicateTrack?.streamPath,
+        hostedTrackId: prepared.duplicateTrack?.id,
+        status: 'duplicate',
+        message: prepared.reason || 'Already exists. Use Play hosted copy to verify the existing stream.',
+      });
       return;
     }
     if (!prepared.uploadUrl) throw new Error('Missing uploadUrl.');
@@ -242,8 +309,14 @@ export function App() {
       headers: { 'Content-Type': track.file.type || 'application/octet-stream', 'X-Kodiak-User-Id': userId },
       body: track.file,
     });
-    if (!uploaded.ok) throw new Error(await uploaded.text());
-    patchTrack(track.id, { status: 'uploaded', message: 'Uploaded.' });
+    const uploadedData = await uploaded.json().catch(() => ({})) as { track?: LibraryTrack };
+    if (!uploaded.ok) throw new Error(JSON.stringify(uploadedData));
+    patchTrack(track.id, {
+      hostedStreamPath: uploadedData.track?.streamPath,
+      hostedTrackId: uploadedData.track?.id,
+      status: 'uploaded',
+      message: 'Uploaded. Use Play hosted copy to verify the VPS stream.',
+    });
   }
 
   async function uploadSelected() {
@@ -255,7 +328,7 @@ export function App() {
         patchTrack(track.id, { status: 'failed', message: err(error) });
       }
     }
-    setMessage('Upload pass complete. Search the hosted library below to verify uploaded tracks.');
+    setMessage('Upload pass complete. Use Play hosted copy or search the hosted library below to verify uploaded tracks.');
     setBusy(false);
   }
 
@@ -285,6 +358,26 @@ export function App() {
         <span className="format-note">Supported: {supportedExtensionLabel}</span>
       </section>
 
+      <section className="panel playback-tester">
+        <div>
+          <p className="eyebrow">Hosted playback verification</p>
+          <h2>{playbackTarget ? playbackTarget.title : 'No hosted track selected'}</h2>
+          <span>{playbackTarget ? playbackTarget.subtitle : playbackMessage}</span>
+        </div>
+        {playbackTarget ? (
+          <div className="playback-box">
+            <audio
+              controls
+              src={playbackTarget.streamUrl}
+              onCanPlay={() => setPlaybackMessage('Hosted stream loaded. Press play to verify audio output.')}
+              onPlay={() => setPlaybackMessage('Playback started from the hosted VPS stream.')}
+              onError={() => setPlaybackMessage('Hosted playback failed. Check format/browser support or stream logs.')}
+            />
+            <span>{playbackMessage}</span>
+          </div>
+        ) : null}
+      </section>
+
       <section className="panel library-manager">
         <div>
           <p className="eyebrow">Hosted Kodiak-Music Library</p>
@@ -303,9 +396,12 @@ export function App() {
                 <small>{[track.artistName, track.albumTitle].filter(Boolean).join(' • ') || 'No artist/album set'}</small>
                 <small>{(track.genreNames || []).join(', ') || 'No genres'}{track.fileSha256 ? ` • ${track.fileSha256.slice(0, 12)}...` : ''}</small>
               </div>
-              <button className="danger-button" disabled={deletingTrackId === track.id} onClick={() => setConfirmDeleteTrack(track)}>
-                {deletingTrackId === track.id ? 'Deleting...' : 'Delete'}
-              </button>
+              <div className="library-card-actions">
+                <button type="button" disabled={!streamPathForTrack(track)} onClick={() => playHostedTrack(track)}>Play hosted copy</button>
+                <button className="danger-button" disabled={deletingTrackId === track.id} onClick={() => setConfirmDeleteTrack(track)}>
+                  {deletingTrackId === track.id ? 'Deleting...' : 'Delete'}
+                </button>
+              </div>
             </article>
           ))}
         </div>
@@ -313,7 +409,7 @@ export function App() {
 
       <section className="panel table-panel">
         <table>
-          <thead><tr><th>Use</th><th>File</th><th>Editable metadata</th><th>Size</th><th>Status</th><th>Message</th></tr></thead>
+          <thead><tr><th>Use</th><th>File</th><th>Editable metadata</th><th>Size</th><th>Status</th><th>Message</th><th>Verify</th></tr></thead>
           <tbody>
             {tracks.map((track) => (
               <tr key={track.id} className={`status-${track.status}`}>
@@ -332,6 +428,13 @@ export function App() {
                 <td>{bytes(track.sizeBytes)}</td>
                 <td>{track.status}</td>
                 <td>{track.message}</td>
+                <td>
+                  {track.status === 'uploaded' || track.status === 'duplicate' ? (
+                    <button type="button" onClick={() => playUploadedTrack(track)}>Play hosted copy</button>
+                  ) : (
+                    <span className="format-note">Upload first</span>
+                  )}
+                </td>
               </tr>
             ))}
           </tbody>
