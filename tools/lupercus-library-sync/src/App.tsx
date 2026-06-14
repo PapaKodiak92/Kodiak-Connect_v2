@@ -29,17 +29,35 @@ type LibraryTrack = {
   albumTitle?: string;
   genreNames?: string[];
   fileSha256?: string;
+  releaseYear?: number | string | null;
   streamPath?: string;
+  trackNumber?: number | string | null;
 };
 
 type PlaybackTarget = {
-  title: string;
-  subtitle: string;
+  fileSha256?: string;
+  libraryTrackId?: string;
+  streamPath?: string;
   streamUrl: string;
+  subtitle: string;
+  syncTrackId?: string;
+  title: string;
+};
+
+type SyncHistoryEntry = {
+  artistName: string;
+  fileSha256: string;
+  lastSeenAt: number;
+  playbackVerified: boolean;
+  status: 'uploaded' | 'duplicate' | 'verified';
+  streamPath: string;
+  title: string;
+  trackId: string;
 };
 
 const supportedExtensions = new Set(['.aac', '.flac', '.m4a', '.mp3', '.ogg', '.opus', '.wav']);
 const supportedExtensionLabel = '.aac, .flac, .m4a, .mp3, .ogg, .opus, .wav';
+const syncHistoryStorageKey = 'lupercus-library-sync-history-v1';
 
 function ext(name: string) {
   const index = name.lastIndexOf('.');
@@ -90,9 +108,23 @@ function parseGenres(value: string) {
     .slice(0, 12);
 }
 
-function parsePositiveNumber(value: string) {
+function parsePositiveNumber(value: string | number | null | undefined) {
   const parsed = Number(value);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+}
+
+function numberInputValue(value: string | number | null | undefined) {
+  return value == null ? '' : String(value);
+}
+
+function readSyncHistory() {
+  try {
+    const raw = window.localStorage.getItem(syncHistoryStorageKey);
+    const parsed = raw ? JSON.parse(raw) : {};
+    return parsed && typeof parsed === 'object' ? parsed as Record<string, SyncHistoryEntry> : {};
+  } catch {
+    return {};
+  }
 }
 
 function streamPathForTrack(track: Pick<LibraryTrack, 'fileSha256' | 'streamPath'>) {
@@ -111,10 +143,12 @@ export function App() {
   const [deviceId, setDeviceId] = useState('lupercus-main-pc');
   const [genre, setGenre] = useState('');
   const [tracks, setTracks] = useState<SyncTrack[]>([]);
+  const [syncHistory, setSyncHistory] = useState<Record<string, SyncHistoryEntry>>({});
   const [libraryQuery, setLibraryQuery] = useState('');
   const [libraryResults, setLibraryResults] = useState<LibraryTrack[]>([]);
-  const [libraryMessage, setLibraryMessage] = useState('Search uploaded Kodiak-Music tracks to review, test playback, or delete them. Delete requires moderator access.');
+  const [libraryMessage, setLibraryMessage] = useState('Search uploaded Kodiak-Music tracks to review, test playback, save metadata, or delete them. Save/delete require moderator access.');
   const [deletingTrackId, setDeletingTrackId] = useState<string | null>(null);
+  const [savingTrackId, setSavingTrackId] = useState<string | null>(null);
   const [confirmDeleteTrack, setConfirmDeleteTrack] = useState<LibraryTrack | null>(null);
   const [playbackTarget, setPlaybackTarget] = useState<PlaybackTarget | null>(null);
   const [playbackMessage, setPlaybackMessage] = useState('Upload or search a hosted track, then test the server-hosted stream here.');
@@ -125,10 +159,48 @@ export function App() {
   useEffect(() => {
     folderPickerRef.current?.setAttribute('webkitdirectory', '');
     folderPickerRef.current?.setAttribute('directory', '');
+    setSyncHistory(readSyncHistory());
   }, []);
+
+  function writeSyncHistory(nextHistory: Record<string, SyncHistoryEntry>) {
+    setSyncHistory(nextHistory);
+    try {
+      window.localStorage.setItem(syncHistoryStorageKey, JSON.stringify(nextHistory));
+    } catch {
+      setMessage('Could not write local sync history. Browser storage may be blocked.');
+    }
+  }
+
+  function rememberSyncHistory(entry: SyncHistoryEntry) {
+    writeSyncHistory({
+      ...syncHistory,
+      [entry.fileSha256]: entry,
+    });
+  }
+
+  function rememberTrack(track: SyncTrack, status: SyncHistoryEntry['status'], hostedTrack?: LibraryTrack) {
+    if (!track.fileSha256) {
+      return;
+    }
+
+    rememberSyncHistory({
+      artistName: hostedTrack?.artistName || track.artistName,
+      fileSha256: track.fileSha256,
+      lastSeenAt: Date.now(),
+      playbackVerified: status === 'verified' || track.playbackVerified === true,
+      status,
+      streamPath: hostedTrack?.streamPath || track.hostedStreamPath || streamPathForTrack({ fileSha256: track.fileSha256 }),
+      title: hostedTrack?.title || track.title,
+      trackId: hostedTrack?.id || track.hostedTrackId || '',
+    });
+  }
 
   function patchTrack(id: string, updates: Partial<SyncTrack>) {
     setTracks((current) => current.map((track) => (track.id === id ? { ...track, ...updates } : track)));
+  }
+
+  function patchLibraryTrack(id: string, updates: Partial<LibraryTrack>) {
+    setLibraryResults((current) => current.map((track) => (track.id === id ? { ...track, ...updates } : track)));
   }
 
   function buildHostedStreamUrl(streamPath: string) {
@@ -146,6 +218,9 @@ export function App() {
     }
 
     setPlaybackTarget({
+      fileSha256: track.fileSha256,
+      libraryTrackId: track.id,
+      streamPath,
       streamUrl: buildHostedStreamUrl(streamPath),
       subtitle: [track.artistName, track.albumTitle].filter(Boolean).join(' • ') || 'Hosted Kodiak-Music stream',
       title: track.title || 'Untitled track',
@@ -163,11 +238,45 @@ export function App() {
     }
 
     setPlaybackTarget({
+      fileSha256: track.fileSha256,
+      streamPath,
       streamUrl: buildHostedStreamUrl(streamPath),
       subtitle: [track.artistName, track.albumTitle].filter(Boolean).join(' • ') || track.path,
+      syncTrackId: track.id,
       title: track.title || track.file.name,
     });
     setPlaybackMessage('Loading hosted stream from the VPS...');
+  }
+
+  function markPlaybackVerified() {
+    if (!playbackTarget) {
+      return;
+    }
+
+    setPlaybackMessage('Playback started from the hosted VPS stream. Marked as verified in this tool.');
+
+    if (playbackTarget.syncTrackId) {
+      const syncTrack = tracks.find((track) => track.id === playbackTarget.syncTrackId);
+      patchTrack(playbackTarget.syncTrackId, { playbackVerified: true, message: 'Hosted playback verified.' });
+
+      if (syncTrack) {
+        rememberTrack({ ...syncTrack, playbackVerified: true, hostedStreamPath: playbackTarget.streamPath || syncTrack.hostedStreamPath }, 'verified');
+      }
+    }
+
+    if (playbackTarget.fileSha256) {
+      const existing = syncHistory[playbackTarget.fileSha256];
+      rememberSyncHistory({
+        artistName: existing?.artistName || playbackTarget.subtitle,
+        fileSha256: playbackTarget.fileSha256,
+        lastSeenAt: Date.now(),
+        playbackVerified: true,
+        status: 'verified',
+        streamPath: playbackTarget.streamPath || existing?.streamPath || streamPathForTrack({ fileSha256: playbackTarget.fileSha256 }),
+        title: playbackTarget.title,
+        trackId: playbackTarget.libraryTrackId || existing?.trackId || '',
+      });
+    }
   }
 
   function loadFiles(files: FileList | null) {
@@ -221,11 +330,42 @@ export function App() {
       const data = await response.json() as { tracks?: LibraryTrack[]; error?: string };
       if (!response.ok) throw new Error(data.error || `Search failed: ${response.status}`);
       setLibraryResults(data.tracks || []);
-      setLibraryMessage(`Found ${(data.tracks || []).length} hosted track(s).`);
+      setLibraryMessage(`Found ${(data.tracks || []).length} hosted track(s). Edit metadata here, then Save metadata.`);
     } catch (error) {
       setLibraryMessage(`Library search failed: ${err(error)}`);
     } finally {
       setLibraryBusy(false);
+    }
+  }
+
+  async function saveLibraryTrackMetadata(track: LibraryTrack) {
+    setSavingTrackId(track.id);
+    setLibraryMessage(`Saving metadata for ${track.title || 'Untitled track'}...`);
+    try {
+      const response = await fetch(apiUrl(apiBase, '/api/music/library/metadata'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Kodiak-User-Id': userId },
+        body: JSON.stringify({
+          albumTitle: track.albumTitle || '',
+          artistName: track.artistName || '',
+          genreNames: track.genreNames || [],
+          releaseYear: parsePositiveNumber(track.releaseYear),
+          title: track.title || '',
+          trackId: track.id,
+          trackNumber: parsePositiveNumber(track.trackNumber),
+          userId,
+        }),
+      });
+      const data = await response.json() as { error?: string; updatedTrack?: LibraryTrack };
+      if (!response.ok) throw new Error(data.error || `Save failed: ${response.status}`);
+      if (data.updatedTrack) {
+        patchLibraryTrack(track.id, data.updatedTrack);
+      }
+      setLibraryMessage(`Saved metadata for ${data.updatedTrack?.title || track.title || 'track'}.`);
+    } catch (error) {
+      setLibraryMessage(`Metadata save failed: ${err(error)}`);
+    } finally {
+      setSavingTrackId(null);
     }
   }
 
@@ -260,12 +400,22 @@ export function App() {
       patchTrack(track.id, { status: 'hashing', message: 'Hashing...' });
       try {
         const fileSha256 = await hashFile(track.file);
-        patchTrack(track.id, { fileSha256, status: 'hashed', message: fileSha256 });
+        const history = syncHistory[fileSha256];
+        patchTrack(track.id, {
+          fileSha256,
+          hostedStreamPath: history?.streamPath,
+          hostedTrackId: history?.trackId,
+          playbackVerified: history?.playbackVerified ?? false,
+          status: 'hashed',
+          message: history
+            ? `Hash complete. Local history says ${history.status}${history.playbackVerified ? ' and playback verified' : ''}. Upload will still check the server.`
+            : fileSha256,
+        });
       } catch (error) {
         patchTrack(track.id, { status: 'failed', message: err(error) });
       }
     }
-    setMessage('Hash pass complete. Metadata can still be edited before upload.');
+    setMessage('Hash pass complete. Metadata can still be edited before upload. Local history is checked after hashing.');
     setBusy(false);
   }
 
@@ -299,6 +449,7 @@ export function App() {
         status: 'duplicate',
         message: prepared.reason || 'Already exists. Use Play hosted copy to verify the existing stream.',
       });
+      rememberTrack({ ...track, hostedStreamPath: prepared.duplicateTrack?.streamPath, hostedTrackId: prepared.duplicateTrack?.id }, 'duplicate', prepared.duplicateTrack);
       return;
     }
     if (!prepared.uploadUrl) throw new Error('Missing uploadUrl.');
@@ -317,6 +468,7 @@ export function App() {
       status: 'uploaded',
       message: 'Uploaded. Use Play hosted copy to verify the VPS stream.',
     });
+    rememberTrack({ ...track, hostedStreamPath: uploadedData.track?.streamPath, hostedTrackId: uploadedData.track?.id }, 'uploaded', uploadedData.track);
   }
 
   async function uploadSelected() {
@@ -331,6 +483,33 @@ export function App() {
     setMessage('Upload pass complete. Use Play hosted copy or search the hosted library below to verify uploaded tracks.');
     setBusy(false);
   }
+
+  function selectAllTracks(selected: boolean) {
+    setTracks((current) => current.map((track) => ({ ...track, selected })));
+  }
+
+  function prepareFailedForRetry() {
+    setTracks((current) => current.map((track) => {
+      if (track.status !== 'failed') {
+        return track;
+      }
+
+      return {
+        ...track,
+        selected: true,
+        status: track.fileSha256 ? 'hashed' : 'ready',
+        message: track.fileSha256 ? 'Ready to retry upload.' : 'Ready to retry hash.',
+      };
+    }));
+    setMessage('Failed tracks were selected and reset for retry.');
+  }
+
+  function clearLocalHistory() {
+    writeSyncHistory({});
+    setMessage('Local sync history cleared. Hosted Kodiak-Music files were not changed.');
+  }
+
+  const historyCount = Object.keys(syncHistory).length;
 
   return (
     <main className="sync-shell">
@@ -355,7 +534,19 @@ export function App() {
         <button disabled={busy} onClick={() => void checkAccess()}>Check access</button>
         <button disabled={busy || tracks.length === 0} onClick={() => void hashSelected()}>Hash selected</button>
         <button disabled={busy || tracks.length === 0} onClick={() => void uploadSelected()}>Upload selected</button>
+        <button disabled={busy || tracks.length === 0} onClick={() => selectAllTracks(true)}>Select all</button>
+        <button disabled={busy || tracks.length === 0} onClick={() => selectAllTracks(false)}>Deselect all</button>
+        <button disabled={busy || tracks.every((track) => track.status !== 'failed')} onClick={() => prepareFailedForRetry()}>Retry failed</button>
         <span className="format-note">Supported: {supportedExtensionLabel}</span>
+      </section>
+
+      <section className="panel history-panel">
+        <div>
+          <p className="eyebrow">Local sync history</p>
+          <h2>{historyCount} remembered file hash{historyCount === 1 ? '' : 'es'}</h2>
+          <span>This only helps resume on this machine. It does not delete or change hosted Kodiak-Music files.</span>
+        </div>
+        <button disabled={historyCount === 0} className="ghost-button" onClick={() => clearLocalHistory()}>Clear local history</button>
       </section>
 
       <section className="panel playback-tester">
@@ -370,7 +561,7 @@ export function App() {
               controls
               src={playbackTarget.streamUrl}
               onCanPlay={() => setPlaybackMessage('Hosted stream loaded. Press play to verify audio output.')}
-              onPlay={() => setPlaybackMessage('Playback started from the hosted VPS stream.')}
+              onPlay={() => markPlaybackVerified()}
               onError={() => setPlaybackMessage('Hosted playback failed. Check format/browser support or stream logs.')}
             />
             <span>{playbackMessage}</span>
@@ -390,13 +581,22 @@ export function App() {
         </div>
         <div className="library-results">
           {libraryResults.map((track) => (
-            <article key={track.id} className="library-result-card">
+            <article key={track.id} className="library-result-card library-result-card-editable">
               <div>
                 <strong>{track.title || 'Untitled track'}</strong>
                 <small>{[track.artistName, track.albumTitle].filter(Boolean).join(' • ') || 'No artist/album set'}</small>
                 <small>{(track.genreNames || []).join(', ') || 'No genres'}{track.fileSha256 ? ` • ${track.fileSha256.slice(0, 12)}...` : ''}</small>
               </div>
+              <div className="library-metadata-grid">
+                <label>Title<input value={track.title || ''} onChange={(event) => patchLibraryTrack(track.id, { title: event.target.value })} /></label>
+                <label>Artist<input value={track.artistName || ''} onChange={(event) => patchLibraryTrack(track.id, { artistName: event.target.value })} /></label>
+                <label>Album<input value={track.albumTitle || ''} onChange={(event) => patchLibraryTrack(track.id, { albumTitle: event.target.value })} /></label>
+                <label>Genre(s)<input value={(track.genreNames || []).join(', ')} onChange={(event) => patchLibraryTrack(track.id, { genreNames: parseGenres(event.target.value) })} /></label>
+                <label>Year<input value={numberInputValue(track.releaseYear)} onChange={(event) => patchLibraryTrack(track.id, { releaseYear: event.target.value.replace(/[^0-9]/g, '').slice(0, 4) })} placeholder="Optional" /></label>
+                <label>Track #<input value={numberInputValue(track.trackNumber)} onChange={(event) => patchLibraryTrack(track.id, { trackNumber: event.target.value.replace(/[^0-9]/g, '').slice(0, 3) })} placeholder="Optional" /></label>
+              </div>
               <div className="library-card-actions">
+                <button type="button" className="save-button" disabled={savingTrackId === track.id} onClick={() => void saveLibraryTrackMetadata(track)}>{savingTrackId === track.id ? 'Saving...' : 'Save metadata'}</button>
                 <button type="button" disabled={!streamPathForTrack(track)} onClick={() => playHostedTrack(track)}>Play hosted copy</button>
                 <button className="danger-button" disabled={deletingTrackId === track.id} onClick={() => setConfirmDeleteTrack(track)}>
                   {deletingTrackId === track.id ? 'Deleting...' : 'Delete'}
@@ -426,7 +626,7 @@ export function App() {
                   </div>
                 </td>
                 <td>{bytes(track.sizeBytes)}</td>
-                <td>{track.status}</td>
+                <td>{track.status}{track.playbackVerified ? <span className="verified-pill">Verified</span> : null}</td>
                 <td>{track.message}</td>
                 <td>
                   {track.status === 'uploaded' || track.status === 'duplicate' ? (
