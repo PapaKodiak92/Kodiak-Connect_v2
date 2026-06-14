@@ -2,6 +2,7 @@ import { spawn } from 'node:child_process';
 import { createServer, request as httpRequest } from 'node:http';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { handleKodiakMusicAdminApiRequest } from './kodiakMusicAdminApi.mjs';
 import { handleKodiakMusicApiRequest } from './kodiakMusicApi.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -99,10 +100,16 @@ function proxyRequest(clientRequest, clientResponse) {
   }
 
   if (service === 'backend' && clientRequest.url?.startsWith('/api/music/')) {
-    void handleKodiakMusicApiRequest(clientRequest, clientResponse).then((handled) => {
-      if (!handled) {
-        proxyToInternalServer(clientRequest, clientResponse);
+    void handleKodiakMusicAdminApiRequest(clientRequest, clientResponse).then((adminHandled) => {
+      if (adminHandled) {
+        return;
       }
+
+      void handleKodiakMusicApiRequest(clientRequest, clientResponse).then((handled) => {
+        if (!handled) {
+          proxyToInternalServer(clientRequest, clientResponse);
+        }
+      });
     });
     return;
   }
