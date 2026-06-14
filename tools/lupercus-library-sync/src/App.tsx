@@ -98,6 +98,7 @@ export function App() {
   const [libraryResults, setLibraryResults] = useState<LibraryTrack[]>([]);
   const [libraryMessage, setLibraryMessage] = useState('Search uploaded Kodiak-Music tracks to review or delete them. Delete requires moderator access.');
   const [deletingTrackId, setDeletingTrackId] = useState<string | null>(null);
+  const [confirmDeleteTrack, setConfirmDeleteTrack] = useState<LibraryTrack | null>(null);
   const [busy, setBusy] = useState(false);
   const [libraryBusy, setLibraryBusy] = useState(false);
   const [message, setMessage] = useState('Choose files for testing, or choose a folder for a larger library scan. Edit metadata before upload.');
@@ -171,9 +172,7 @@ export function App() {
   }
 
   async function deleteLibraryTrack(track: LibraryTrack) {
-    const confirmed = window.confirm(`Delete "${track.title}" from the hosted Kodiak-Music library? This removes it from the catalog and deletes the stored audio file.`);
-    if (!confirmed) return;
-
+    setConfirmDeleteTrack(null);
     setDeletingTrackId(track.id);
     setLibraryMessage(`Deleting ${track.title}...`);
     try {
@@ -304,7 +303,7 @@ export function App() {
                 <small>{[track.artistName, track.albumTitle].filter(Boolean).join(' • ') || 'No artist/album set'}</small>
                 <small>{(track.genreNames || []).join(', ') || 'No genres'}{track.fileSha256 ? ` • ${track.fileSha256.slice(0, 12)}...` : ''}</small>
               </div>
-              <button className="danger-button" disabled={deletingTrackId === track.id} onClick={() => void deleteLibraryTrack(track)}>
+              <button className="danger-button" disabled={deletingTrackId === track.id} onClick={() => setConfirmDeleteTrack(track)}>
                 {deletingTrackId === track.id ? 'Deleting...' : 'Delete'}
               </button>
             </article>
@@ -338,6 +337,26 @@ export function App() {
           </tbody>
         </table>
       </section>
+
+      {confirmDeleteTrack ? (
+        <div className="modal-backdrop" role="presentation" onMouseDown={() => setConfirmDeleteTrack(null)}>
+          <section className="confirm-modal" role="dialog" aria-modal="true" aria-labelledby="delete-track-title" onMouseDown={(event) => event.stopPropagation()}>
+            <p className="eyebrow danger-eyebrow">Delete hosted track</p>
+            <h2 id="delete-track-title">Remove this song from Kodiak-Music?</h2>
+            <p>
+              This will remove <strong>{confirmDeleteTrack.title || 'Untitled track'}</strong> from the hosted library catalog and delete the stored audio file.
+            </p>
+            <div className="modal-track-summary">
+              <span>{[confirmDeleteTrack.artistName, confirmDeleteTrack.albumTitle].filter(Boolean).join(' • ') || 'No artist/album set'}</span>
+              <small>{(confirmDeleteTrack.genreNames || []).join(', ') || 'No genres set'}</small>
+            </div>
+            <div className="modal-actions">
+              <button type="button" className="ghost-button" onClick={() => setConfirmDeleteTrack(null)}>Cancel</button>
+              <button type="button" className="danger-button" onClick={() => void deleteLibraryTrack(confirmDeleteTrack)}>Delete from library</button>
+            </div>
+          </section>
+        </div>
+      ) : null}
     </main>
   );
 }
