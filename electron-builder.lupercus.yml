@@ -26,5 +26,5 @@ linux:
   icon: electron-assets-lupercus/icons
   executableName: lupercus-library-sync
   syncDesktopName: true
-icon: electron-assets-lupercus/icon.svg
+icon: electron-assets-lupercus/icon.png
 publish: null
