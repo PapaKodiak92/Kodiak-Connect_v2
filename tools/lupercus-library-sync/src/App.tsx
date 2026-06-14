@@ -55,6 +55,15 @@ type SyncHistoryEntry = {
   trackId: string;
 };
 
+type AudioTagMetadata = {
+  albumTitle?: string;
+  artistName?: string;
+  genreNames?: string[];
+  releaseYear?: string;
+  title?: string;
+  trackNumber?: string;
+};
+
 const supportedExtensions = new Set(['.aac', '.flac', '.m4a', '.mp3', '.ogg', '.opus', '.wav']);
 const supportedExtensionLabel = '.aac, .flac, .m4a, .mp3, .ogg, .opus, .wav';
 const syncHistoryStorageKey = 'lupercus-library-sync-history-v1';
@@ -133,6 +142,135 @@ function streamPathForTrack(track: Pick<LibraryTrack, 'fileSha256' | 'streamPath
   }
 
   return track.fileSha256 ? `/api/music/stream/${encodeURIComponent(track.fileSha256)}` : '';
+}
+
+function cleanTagText(value: string) {
+  return value.replace(/\0/g, '').replace(/\s+/g, ' ').trim();
+}
+
+function hasAudioTags(tags: AudioTagMetadata) {
+  return Boolean(tags.title || tags.artistName || tags.albumTitle || tags.genreNames?.length || tags.releaseYear || tags.trackNumber);
+}
+
+function tagYear(value?: string) {
+  return value?.match(/\b(19|20)\d{2}\b/)?.[0] || '';
+}
+
+function tagTrackNumber(value?: string) {
+  return value?.match(/\d+/)?.[0] || '';
+}
+
+function decodeId3Text(bytesValue: Uint8Array) {
+  if (bytesValue.length === 0) return '';
+  const encoding = bytesValue[0];
+  const body = bytesValue.slice(1);
+
+  try {
+    if (encoding === 1 || encoding === 2) {
+      if (body.length >= 2 && body[0] === 0xff && body[1] === 0xfe) {
+        return cleanTagText(new TextDecoder('utf-16le').decode(body.slice(2)));
+      }
+      if (body.length >= 2 && body[0] === 0xfe && body[1] === 0xff) {
+        return cleanTagText(new TextDecoder('utf-16be').decode(body.slice(2)));
+      }
+      return cleanTagText(new TextDecoder(encoding === 2 ? 'utf-16be' : 'utf-16le').decode(body));
+    }
+
+    if (encoding === 3) {
+      return cleanTagText(new TextDecoder('utf-8').decode(body));
+    }
+
+    return cleanTagText(new TextDecoder('latin1').decode(body));
+  } catch {
+    return cleanTagText(new TextDecoder().decode(body));
+  }
+}
+
+function synchsafeInt(bytesValue: Uint8Array, offset: number) {
+  return (bytesValue[offset] << 21) | (bytesValue[offset + 1] << 14) | (bytesValue[offset + 2] << 7) | bytesValue[offset + 3];
+}
+
+function bigEndianInt(bytesValue: Uint8Array, offset: number) {
+  return (bytesValue[offset] << 24) | (bytesValue[offset + 1] << 16) | (bytesValue[offset + 2] << 8) | bytesValue[offset + 3];
+}
+
+function parseId3Tags(buffer: ArrayBuffer): AudioTagMetadata {
+  const data = new Uint8Array(buffer);
+  if (data.length < 10 || data[0] !== 0x49 || data[1] !== 0x44 || data[2] !== 0x33) {
+    return {};
+  }
+
+  const majorVersion = data[3];
+  const tagSize = synchsafeInt(data, 6);
+  const end = Math.min(data.length, 10 + tagSize);
+  const tags: AudioTagMetadata = {};
+  let offset = 10;
+
+  while (offset + 10 <= end) {
+    const frameId = new TextDecoder('latin1').decode(data.slice(offset, offset + 4));
+    if (!/^[A-Z0-9]{4}$/.test(frameId)) break;
+
+    const frameSize = majorVersion >= 4 ? synchsafeInt(data, offset + 4) : bigEndianInt(data, offset + 4);
+    if (frameSize <= 0 || offset + 10 + frameSize > data.length) break;
+
+    const value = decodeId3Text(data.slice(offset + 10, offset + 10 + frameSize));
+    if (value) {
+      if (frameId === 'TIT2') tags.title = value;
+      if (frameId === 'TPE1') tags.artistName = value;
+      if (frameId === 'TALB') tags.albumTitle = value;
+      if (frameId === 'TCON') tags.genreNames = parseGenres(value.replace(/[()]/g, ''));
+      if (frameId === 'TDRC' || frameId === 'TYER') tags.releaseYear = tagYear(value);
+      if (frameId === 'TRCK') tags.trackNumber = tagTrackNumber(value);
+    }
+
+    offset += 10 + frameSize;
+  }
+
+  return tags;
+}
+
+function parseOggTags(buffer: ArrayBuffer): AudioTagMetadata {
+  const text = new TextDecoder('latin1').decode(buffer);
+  const tags: AudioTagMetadata = {};
+
+  function findComment(name: string) {
+    const match = text.match(new RegExp(`${name}=([^\\x00\\r\\n]+)`, 'i'));
+    return match ? cleanTagText(match[1]) : '';
+  }
+
+  const title = findComment('TITLE');
+  const artist = findComment('ARTIST') || findComment('ALBUMARTIST');
+  const album = findComment('ALBUM');
+  const genre = findComment('GENRE');
+  const date = findComment('DATE') || findComment('YEAR');
+  const track = findComment('TRACKNUMBER') || findComment('TRACK');
+
+  if (title) tags.title = title;
+  if (artist) tags.artistName = artist;
+  if (album) tags.albumTitle = album;
+  if (genre) tags.genreNames = parseGenres(genre);
+  if (date) tags.releaseYear = tagYear(date);
+  if (track) tags.trackNumber = tagTrackNumber(track);
+
+  return tags;
+}
+
+async function readAudioTags(file: File): Promise<AudioTagMetadata> {
+  const sampleBytes = Math.min(file.size, 4 * 1024 * 1024);
+  const buffer = await file.slice(0, sampleBytes).arrayBuffer();
+  const extension = ext(file.name);
+
+  if (extension === '.mp3') {
+    const id3Tags = parseId3Tags(buffer);
+    if (hasAudioTags(id3Tags)) return id3Tags;
+  }
+
+  if (extension === '.ogg' || extension === '.opus') {
+    const oggTags = parseOggTags(buffer);
+    if (hasAudioTags(oggTags)) return oggTags;
+  }
+
+  return { ...parseId3Tags(buffer), ...parseOggTags(buffer) };
 }
 
 export function App() {
@@ -297,7 +435,7 @@ export function App() {
         fileSha256: '',
         selected: true,
         status: 'ready',
-        message: 'Ready. Edit metadata, then hash.',
+        message: 'Ready. Click Read tags, or edit metadata manually.',
       };
     }));
     setMessage(`Loaded ${audioFiles.length} supported audio files. Supported formats: ${supportedExtensionLabel}.`);
@@ -317,6 +455,40 @@ export function App() {
     } finally {
       setBusy(false);
     }
+  }
+
+  async function readTagsSelected() {
+    setBusy(true);
+    let updatedCount = 0;
+    let missingCount = 0;
+
+    for (const track of tracks.filter((item) => item.selected)) {
+      patchTrack(track.id, { message: 'Reading audio tags...' });
+      try {
+        const tags = await readAudioTags(track.file);
+        if (!hasAudioTags(tags)) {
+          missingCount += 1;
+          patchTrack(track.id, { message: 'No readable MP3/OGG tags found. Edit manually.' });
+          continue;
+        }
+
+        updatedCount += 1;
+        patchTrack(track.id, {
+          albumTitle: tags.albumTitle || track.albumTitle,
+          artistName: tags.artistName || track.artistName,
+          genreNames: tags.genreNames?.length ? tags.genreNames.join(', ') : track.genreNames,
+          releaseYear: tags.releaseYear || track.releaseYear,
+          title: tags.title || track.title,
+          trackNumber: tags.trackNumber || track.trackNumber,
+          message: 'Metadata filled from audio tags. Review before upload.',
+        });
+      } catch (error) {
+        patchTrack(track.id, { message: `Tag read failed: ${err(error)}` });
+      }
+    }
+
+    setMessage(`Tag read complete. Updated ${updatedCount} track(s). ${missingCount} had no readable tags.`);
+    setBusy(false);
   }
 
   async function searchLibrary() {
@@ -532,6 +704,7 @@ export function App() {
         <button disabled={busy} onClick={() => filePickerRef.current?.click()}>Choose files</button>
         <button disabled={busy} onClick={() => folderPickerRef.current?.click()}>Choose folder</button>
         <button disabled={busy} onClick={() => void checkAccess()}>Check access</button>
+        <button disabled={busy || tracks.length === 0} onClick={() => void readTagsSelected()}>Read tags</button>
         <button disabled={busy || tracks.length === 0} onClick={() => void hashSelected()}>Hash selected</button>
         <button disabled={busy || tracks.length === 0} onClick={() => void uploadSelected()}>Upload selected</button>
         <button disabled={busy || tracks.length === 0} onClick={() => selectAllTracks(true)}>Select all</button>
